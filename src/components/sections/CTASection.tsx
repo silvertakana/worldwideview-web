@@ -1,6 +1,7 @@
 "use client";
 
 import { useInView } from "@/hooks/useInView";
+import { trackEvent } from "@/lib/analytics";
 import styles from "./CTASection.module.css";
 
 export default function CTASection() {
@@ -18,10 +19,15 @@ export default function CTASection() {
           <a
             href="https://demo.worldwideview.dev"
             className={styles.primaryBtn}
+            onClick={() => trackEvent("cta_click", { label: "Try the Demo" })}
           >
             Try the Demo
           </a>
-          <a href="/download" className={styles.secondaryBtn}>
+          <a
+            href="/download"
+            className={styles.secondaryBtn}
+            onClick={() => trackEvent("cta_click", { label: "Download" })}
+          >
             Download
           </a>
         </div>

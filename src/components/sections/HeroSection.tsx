@@ -1,6 +1,7 @@
 "use client";
 
 import Globe from "../Globe";
+import { trackEvent } from "@/lib/analytics";
 import styles from "./HeroSection.module.css";
 
 export default function HeroSection() {
@@ -20,12 +21,14 @@ export default function HeroSection() {
           <a
             href="https://demo.worldwideview.dev"
             className={styles.primaryBtn}
+            onClick={() => trackEvent("cta_click", { label: "Try Demo" })}
           >
             Try Demo
           </a>
           <a
             href="https://app.worldwideview.dev/register"
             className={styles.secondaryBtn}
+            onClick={() => trackEvent("cta_click", { label: "Get Started" })}
           >
             Get Started
           </a>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Terminal, Monitor, Cpu } from "lucide-react";
+import TrackedLink from "@/components/TrackedLink";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Download" };
@@ -72,12 +73,14 @@ export default function DownloadPage() {
         <p className={styles.sub}>
           Skip the setup — get a managed cloud instance with a single click.
         </p>
-        <a
+        <TrackedLink
           href="https://app.worldwideview.dev/register"
           className={styles.cta}
+          eventName="cta_click"
+          eventData={{ label: "Try Cloud — Free" }}
         >
           Try Cloud — Free
-        </a>
+        </TrackedLink>
       </section>
     </div>
   );

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Check } from "lucide-react";
+import TrackedLink from "@/components/TrackedLink";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Pricing" };
@@ -78,9 +79,14 @@ export default function PricingPage() {
                 </li>
               ))}
             </ul>
-            <a href={t.cta.href} className={styles.cta}>
+            <TrackedLink
+              href={t.cta.href}
+              className={styles.cta}
+              eventName="pricing_cta_click"
+              eventData={{ tier: t.name, label: t.cta.label }}
+            >
               {t.cta.label}
-            </a>
+            </TrackedLink>
           </div>
         ))}
       </div>

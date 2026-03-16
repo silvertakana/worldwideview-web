@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { trackEvent } from "@/lib/analytics";
 import ThemeToggle from "./ThemeToggle";
 import styles from "./Header.module.css";
 
@@ -34,12 +35,14 @@ export default function Header() {
           <a
             href="https://app.worldwideview.dev/login"
             className={styles.signIn}
+            onClick={() => trackEvent("cta_click", { label: "Sign In" })}
           >
             Sign In
           </a>
           <a
             href="https://app.worldwideview.dev/register"
             className={styles.getStarted}
+            onClick={() => trackEvent("cta_click", { label: "Get Started" })}
           >
             Get Started
           </a>
