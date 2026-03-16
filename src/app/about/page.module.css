@@ -1,0 +1,43 @@
+.page {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: var(--space-3xl) var(--space-lg);
+}
+
+.heading {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-2xl);
+}
+
+.section {
+  margin-bottom: var(--space-2xl);
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+}
+
+.text {
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.text a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.text a:hover {
+  color: var(--color-accent-hover);
+}
+
+.text strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}

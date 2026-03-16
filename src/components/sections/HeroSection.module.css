@@ -1,0 +1,113 @@
+.hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xl);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-3xl) var(--space-lg);
+  min-height: calc(100vh - 64px);
+}
+
+.content {
+  flex: 1 1 45%;
+  max-width: 560px;
+}
+
+.headline {
+  font-size: clamp(2.5rem, 5vw, 3.75rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--space-lg);
+}
+
+.accent {
+  color: var(--color-accent);
+}
+
+.subtitle {
+  font-size: 1.15rem;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  margin-bottom: var(--space-xl);
+  max-width: 480px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.8rem 2rem;
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  transition: background var(--transition-fast), transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.primaryBtn:hover {
+  background: var(--color-accent-hover);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(var(--color-accent-rgb), 0.3);
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.8rem 2rem;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.secondaryBtn:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+}
+
+.globe {
+  flex: 1 1 55%;
+  min-width: 0;
+  /* Use aspect-ratio so the globe container is always a square,
+     preventing distortion and ensuring the sphere stays round. */
+  aspect-ratio: 1 / 1;
+  max-height: calc(100vh - 64px - 6rem);
+}
+
+@media (max-width: 900px) {
+  .hero {
+    flex-direction: column;
+    min-height: auto;
+    padding-top: var(--space-2xl);
+  }
+  .content { flex: none; max-width: 100%; text-align: center; }
+  .subtitle { max-width: 100%; }
+  .actions { justify-content: center; }
+  .globe {
+    width: 80%;
+    max-width: 420px;
+    flex: none;
+  }
+}
+
+@media (max-width: 540px) {
+  .globe {
+    width: 100%;
+    max-width: 320px;
+  }
+}

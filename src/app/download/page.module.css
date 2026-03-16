@@ -1,0 +1,103 @@
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-3xl) var(--space-lg);
+}
+
+.heading {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-sm);
+}
+
+.sub {
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 1.05rem;
+  margin-bottom: var(--space-xl);
+}
+
+.section {
+  margin-bottom: var(--space-3xl);
+}
+
+.sectionTitle {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: var(--space-lg);
+}
+
+.reqGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.reqCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.reqIcon { color: var(--color-accent); }
+.reqLabel { font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 2px; }
+.reqValue { font-weight: 600; font-size: 0.95rem; }
+
+.steps { display: flex; flex-direction: column; gap: var(--space-md); }
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.stepNum {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: rgba(var(--color-accent-rgb), 0.1);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.stepTitle { font-weight: 600; margin-bottom: var(--space-xs); }
+
+.code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--color-accent);
+  background: var(--color-bg);
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.cta {
+  display: inline-flex;
+  padding: 0.8rem 2rem;
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  transition: background var(--transition-fast);
+}
+
+.cta:hover { background: var(--color-accent-hover); color: #fff; }
+
+@media (max-width: 640px) { .reqGrid { grid-template-columns: 1fr; } }
