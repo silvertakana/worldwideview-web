@@ -16,7 +16,7 @@ export default function CTASection() {
         </p>
         <div className={styles.actions}>
           <a
-            href="https://demo.app.worldwideview.dev"
+            href="https://demo.worldwideview.dev"
             className={styles.primaryBtn}
           >
             Try the Demo
