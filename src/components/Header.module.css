@@ -82,7 +82,7 @@
 
 .signIn:hover { color: var(--color-text-primary); }
 
-.getStarted {
+.joinWaitlist {
   background: var(--color-accent);
   color: #fff;
   padding: 0.5rem 1.25rem;

@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "WorldWideView — Real-Time Geospatial Intelligence",
+    default: "WorldWideView | Real-Time Geospatial Intelligence",
     template: "%s | WorldWideView",
   },
   description:

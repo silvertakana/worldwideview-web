@@ -25,7 +25,7 @@ export default function AboutPage() {
           Built on <strong>Next.js</strong> and <strong>CesiumJS</strong>,
           WorldWideView uses high-performance rendering primitives to display
           thousands of real-time entities simultaneously. The plugin system
-          follows the VS Code extension model — plugins run in the browser,
+          follows the VS Code extension model. Plugins run in the browser,
           declare capabilities upfront, and are lazily loaded on demand.
         </p>
       </section>
@@ -34,7 +34,7 @@ export default function AboutPage() {
         <h2 className={styles.sectionTitle}>Open Source</h2>
         <p className={styles.text}>
           The core application is licensed under the{" "}
-          <strong>Elastic License 2.0</strong> — full source code visibility
+          <strong>Elastic License 2.0</strong> with full source code visibility
           with commercial protection. The plugin SDK is MIT-licensed, ensuring
           that anyone can build and distribute plugins freely. We follow the
           same model as n8n, CesiumJS, and other infrastructure-grade open source
@@ -45,7 +45,7 @@ export default function AboutPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Get Involved</h2>
         <p className={styles.text}>
-          WorldWideView is built in the open. Contributions are welcome —
+          WorldWideView is built in the open. Contributions are welcome,
           whether it&#39;s a new plugin, a bug fix, or documentation
           improvements. Check out the{" "}
           <a href="https://github.com/silvertakana/worldwideview">

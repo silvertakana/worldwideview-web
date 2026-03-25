@@ -14,9 +14,9 @@ const COLUMNS = [
   {
     title: "Resources",
     links: [
-      { label: "Documentation", href: "https://docs.worldwideview.dev" },
-      { label: "Marketplace", href: "https://marketplace.worldwideview.dev" },
-      { label: "Status", href: "https://status.worldwideview.dev" },
+      { label: "Documentation", href: "/coming-soon" },
+      { label: "Marketplace", href: "/coming-soon" },
+      { label: "Status", href: "/coming-soon" },
     ],
   },
   {

@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# agents
+/.agents/
+
 # production
 /build
 
@@ -35,6 +38,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+
 
 # typescript
 *.tsbuildinfo

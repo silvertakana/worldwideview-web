@@ -1,4 +1,4 @@
-/* Umami custom-event helper — no-ops when the tracker hasn't loaded */
+/* Umami custom-event helper. No-ops when the tracker hasn't loaded */
 
 declare global {
   interface Window {

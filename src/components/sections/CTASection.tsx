@@ -13,7 +13,7 @@ export default function CTASection() {
         <h2 className={styles.heading}>Start visualizing the world</h2>
         <p className={styles.sub}>
           Clone the repo and run locally in under a minute. Or try the hosted
-          demo — no signup required.
+          demo. No signup required.
         </p>
         <div className={styles.actions}>
           <a

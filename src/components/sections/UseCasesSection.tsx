@@ -2,6 +2,7 @@
 
 import { Plane, Ship, Eye, Shield } from "lucide-react";
 import { useInView } from "@/hooks/useInView";
+import { trackEvent } from "@/lib/analytics";
 import styles from "./UseCasesSection.module.css";
 
 const CASES = [
@@ -35,7 +36,7 @@ export default function UseCasesSection() {
       <div className={`${styles.inner} ${isVisible ? styles.visible : ""}`}>
         <h2 className={styles.heading}>Use cases</h2>
         <p className={styles.sub}>
-          From flight tracking to conflict monitoring — one platform, infinite
+          From flight tracking to conflict monitoring, one platform, infinite
           layers.
         </p>
         <div className={styles.list}>
@@ -50,6 +51,17 @@ export default function UseCasesSection() {
               </div>
             </div>
           ))}
+        </div>
+        <div className={styles.ctaWrap}>
+          <a
+            href="/waitlist"
+            className={styles.ctaBtn}
+            onClick={() =>
+              trackEvent("cta_click", { label: "Join Waitlist: Use Cases" })
+            }
+          >
+            Join Waitlist
+          </a>
         </div>
       </div>
     </section>

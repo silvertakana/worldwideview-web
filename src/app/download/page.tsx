@@ -71,15 +71,15 @@ export default function DownloadPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Prefer hosted?</h2>
         <p className={styles.sub}>
-          Skip the setup — get a managed cloud instance with a single click.
+          Skip the setup. Get a managed cloud instance with a single click.
         </p>
         <TrackedLink
-          href="https://app.worldwideview.dev/register"
+          href="/coming-soon"
           className={styles.cta}
           eventName="cta_click"
-          eventData={{ label: "Try Cloud — Free" }}
+          eventData={{ label: "Try Cloud: Free" }}
         >
-          Try Cloud — Free
+          Try Cloud: Free
         </TrackedLink>
       </section>
     </div>

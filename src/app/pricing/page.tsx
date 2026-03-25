@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Pricing" };
 
 const TIERS = [
   {
-    name: "Local — Free",
+    name: "Local: Free",
     price: "$0",
     period: "forever",
     desc: "Clone, run, and own your data.",
@@ -22,7 +22,7 @@ const TIERS = [
     highlight: false,
   },
   {
-    name: "Cloud — Free",
+    name: "Cloud: Free",
     price: "$0",
     period: "/month",
     desc: "Hosted instance, zero setup.",
@@ -33,11 +33,11 @@ const TIERS = [
       "500 MB storage",
       "Auto-updates",
     ],
-    cta: { label: "Get Started", href: "https://app.worldwideview.dev/register" },
+    cta: { label: "Join Waitlist", href: "/waitlist" },
     highlight: true,
   },
   {
-    name: "Cloud — Pro",
+    name: "Cloud: Pro",
     price: "TBD",
     period: "/month",
     desc: "For teams and power users.",
@@ -48,7 +48,7 @@ const TIERS = [
       "Snapshot history capture",
       "Priority support",
     ],
-    cta: { label: "Coming Soon", href: "#" },
+    cta: { label: "Join Waitlist", href: "/waitlist" },
     highlight: false,
   },
 ];

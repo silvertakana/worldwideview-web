@@ -1,9 +1,10 @@
 .section {
   padding: var(--space-3xl) 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .inner {
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 0 var(--space-lg);
   opacity: 0;
@@ -24,23 +25,27 @@
   margin-bottom: var(--space-sm);
 }
 
+.accent {
+  color: var(--color-accent);
+}
+
 .sub {
   text-align: center;
   color: var(--color-text-secondary);
   font-size: 1.05rem;
+  max-width: 600px;
+  margin: 0 auto var(--space-2xl);
+  line-height: 1.7;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-lg);
   margin-bottom: var(--space-2xl);
 }
 
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-.item {
-  display: flex;
-  gap: var(--space-lg);
-  align-items: flex-start;
+.card {
   padding: var(--space-lg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -48,48 +53,47 @@
   transition: border-color var(--transition-base), transform var(--transition-base);
 }
 
-.item:hover {
+.card:hover {
   border-color: var(--color-accent);
-  transform: translateX(4px);
+  transform: translateY(-3px);
 }
 
 .iconWrap {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-md);
   background: rgba(var(--color-accent-rgb), 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--color-accent);
+  margin-bottom: var(--space-md);
 }
 
-.itemTitle {
-  font-size: 1.05rem;
+.cardTitle {
+  font-size: 1rem;
   font-weight: 700;
   margin-bottom: var(--space-xs);
 }
 
-.itemDesc {
-  font-size: 0.9rem;
+.cardDesc {
+  font-size: 0.875rem;
   color: var(--color-text-secondary);
   line-height: 1.6;
 }
 
 .ctaWrap {
   text-align: center;
-  margin-top: var(--space-2xl);
 }
 
 .ctaBtn {
   display: inline-flex;
   align-items: center;
-  padding: 0.75rem 2rem;
+  padding: 0.8rem 2.5rem;
   background: var(--color-accent);
   color: #fff;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 1rem;
   border-radius: var(--radius-full);
   text-decoration: none;
   transition: background var(--transition-fast), transform var(--transition-fast),
@@ -101,4 +105,12 @@
   color: #fff;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(var(--color-accent-rgb), 0.3);
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+    margin: 0 auto var(--space-2xl);
+  }
 }

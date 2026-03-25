@@ -33,18 +33,18 @@ export default function Header() {
         <div className={styles.actions}>
           <ThemeToggle />
           <a
-            href="https://app.worldwideview.dev/login"
+            href="/coming-soon"
             className={styles.signIn}
             onClick={() => trackEvent("cta_click", { label: "Sign In" })}
           >
             Sign In
           </a>
           <a
-            href="https://app.worldwideview.dev/register"
-            className={styles.getStarted}
-            onClick={() => trackEvent("cta_click", { label: "Get Started" })}
+            href="/waitlist"
+            className={styles.joinWaitlist}
+            onClick={() => trackEvent("cta_click", { label: "Join Waitlist" })}
           >
-            Get Started
+            Join Waitlist
           </a>
         </div>
       </div>

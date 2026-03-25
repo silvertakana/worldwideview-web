@@ -26,11 +26,11 @@ export default function HeroSection() {
             Try Demo
           </a>
           <a
-            href="https://app.worldwideview.dev/register"
+            href="/waitlist"
             className={styles.secondaryBtn}
-            onClick={() => trackEvent("cta_click", { label: "Get Started" })}
+            onClick={() => trackEvent("cta_click", { label: "Join Waitlist" })}
           >
-            Get Started
+            Join Waitlist
           </a>
         </div>
       </div>

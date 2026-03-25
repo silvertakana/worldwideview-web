@@ -23,7 +23,7 @@ const FEATURES = [
   {
     icon: Code2,
     title: "Open Source",
-    desc: "Clone, run, and customize. The core is open under the Elastic License 2.0 — full code visibility with commercial protection.",
+    desc: "Clone, run, and customize. The core is open under the Elastic License 2.0 with full code visibility and commercial protection.",
   },
 ];
 
