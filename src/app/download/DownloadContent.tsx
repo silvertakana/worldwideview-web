@@ -11,8 +11,8 @@ git clone https://github.com/silvertakana/worldwideview.git
 # Install dependencies
 cd worldwideview && npm install
 
-# Configure environment variables
-cp .env.example .env.local
+# Generate .env.local with a secure AUTH_SECRET (first time only)
+npm run setup
 
 # Start the dev server
 npm run dev`;
