@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   },
   description:
     "Track aircraft, ships, and signals across the planet on an interactive 3D globe. Open source, plugin-driven, endlessly extensible.",
-  icons: { icon: "/favicon.ico" },
+  icons: { icon: "/favicon.svg" },
   openGraph: {
     title: "WorldWideView",
     description:
@@ -32,7 +32,11 @@ export default function RootLayout({
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+          rel="stylesheet"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
           rel="stylesheet"
         />
         <script defer src="https://analytics.worldwideview.dev/script.js" data-website-id="b70ed34b-4361-490b-9a66-1e43bb74f4ec"></script>

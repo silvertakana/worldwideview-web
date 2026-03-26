@@ -1,113 +1,137 @@
 .hero {
+  position: relative;
+  min-height: 921px;
   display: flex;
   align-items: center;
-  gap: var(--space-xl);
-  max-width: 1200px;
+  padding: 5rem 3rem;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: var(--space-3xl) var(--space-lg);
-  min-height: calc(100vh - 64px);
+  overflow: visible;
 }
 
-.content {
-  flex: 1 1 45%;
-  max-width: 560px;
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4rem;
+  align-items: center;
+  width: 100%;
 }
 
-.headline {
-  font-size: clamp(2.5rem, 5vw, 3.75rem);
-  font-weight: 800;
-  line-height: 1.1;
+@media (min-width: 1024px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+}
+
+.textContent { z-index: 10; }
+
+/* --- Text entrance animations --- */
+.heading,
+.subtitle,
+.buttons {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.visible .heading {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+}
+
+.visible .subtitle {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+}
+
+.visible .buttons {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+}
+
+.heading {
+  font-size: clamp(3rem, 7vw, 6rem);
+  font-weight: 900;
   letter-spacing: -0.03em;
-  margin-bottom: var(--space-lg);
+  line-height: 1.1;
+  margin-bottom: 2rem;
 }
 
-.accent {
-  color: var(--color-accent);
-}
+.accent { color: #ffb3b5; }
 
 .subtitle {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   color: var(--color-text-secondary);
-  line-height: 1.7;
-  margin-bottom: var(--space-xl);
-  max-width: 480px;
+  font-weight: 300;
+  margin-bottom: 2.5rem;
+  max-width: 32rem;
+  line-height: 1.6;
 }
 
-.actions {
+.buttons {
   display: flex;
-  gap: var(--space-md);
   flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .primaryBtn {
   display: inline-flex;
   align-items: center;
-  padding: 0.8rem 2rem;
+  justify-content: center;
   background: var(--color-accent);
   color: #fff;
-  font-weight: 600;
-  font-size: 1rem;
+  font-weight: 700;
+  padding: 1rem 2.5rem;
   border-radius: var(--radius-full);
   text-decoration: none;
-  transition: background var(--transition-fast), transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), transform 0.1s ease;
 }
 
-.primaryBtn:hover {
-  background: var(--color-accent-hover);
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--color-accent-rgb), 0.3);
-}
+.primaryBtn:hover { background: var(--color-accent-hover); color: #fff; }
+.primaryBtn:active { transform: scale(0.95); }
 
-.secondaryBtn {
+.outlineBtn {
   display: inline-flex;
   align-items: center;
-  padding: 0.8rem 2rem;
-  background: transparent;
+  justify-content: center;
+  border: 1.5px solid var(--color-border);
   color: var(--color-text-primary);
-  font-weight: 600;
-  font-size: 1rem;
-  border: 1px solid var(--color-border);
+  font-weight: 700;
+  padding: 1rem 2.5rem;
   border-radius: var(--radius-full);
   text-decoration: none;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: border-color 0.3s ease, background 0.3s ease;
 }
 
-.secondaryBtn:hover {
+.outlineBtn:hover {
   border-color: var(--color-border-hover);
   background: var(--color-bg-card);
   color: var(--color-text-primary);
 }
 
-.globe {
-  flex: 1 1 55%;
-  min-width: 0;
-  /* Use aspect-ratio so the globe container is always a square,
-     preventing distortion and ensuring the sphere stays round. */
-  aspect-ratio: 1 / 1;
-  max-height: calc(100vh - 64px - 6rem);
+/* --- Globe container entrance --- */
+.globeWrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 1000px;
+  margin: 0 auto;
+  overflow: visible;
+  opacity: 0;
 }
 
-@media (max-width: 900px) {
-  .hero {
-    flex-direction: column;
-    min-height: auto;
-    padding-top: var(--space-2xl);
-  }
-  .content { flex: none; max-width: 100%; text-align: center; }
-  .subtitle { max-width: 100%; }
-  .actions { justify-content: center; }
-  .globe {
-    width: 80%;
-    max-width: 420px;
-    flex: none;
-  }
+.visible .globeWrapper {
+  animation: fadeIn 1.5s ease-out 0.5s forwards;
 }
 
-@media (max-width: 540px) {
-  .globe {
-    width: 100%;
-    max-width: 320px;
-  }
+@media (max-width: 1024px) {
+  .hero { min-height: auto; padding: 3rem 1.25rem; }
+  .heading { font-size: 2.5rem; }
+  .subtitle { font-size: 1rem; }
+  .globeWrapper { max-width: 400px; }
+  .buttons { flex-direction: column; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

@@ -5,17 +5,17 @@ import { trackEvent } from "@/lib/analytics";
 import styles from "./CTASection.module.css";
 
 export default function CTASection() {
-  const { ref, isVisible } = useInView();
+  const { ref, isVisible } = useInView(0.1);
 
   return (
-    <section className={styles.section} ref={ref}>
-      <div className={`${styles.inner} ${isVisible ? styles.visible : ""}`}>
+    <section
+      ref={ref as React.RefObject<HTMLElement & HTMLDivElement>}
+      className={`${styles.section} ${isVisible ? styles.visible : ""}`}
+    >
+      <div className={styles.gradient} />
+      <div className={styles.inner}>
         <h2 className={styles.heading}>Start visualizing the world</h2>
-        <p className={styles.sub}>
-          Clone the repo and run locally in under a minute. Or try the hosted
-          demo. No signup required.
-        </p>
-        <div className={styles.actions}>
+        <div className={styles.buttons}>
           <a
             href="https://demo.worldwideview.dev"
             className={styles.primaryBtn}
@@ -25,7 +25,7 @@ export default function CTASection() {
           </a>
           <a
             href="/download"
-            className={styles.secondaryBtn}
+            className={styles.outlineBtn}
             onClick={() => trackEvent("cta_click", { label: "Download" })}
           >
             Download

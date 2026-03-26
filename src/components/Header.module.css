@@ -2,79 +2,87 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--header-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--color-border);
+  width: 100%;
+  background: linear-gradient(to bottom, rgba(28, 27, 29, 0.7), transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: none;
   transition: background var(--transition-base);
 }
 
-.inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-  height: 64px;
+.nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-lg);
+  padding: 1rem 2rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
 }
 
-.logo {
+.brand {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  text-decoration: none;
-  color: var(--color-text-primary);
-  font-weight: 700;
+  gap: 0.5rem;
   font-size: 1.15rem;
-}
-
-.logoIcon {
-  color: var(--color-accent);
-  font-size: 1.3rem;
-}
-
-.logoText { letter-spacing: -0.02em; }
-
-.nav {
-  display: flex;
-  gap: var(--space-lg);
-}
-
-.navLink {
-  color: var(--color-text-secondary);
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #e5e1e4;
   text-decoration: none;
+}
+
+.brandLogo {
+  width: 28px;
+  height: 28px;
+}
+
+/* Desktop nav links */
+.links {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.link {
+  color: var(--color-text-secondary);
   transition: color var(--transition-fast);
+  text-decoration: none;
   position: relative;
 }
 
-.navLink:hover { color: var(--color-text-primary); }
+.link:hover { color: #e5e1e4; }
 
-.navLink::after {
+.link::after {
   content: "";
   position: absolute;
   bottom: -4px;
   left: 0;
   width: 0;
   height: 2px;
-  background: var(--color-accent);
+  background: #c43c4c;
   transition: width var(--transition-base);
 }
 
-.navLink:hover::after { width: 100%; }
+.link:hover::after { width: 100%; }
+
+.linkActive {
+  color: #ffb3b5;
+}
+
+.linkActive::after {
+  width: 100%;
+}
 
 .actions {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 1rem;
 }
 
 .signIn {
   color: var(--color-text-secondary);
-  font-size: 0.9rem;
   font-weight: 500;
   text-decoration: none;
   transition: color var(--transition-fast);
@@ -82,24 +90,72 @@
 
 .signIn:hover { color: var(--color-text-primary); }
 
-.joinWaitlist {
+.waitlistBtn {
   background: var(--color-accent);
   color: #fff;
   padding: 0.5rem 1.25rem;
   border-radius: var(--radius-full);
-  font-size: 0.875rem;
   font-weight: 600;
+  font-size: 0.875rem;
   text-decoration: none;
   transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
-.getStarted:hover {
-  background: var(--color-accent-hover);
-  color: #fff;
-  transform: translateY(-1px);
+.waitlistBtn:hover { background: var(--color-accent-hover); color: #fff; }
+.waitlistBtn:active { transform: scale(0.95); }
+
+/* Hamburger button */
+.menuBtn {
+  display: none;
+  padding: 0.5rem;
+  color: var(--color-text-primary);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+/* Mobile drawer */
+.mobileMenu {
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 2rem 1.5rem;
+  background: var(--header-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--color-border);
+}
+
+.mobileMenuOpen {
+  display: flex;
+}
+
+.mobileLink {
+  display: block;
+  padding: 0.75rem 0;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border);
+  transition: color var(--transition-fast);
+  text-decoration: none;
+}
+
+.mobileLink:hover { color: var(--color-text-primary); }
+
+.mobileLinkActive {
+  color: var(--color-accent);
+}
+
+.mobileCta {
+  margin-top: 0.5rem;
+  text-align: center;
 }
 
 @media (max-width: 768px) {
-  .nav { display: none; }
+  .nav { padding: 0.75rem 1.25rem; }
+  .links { display: none; }
   .signIn { display: none; }
+  .menuBtn { display: block; }
 }

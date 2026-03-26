@@ -1,116 +1,93 @@
-.section {
-  padding: var(--space-3xl) 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.inner {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-  opacity: 0;
-  transform: translateY(30px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
-
-.inner.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
+.section { padding: 8rem 3rem; max-width: 1200px; margin: 0 auto; }
 .heading {
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  text-align: center;
-  margin-bottom: var(--space-sm);
+  font-size: clamp(2rem, 4vw, 3rem); font-weight: 900;
+  text-align: center; margin-bottom: 4rem;
+  opacity: 0; transform: translateY(30px);
+}
+.visible .heading {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.headingAccent { color: var(--color-accent); font-style: italic; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 4rem; }
+@media (min-width: 768px) { .grid { grid-template-columns: repeat(6, 1fr); } }
+
+.cardLarge,
+.cardMedium,
+.cardSmall {
+  opacity: 0; transform: translateY(30px);
+  transition: box-shadow 0.4s, transform 0.3s;
+}
+.visible .cardLarge,
+.visible .cardMedium,
+.visible .cardSmall {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(0.15s + var(--i) * 0.1s);
 }
 
-.accent {
-  color: var(--color-accent);
+.cardLarge:hover,
+.cardMedium:hover,
+.cardSmall:hover {
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-4px);
 }
 
-.sub {
-  text-align: center;
-  color: var(--color-text-secondary);
-  font-size: 1.05rem;
-  max-width: 600px;
-  margin: 0 auto var(--space-2xl);
-  line-height: 1.7;
-}
+.cardLarge { grid-column: span 3; padding: 2.5rem; border-radius: var(--radius-lg); background: var(--color-bg-card); border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: space-between; height: 100%; }
+.cardMedium { grid-column: span 3; padding: 2.5rem; border-radius: var(--radius-lg); background: var(--color-bg-card); border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: space-between; height: 100%; }
+.cardSmall { grid-column: span 2; padding: 2rem; border-radius: var(--radius-lg); background: var(--color-bg-card); border: 1px solid var(--color-border); display: flex; flex-direction: column; }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-lg);
-  margin-bottom: var(--space-2xl);
-}
+.iconBox { width: 3.5rem; height: 3.5rem; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; }
+.iconPrimary { background: rgba(var(--color-accent-rgb), 0.1); }
+.iconTertiary { background: rgba(22, 163, 74, 0.1); }
+.iconPrimary span { color: var(--color-accent); font-size: 2rem; }
+.iconTertiary span { color: var(--color-success); font-size: 2rem; }
 
-.card {
-  padding: var(--space-lg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-card);
-  transition: border-color var(--transition-base), transform var(--transition-base);
-}
+.cardTitle { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
+.cardDesc { color: var(--color-text-secondary); flex-grow: 1; }
+.divider { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border); }
+.avatars { display: flex; }
+.avatar { width: 2.5rem; height: 2.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid var(--color-bg); margin-left: -0.75rem; }
+.avatar:first-child { margin-left: 0; }
+.avatarGray { background: var(--color-bg-card-hover); }
+.avatarBrand { background: var(--color-accent); color: #fff; font-size: 0.625rem; font-weight: 700; }
 
-.card:hover {
-  border-color: var(--color-accent);
-  transform: translateY(-3px);
-}
+.smallIcon { color: var(--color-accent); margin-bottom: 1rem; }
+.smallTitle { font-weight: 700; font-size: 1.125rem; margin-bottom: 0.5rem; }
+.smallDesc { font-size: 0.875rem; color: var(--color-text-secondary); }
 
-.iconWrap {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  background: rgba(var(--color-accent-rgb), 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-accent);
-  margin-bottom: var(--space-md);
+.cta {
+  display: flex; justify-content: center;
+  opacity: 0; transform: translateY(20px);
 }
-
-.cardTitle {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-bottom: var(--space-xs);
-}
-
-.cardDesc {
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-  line-height: 1.6;
-}
-
-.ctaWrap {
-  text-align: center;
+.visible .cta {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
 }
 
 .ctaBtn {
   display: inline-flex;
   align-items: center;
-  padding: 0.8rem 2.5rem;
+  justify-content: center;
   background: var(--color-accent);
   color: #fff;
-  font-weight: 600;
-  font-size: 1rem;
+  font-weight: 700;
+  padding: 1rem 2.5rem;
   border-radius: var(--radius-full);
   text-decoration: none;
-  transition: background var(--transition-fast), transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), transform 0.1s ease;
 }
-
-.ctaBtn:hover {
-  background: var(--color-accent-hover);
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--color-accent-rgb), 0.3);
-}
+.ctaBtn:hover { background: var(--color-accent-hover); color: #fff; }
+.ctaBtn:active { transform: scale(0.95); }
 
 @media (max-width: 768px) {
-  .grid {
-    grid-template-columns: 1fr;
-    max-width: 400px;
-    margin: 0 auto var(--space-2xl);
-  }
+  .section { padding: 4rem 1.25rem; }
+  .heading { font-size: 1.75rem; margin-bottom: 2rem; }
+  .grid { grid-template-columns: 1fr; }
+  .cardLarge { grid-column: span 1; padding: 1.5rem; }
+  .cardMedium { grid-column: span 1; padding: 1.5rem; }
+  .cardSmall { grid-column: span 1; padding: 1.25rem; }
+  .cardTitle { font-size: 1.25rem; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

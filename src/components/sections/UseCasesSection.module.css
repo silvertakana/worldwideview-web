@@ -1,104 +1,70 @@
-.section {
-  padding: var(--space-3xl) 0;
-}
-
-.inner {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-  opacity: 0;
-  transform: translateY(30px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
-
-.inner.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
+.section { padding: 6rem 0; background: var(--color-bg-elevated); }
+.inner { max-width: 1200px; margin: 0 auto; padding: 0 3rem; }
 .heading {
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  text-align: center;
-  margin-bottom: var(--space-sm);
+  font-size: 2.25rem; font-weight: 900; letter-spacing: -0.02em;
+  text-transform: uppercase; text-align: center; margin-bottom: 4rem;
+  opacity: 0; transform: translateY(30px);
 }
-
-.sub {
-  text-align: center;
-  color: var(--color-text-secondary);
-  font-size: 1.05rem;
-  margin-bottom: var(--space-2xl);
+.visible .heading {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+.grid { display: grid; grid-template-columns: 1fr; gap: 2rem; margin-bottom: 4rem; }
+@media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) { .grid { grid-template-columns: repeat(4, 1fr); } }
 
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
+.card {
+  display: flex; flex-direction: column; gap: 1rem;
+  opacity: 0; transform: scale(0.92);
 }
-
-.item {
-  display: flex;
-  gap: var(--space-lg);
-  align-items: flex-start;
-  padding: var(--space-lg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-card);
-  transition: border-color var(--transition-base), transform var(--transition-base);
+.visible .card {
+  animation: scaleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(0.15s + var(--i) * 0.12s);
 }
-
-.item:hover {
-  border-color: var(--color-accent);
-  transform: translateX(4px);
+.imageWrap { overflow: hidden; border-radius: var(--radius-lg); aspect-ratio: 16 / 9; margin-bottom: 1rem; }
+.image {
+  width: 100%; height: 100%; object-fit: cover;
+  filter: grayscale(1); transition: filter 0.7s, transform 0.7s;
+  transform: scale(1.05);
 }
-
-.iconWrap {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  background: rgba(var(--color-accent-rgb), 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-accent);
+.card:hover .image { filter: grayscale(0); transform: scale(1); }
+.label { display: flex; align-items: center; gap: 0.75rem; }
+.labelIcon { color: var(--color-accent); }
+.labelText { font-weight: 700; font-size: 1.125rem; }
+.cta {
+  display: flex; justify-content: center;
+  opacity: 0; transform: translateY(20px);
 }
-
-.itemTitle {
-  font-size: 1.05rem;
-  font-weight: 700;
-  margin-bottom: var(--space-xs);
-}
-
-.itemDesc {
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-  line-height: 1.6;
-}
-
-.ctaWrap {
-  text-align: center;
-  margin-top: var(--space-2xl);
+.visible .cta {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
 }
 
 .ctaBtn {
   display: inline-flex;
   align-items: center;
-  padding: 0.75rem 2rem;
+  justify-content: center;
   background: var(--color-accent);
   color: #fff;
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 1rem 2.5rem;
   border-radius: var(--radius-full);
   text-decoration: none;
-  transition: background var(--transition-fast), transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), transform 0.1s ease;
+}
+.ctaBtn:hover { background: var(--color-accent-hover); color: #fff; }
+.ctaBtn:active { transform: scale(0.95); }
+
+@media (max-width: 768px) {
+  .inner { padding: 0 1.25rem; }
+  .heading { font-size: 1.75rem; margin-bottom: 2rem; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 1rem; }
 }
 
-.ctaBtn:hover {
-  background: var(--color-accent-hover);
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--color-accent-rgb), 0.3);
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
 }

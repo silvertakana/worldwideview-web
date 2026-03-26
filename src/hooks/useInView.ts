@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
  * Returns a ref to attach and a boolean indicating visibility.
  */
 export function useInView(threshold = 0.15) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
