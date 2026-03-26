@@ -11,7 +11,6 @@ export const metadata: Metadata = {
   },
   description:
     "Track aircraft, ships, and signals across the planet on an interactive 3D globe. Open source, plugin-driven, endlessly extensible.",
-  icons: { icon: "/favicon.svg" },
   openGraph: {
     title: "WorldWideView",
     description:
