@@ -19,6 +19,9 @@ FROM nginx:alpine
 # Copy the static export directory to Nginx's HTML folder
 COPY --from=builder /app/out /usr/share/nginx/html
 
+# Copy the custom Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 # Expose port 80
 EXPOSE 80
 
