@@ -4,14 +4,15 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (caching layer)
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml* ./
+RUN corepack enable pnpm
+RUN pnpm i --frozen-lockfile
 
 # Copy the rest of the application code
 COPY . .
 
 # Build the Next.js static export
-RUN npm run build
+RUN pnpm run build
 
 # Step 2: Serve the application using Nginx
 FROM nginx:alpine
