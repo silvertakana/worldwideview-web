@@ -39,6 +39,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
         <script defer src="https://analytics.worldwideview.dev/script.js" data-website-id="b70ed34b-4361-490b-9a66-1e43bb74f4ec"></script>
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3325496707858400" crossOrigin="anonymous"></script>
       </head>
       <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <ThemeProvider>

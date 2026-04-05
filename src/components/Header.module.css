@@ -154,8 +154,38 @@
 }
 
 @media (max-width: 768px) {
-  .nav { padding: 0.75rem 1.25rem; }
-  .links { display: none; }
-  .signIn { display: none; }
-  .menuBtn { display: block; }
+  .nav { 
+    padding: 0.75rem 1rem; 
+  }
+  .links { 
+    display: none; 
+  }
+  .signIn { 
+    display: none; 
+  }
+  .menuBtn { 
+    display: block; 
+    padding: 0.25rem;
+  }
+  
+  /* Optimize brand scaling on mobile to prevent text wrapping */
+  .brand {
+    font-size: 1rem;
+    white-space: nowrap;
+    gap: 0.35rem;
+  }
+  .brandLogo {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Shrink actions gap to fit on small devices like iPhone SE */
+  .actions {
+    gap: 0.5rem;
+  }
+
+  /* Hide the waitlist button in the main header on mobile (it's in the drawer) */
+  .headerWaitlist {
+    display: none;
+  }
 }

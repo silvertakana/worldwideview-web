@@ -58,7 +58,7 @@ export default function Header() {
           </a>
           <a
             href="/waitlist"
-            className={styles.waitlistBtn}
+            className={`${styles.waitlistBtn} ${styles.headerWaitlist}`}
             onClick={() =>
               trackEvent('cta_click', { label: 'Join Waitlist' })
             }
