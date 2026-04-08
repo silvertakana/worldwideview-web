@@ -48,7 +48,7 @@ export default function RootLayout({
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />
         </ThemeProvider>
-        
+        <div id="kofi-container" style={{ position: "fixed", bottom: "20px", left: "20px", zIndex: 9999 }}></div>
         <Script src="https://storage.ko-fi.com/cdn/widget/Widget_2.js" strategy="lazyOnload" />
         <Script id="kofi-widget" strategy="lazyOnload">
           {`
@@ -56,7 +56,10 @@ export default function RootLayout({
               if (typeof kofiwidget2 !== 'undefined') {
                 clearInterval(checkKofi);
                 kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'L3L11XDRUC');
-                kofiwidget2.draw();
+                const container = document.getElementById('kofi-container');
+                if (container) {
+                  container.innerHTML = kofiwidget2.getHTML();
+                }
               }
             }, 500);
           `}
