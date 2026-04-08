@@ -30,7 +30,7 @@ export default function HeroSection() {
               className={styles.primaryBtn}
               onClick={() => trackEvent("cta_click", { label: "Try Demo" })}
             >
-              Try Demo
+              <span style={{ position: "relative", zIndex: 10, color: "#fff" }}>Try Demo</span>
             </a>
             <a
               href="/waitlist"

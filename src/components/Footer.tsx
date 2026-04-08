@@ -17,6 +17,7 @@ const RESOURCE_LINKS = [
 
 const COMMUNITY_LINKS = [
   { label: 'GitHub', href: 'https://github.com/silvertakana/worldwideview' },
+  { label: 'Sponsor', href: '/sponsor' },
   { label: 'Contributing', href: 'https://github.com/silvertakana/worldwideview/blob/main/CONTRIBUTING.md' },
   { label: 'Code of Conduct', href: 'https://github.com/silvertakana/worldwideview/blob/main/CODE_OF_CONDUCT.md' },
 ];

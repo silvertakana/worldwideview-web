@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import ThemeProvider from "@/components/ThemeProvider";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -47,6 +48,19 @@ export default function RootLayout({
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />
         </ThemeProvider>
+        
+        <Script src="https://storage.ko-fi.com/cdn/widget/Widget_2.js" strategy="lazyOnload" />
+        <Script id="kofi-widget" strategy="lazyOnload">
+          {`
+            const checkKofi = setInterval(() => {
+              if (typeof kofiwidget2 !== 'undefined') {
+                clearInterval(checkKofi);
+                kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'L3L11XDRUC');
+                kofiwidget2.draw();
+              }
+            }, 500);
+          `}
+        </Script>
       </body>
     </html>
   );

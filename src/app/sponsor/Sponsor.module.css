@@ -1,0 +1,93 @@
+.container {
+  min-height: calc(100vh - 160px); /* Account for header and footer approx */
+  padding: 8rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.gradient { 
+  position: absolute; 
+  inset: 0; 
+  background: radial-gradient(circle at top center, rgba(var(--color-accent-rgb), 0.15), transparent 70%); 
+  opacity: 0.8; 
+  z-index: -1;
+}
+
+.inner {
+  max-width: 800px;
+  width: 100%;
+  text-align: center;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.heading {
+  font-size: clamp(2.5rem, 5vw, 4.5rem); 
+  font-weight: 900;
+  margin-bottom: 1.5rem; 
+  letter-spacing: -0.04em;
+  background: linear-gradient(to right, var(--color-text-primary), rgba(255, 255, 255, 0.6));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.description {
+  font-size: 1.125rem;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  max-width: 600px;
+  margin: 0 auto 4rem;
+}
+
+.card {
+  position: relative;
+  width: 100%;
+  max-width: 650px;
+  padding: 2.5rem;
+  border-radius: 24px;
+  background: rgba(var(--color-bg-card-rgb), 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.3s ease, border-color 0.3s ease;
+  overflow: hidden;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(var(--color-accent-rgb), 0.3);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--color-accent-rgb), 0.5), transparent);
+}
+
+.iframeWrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 768px) {
+  .container { padding: 6rem 1.25rem 3rem; }
+  .heading { font-size: 2rem; }
+  .card { padding: 1.5rem; }
+}

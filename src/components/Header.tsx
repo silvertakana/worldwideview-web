@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { label: 'Pricing', href: '/pricing' },
   { label: 'Download', href: '/download' },
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
+  { label: 'Sponsor', href: '/sponsor' },
   { label: 'About', href: '/about' },
 ];
 

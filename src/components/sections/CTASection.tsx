@@ -21,7 +21,7 @@ export default function CTASection() {
             className={styles.primaryBtn}
             onClick={() => trackEvent("cta_click", { label: "Try the Demo" })}
           >
-            Try the Demo
+            <span style={{ position: "relative", zIndex: 10, color: "#fff" }}>Try the Demo</span>
           </a>
           <a
             href="/download"

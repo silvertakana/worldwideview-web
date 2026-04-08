@@ -1,3 +1,9 @@
+@property --btn-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 .hero {
   position: relative;
   min-height: 921px;
@@ -69,20 +75,73 @@
 }
 
 .primaryBtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-accent);
+  background: transparent;
   color: #fff;
   font-weight: 700;
   padding: 1rem 2.5rem;
   border-radius: var(--radius-full);
   text-decoration: none;
-  transition: background var(--transition-fast), transform 0.1s ease;
+  transition: transform 0.1s ease;
+  z-index: 1;
 }
 
-.primaryBtn:hover { background: var(--color-accent-hover); color: #fff; }
+/* Inner Background */
+.primaryBtn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-accent);
+  z-index: -1;
+  transition: background var(--transition-fast);
+}
+
+.primaryBtn:hover::after {
+  background: var(--color-accent-hover);
+}
+
 .primaryBtn:active { transform: scale(0.95); }
+
+/* The sweeping glow */
+.primaryBtn::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  z-index: -2;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 50%,
+    rgba(255, 255, 255, 0.5) 85%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  filter: blur(3px);
+  animation: btn-rotate 2.5s linear infinite;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+}
+
+.primaryBtn:hover::before {
+  opacity: 1;
+  filter: blur(4px);
+}
+
+.primaryBtn:hover {
+  color: #fff;
+}
+
+@keyframes btn-rotate {
+  from {
+    --btn-angle: 0deg;
+  }
+  to {
+    --btn-angle: 360deg;
+  }
+}
 
 .outlineBtn {
   display: inline-flex;

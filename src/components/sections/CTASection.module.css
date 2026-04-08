@@ -1,3 +1,9 @@
+@property --btn-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 .section { padding: 8rem 0; position: relative; overflow: hidden; }
 .gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(var(--color-accent-rgb), 0.15), transparent); opacity: 0.3; }
 .inner { max-width: 1200px; margin: 0 auto; padding: 0 3rem; text-align: center; position: relative; z-index: 10; }
@@ -23,15 +29,71 @@
 @media (min-width: 768px) { .buttons { flex-direction: row; } }
 
 .primaryBtn {
+  position: relative;
   width: 100%; max-width: 300px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--color-accent); color: #fff;
+  background: transparent; color: #fff;
   font-weight: 900; font-size: 1.125rem;
   padding: 1.5rem 3rem; border-radius: var(--radius-full);
   text-decoration: none;
-  transition: background 0.3s, transform 0.2s;
+  transition: transform 0.2s;
+  z-index: 1;
 }
-.primaryBtn:hover { background: var(--color-accent-hover); transform: scale(1.04); color: #fff; }
+
+/* Inner Background */
+.primaryBtn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-accent);
+  z-index: -1;
+  transition: background 0.3s;
+}
+
+.primaryBtn:hover::after {
+  background: var(--color-accent-hover);
+}
+
+.primaryBtn:hover { transform: scale(1.04); color: #fff; }
+
+/* The sweeping glow */
+.primaryBtn::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  z-index: -2;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 50%,
+    rgba(255, 255, 255, 0.5) 85%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  filter: blur(3px);
+  animation: btn-rotate-cta 2.5s linear infinite;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+}
+
+.primaryBtn:hover::before {
+  opacity: 1;
+  filter: blur(4px);
+}
+
+.primaryBtn:hover {
+  transform: scale(1.04);
+  color: #fff;
+}
+
+@keyframes btn-rotate-cta {
+  from {
+    --btn-angle: 0deg;
+  }
+  to {
+    --btn-angle: 360deg;
+  }
+}
 
 .outlineBtn {
   width: 100%; max-width: 300px;
