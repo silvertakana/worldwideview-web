@@ -75,7 +75,28 @@ export default function SponsorPage() {
               workspace_premium
             </span>
             <h3>No sponsors yet</h3>
-            <p>You could be the very first! Support the project and see your name featured here.</p>
+            <p style={{ marginBottom: "1.5rem" }}>You could be the very first! Support the project and see your name featured here.</p>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "center" }}>
+              <a 
+                href="https://ko-fi.com/L3L11XDRUC" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className={styles.kofiButton}
+                style={{ padding: "0.5rem 1rem", fontSize: "0.9rem" }}
+              >
+                <img src="https://storage.ko-fi.com/cdn/cup-border.png" alt="Ko-fi" className={styles.kofiIcon} />
+                Ko-fi
+              </a>
+              <a 
+                href="https://github.com/sponsors/silvertakana" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className={styles.outlineBtn}
+                style={{ padding: "0.5rem 1rem", fontSize: "0.9rem", display: "inline-flex", alignItems: "center", gap: "0.5rem", borderRadius: "999px", background: "rgba(255,255,255,0.1)", color: "#fff", textDecoration: "none", border: "1px solid rgba(255,255,255,0.2)" }}
+              >
+                <span>GitHub Sponsors</span>
+              </a>
+            </div>
           </div>
         </div>
       </div>

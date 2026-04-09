@@ -33,13 +33,13 @@ export default function HeroSection() {
               <span style={{ position: "relative", zIndex: 10, color: "#fff" }}>Try Demo</span>
             </a>
             <a
-              href="/waitlist"
+              href="https://github.com/silvertakana/worldwideview"
               className={styles.outlineBtn}
               onClick={() =>
-                trackEvent("cta_click", { label: "Join Waitlist" })
+                trackEvent("cta_click", { label: "Download" })
               }
             >
-              Join Waitlist
+              Download
             </a>
           </div>
         </div>
