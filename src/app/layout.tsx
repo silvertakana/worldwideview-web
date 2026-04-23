@@ -3,6 +3,7 @@ import Script from "next/script";
 import ThemeProvider from "@/components/ThemeProvider";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import OutageBanner from "@/components/OutageBanner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -44,6 +45,7 @@ export default function RootLayout({
       </head>
       <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <ThemeProvider>
+          <OutageBanner />
           <Header />
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />

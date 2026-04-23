@@ -1,0 +1,46 @@
+.banner {
+  background: linear-gradient(90deg, rgba(127, 29, 29, 0.9), rgba(153, 27, 27, 0.9));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: center;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  z-index: 200;
+  position: relative;
+}
+
+.pulse {
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  animation: pulseAnim 2s infinite;
+  flex-shrink: 0;
+}
+
+.bold {
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+@keyframes pulseAnim {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+@media (max-width: 640px) {
+  .banner {
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    font-size: 0.8rem;
+  }
+}
