@@ -14,6 +14,7 @@
     "next": "16.2.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "scheduler": "^0.27.0",
     "three": "^0.183.2"
   },
   "devDependencies": {
