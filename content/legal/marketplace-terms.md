@@ -39,4 +39,4 @@ These Terms are governed by the laws of New Zealand.
 
 ## 8. Contact
 legal@worldwideview.dev
-Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Tri Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.

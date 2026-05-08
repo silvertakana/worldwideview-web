@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-These Cloud Terms of Service ("Terms") govern your use of the WorldWideView Cloud Platform and Demo instances, provided by Silver Phung trading as WorldWideView ("we," "us," or "our"). By creating an account or accessing the Cloud Platform, you agree to these Terms.
+These Cloud Terms of Service ("Terms") govern your use of the WorldWideView Cloud Platform and Demo instances, provided by Tri Phung trading as WorldWideView ("we," "us," or "our"). By creating an account or accessing the Cloud Platform, you agree to these Terms.
 
 If you are downloading the software to run on your own hardware, please refer to the [End User License Agreement (EULA)](/legal/license) instead.
 
@@ -72,4 +72,4 @@ Prior to filing any legal action, you agree to attempt to resolve the dispute in
 
 ## 12. Contact Information
 If you have any questions about these Terms, contact us at legal@worldwideview.dev or by mail at:
-Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Tri Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.

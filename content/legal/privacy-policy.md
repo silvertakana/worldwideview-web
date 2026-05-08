@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-Welcome to WorldWideView. This Privacy Policy explains how Silver Phung trading as WorldWideView ("we," "us," or "our") collects, uses, shares, and protects your information when you use our website (worldwideview.dev), the WorldWideView Cloud Platform, the Local/Self-Hosted Edition, and the WorldWideView Marketplace.
+Welcome to WorldWideView. This Privacy Policy explains how Tri Phung trading as WorldWideView ("we," "us," or "our") collects, uses, shares, and protects your information when you use our website (worldwideview.dev), the WorldWideView Cloud Platform, the Local/Self-Hosted Edition, and the WorldWideView Marketplace.
 
 ## 1. Information We Collect
 
@@ -95,4 +95,4 @@ We may update this Privacy Policy from time to time. We will notify you of mater
 
 If you have any questions about this Privacy Policy, please contact us:
 - **Email**: privacy@worldwideview.dev
-- **Address**: Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand
+- **Address**: Tri Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand
