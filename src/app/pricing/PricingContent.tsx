@@ -26,7 +26,7 @@ const TIERS = [
     desc: "Zero setup. Hosted 3D globe with live premium data.",
     price: "$19",
     label: "/month",
-    highlighted: false,
+    highlighted: true,
     cta: { label: "Start Free Trial", href: "/waitlist" },
     features: [
       { text: "Everything in Local Free", inherited: true },
@@ -41,7 +41,7 @@ const TIERS = [
     desc: "Shared workspaces, synchronized filters, historical data.",
     price: "$79",
     label: "/month per seat",
-    highlighted: true,
+    highlighted: false,
     cta: { label: "Join Waitlist", href: "/waitlist" },
     features: [
       { text: "Everything in Cloud Basic", inherited: true },
