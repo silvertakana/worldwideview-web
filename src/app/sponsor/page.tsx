@@ -29,7 +29,7 @@ export default function SponsorPage() {
                   alt="silvertakana" 
                   className={styles.githubAvatar}
                 />
-                <h2>Sponsor Silvertakana on GitHub</h2>
+                <h2>Sponsor Silver Phung on GitHub</h2>
               </div>
               <p>
                 I'm Building WorldWideView: an open geospatial intelligence platform mapping real-world events in real time. I'm a solo founder focused on building something we all wish existed!

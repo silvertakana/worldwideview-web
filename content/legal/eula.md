@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-This End User License Agreement ("Agreement") is a legal agreement between you and Silver Takana trading as WorldWideView ("we," "us," or "our") governing your use of the WorldWideView Local/Self-Hosted Edition software ("Software").
+This End User License Agreement ("Agreement") is a legal agreement between you and Silver Phung trading as WorldWideView ("we," "us," or "our") governing your use of the WorldWideView Local/Self-Hosted Edition software ("Software").
 
 By downloading, installing, or using the Software, you agree to be bound by the terms of this Agreement. If you do not agree to these terms, do not install or use the Software.
 
@@ -65,4 +65,4 @@ This Agreement shall be governed by the laws of New Zealand. Any disputes arisin
 ## 13. Contact
 For legal inquiries regarding this Agreement, contact:
 legal@worldwideview.dev
-Silver Takana trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.

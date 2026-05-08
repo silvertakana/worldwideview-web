@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-This Cookie Policy explains how Silver Takana trading as WorldWideView ("we," "us," or "our") uses cookies and similar local storage technologies across our website (worldwideview.dev), Cloud Platform, and Marketplace.
+This Cookie Policy explains how Silver Phung trading as WorldWideView ("we," "us," or "our") uses cookies and similar local storage technologies across our website (worldwideview.dev), Cloud Platform, and Marketplace.
 
 ## 1. What Are Cookies and Local Storage?
 - **Cookies** are small text files stored on your browser. They help us remember your session, keep you logged in, and store basic preferences.
@@ -51,4 +51,4 @@ For self-hosted Local Edition users, you have full control over your environment
 ## 7. Contact Us
 If you have questions about our use of cookies, contact us at:
 privacy@worldwideview.dev
-Silver Takana trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.

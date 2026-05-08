@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-This Developer Distribution Agreement ("Agreement") forms a legally binding contract between you (the "Developer") and Silver Takana trading as WorldWideView ("we," "us," or "our"). It governs your publication and distribution of plugins through the WorldWideView Marketplace (marketplace.worldwideview.dev).
+This Developer Distribution Agreement ("Agreement") forms a legally binding contract between you (the "Developer") and Silver Phung trading as WorldWideView ("we," "us," or "our"). It governs your publication and distribution of plugins through the WorldWideView Marketplace (marketplace.worldwideview.dev).
 
 ## 1. Developer Eligibility
 To distribute plugins on the Marketplace, you must be at least 18 years old and maintain a valid WorldWideView account. 
@@ -62,4 +62,4 @@ This Agreement is governed by the laws of New Zealand. Any disputes shall be sub
 ## 11. Contact
 For questions regarding this Agreement or marketplace operations, contact:
 legal@worldwideview.dev
-Silver Takana trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.

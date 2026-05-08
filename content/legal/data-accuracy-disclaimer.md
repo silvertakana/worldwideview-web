@@ -35,4 +35,4 @@ Because the data cannot be guaranteed, you explicitly agree that WorldWideView w
 - **Life-Safety Decisions**: You may not use this software in any scenario where inaccurate data could lead to personal injury, death, or severe property damage.
 
 ## 4. User Responsibility
-You are solely responsible for independently verifying any data before acting upon it. By using WorldWideView, you agree to hold Silver Takana trading as WorldWideView harmless from any liability, loss, or damages arising from your reliance on the data displayed by the platform.
+You are solely responsible for independently verifying any data before acting upon it. By using WorldWideView, you agree to hold Silver Phung trading as WorldWideView harmless from any liability, loss, or damages arising from your reliance on the data displayed by the platform.

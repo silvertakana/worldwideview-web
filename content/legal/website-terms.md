@@ -8,7 +8,7 @@ seo: noindex
 
 **Last Updated:** May 8, 2026
 
-These Website Terms of Use govern your access to and use of worldwideview.dev (the "Website"), operated by Silver Takana trading as WorldWideView ("we," "us," or "our"). 
+These Website Terms of Use govern your access to and use of worldwideview.dev (the "Website"), operated by Silver Phung trading as WorldWideView ("we," "us," or "our"). 
 
 ## 1. Acceptance
 By accessing or using the Website, you agree to be bound by these Terms. If you disagree with any part of these terms, you may not access the Website.
@@ -39,4 +39,4 @@ These Terms shall be governed and construed in accordance with the laws of New Z
 ## 8. Contact Us
 If you have any questions about these Terms, please contact us at:
 legal@worldwideview.dev
-Silver Takana trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
+Silver Phung trading as WorldWideView, 93A Forrest Hill Rd, Milford, Auckland, New Zealand.
