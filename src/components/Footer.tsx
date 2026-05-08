@@ -22,6 +22,13 @@ const COMMUNITY_LINKS = [
   { label: 'Code of Conduct', href: 'https://github.com/silvertakana/worldwideview/blob/main/CODE_OF_CONDUCT.md' },
 ];
 
+const LEGAL_LINKS = [
+  { label: 'Legal Hub', href: '/legal' },
+  { label: 'Privacy Policy', href: '/legal/privacy-policy' },
+  { label: 'Cloud ToS', href: '/legal/cloud-terms-of-service' },
+  { label: 'Marketplace Terms', href: '/legal/marketplace-terms' },
+];
+
 export default function Footer() {
   return (
     <footer className={styles.footer}>
@@ -42,6 +49,7 @@ export default function Footer() {
         <FooterColumn title="Product" links={PRODUCT_LINKS} />
         <FooterColumn title="Resources" links={RESOURCE_LINKS} />
         <FooterColumn title="Community" links={COMMUNITY_LINKS} />
+        <FooterColumn title="Legal" links={LEGAL_LINKS} />
       </div>
 
       <div className={styles.bottomBar}>
@@ -49,8 +57,8 @@ export default function Footer() {
           &copy; {new Date().getFullYear()} WORLD WIDE VIEW. All rights reserved.
         </div>
         <div className={styles.legalLinks}>
-          <Link href="#">Privacy Policy</Link>
-          <Link href="#">Terms of Service</Link>
+          <Link href="/legal/privacy-policy">Privacy Policy</Link>
+          <Link href="/legal/cloud-terms-of-service">Terms of Service</Link>
         </div>
       </div>
     </footer>
