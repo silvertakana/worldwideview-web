@@ -9,7 +9,7 @@ interface SearchIndexItem {
   slug: string;
   title: string;
   description: string;
-  content: string;
+  section: string;
 }
 
 interface Props {
@@ -28,17 +28,27 @@ export default function SearchBar({ index, basePath }: Props) {
         keys: [
           { name: 'title', weight: 2 },
           { name: 'description', weight: 1.5 },
-          { name: 'content', weight: 0.8 },
+          { name: 'section', weight: 1 },
         ],
-        threshold: 0.35,
+        threshold: 0.6,
+        ignoreLocation: true,
+        minMatchCharLength: 2,
       }),
     [index]
   );
 
-  const results = useMemo(
-    () => (query.trim() ? fuse.search(query).slice(0, 6) : []),
-    [fuse, query]
-  );
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const seen = new Set<string>();
+    return fuse
+      .search(query)
+      .filter((r) => {
+        if (seen.has(r.item.slug)) return false;
+        seen.add(r.item.slug);
+        return true;
+      })
+      .slice(0, 6);
+  }, [fuse, query]);
 
   const close = useCallback(() => {
     setQuery('');

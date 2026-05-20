@@ -43,13 +43,14 @@ export interface SearchIndexItem {
   slug: string;
   title: string;
   description: string;
-  content: string;
+  section: string;
 }
 
 function stripMarkdown(raw: string): string {
   return raw
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`\n]+`/g, '')
+    .replace(/```[a-zA-Z]*\n/g, '')
+    .replace(/```/g, '')
+    .replace(/`([^`\n]+)`/g, '$1')
     .replace(/#{1,6}\s+/g, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -64,19 +65,18 @@ function stripMarkdown(raw: string): string {
 
 export function getSearchIndex(): SearchIndexItem[] {
   if (!fs.existsSync(DOCS_DIR)) return [];
-  return fs
-    .readdirSync(DOCS_DIR)
-    .filter((file) => file.endsWith('.md'))
-    .map((file) => {
-      const slug = file.replace('.md', '');
-      const { data, content } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
-      return {
-        slug: slug === 'index' ? '' : slug,
-        title: data.title || slug,
-        description: data.description || '',
-        content: stripMarkdown(content),
-      };
-    });
+  const items: SearchIndexItem[] = [];
+  for (const file of fs.readdirSync(DOCS_DIR).filter((f) => f.endsWith('.md'))) {
+    const slug = file.replace('.md', '') === 'index' ? '' : file.replace('.md', '');
+    const { data, content } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
+    const title = data.title || file.replace('.md', '');
+    const description = data.description || '';
+    for (const section of content.split(/\n(?=#{1,3} )/)) {
+      const text = stripMarkdown(section);
+      if (text.trim()) items.push({ slug, title, description, section: text });
+    }
+  }
+  return items;
 }
 
 export function getSidebarItems(): DocMeta[] {
