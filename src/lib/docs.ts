@@ -43,6 +43,23 @@ export interface SearchIndexItem {
   slug: string;
   title: string;
   description: string;
+  content: string;
+}
+
+function stripMarkdown(raw: string): string {
+  return raw
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`\n]+`/g, '')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*[|].*[|]\s*$/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 export function getSearchIndex(): SearchIndexItem[] {
@@ -52,11 +69,12 @@ export function getSearchIndex(): SearchIndexItem[] {
     .filter((file) => file.endsWith('.md'))
     .map((file) => {
       const slug = file.replace('.md', '');
-      const { data } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
+      const { data, content } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
       return {
         slug: slug === 'index' ? '' : slug,
         title: data.title || slug,
         description: data.description || '',
+        content: stripMarkdown(content),
       };
     });
 }

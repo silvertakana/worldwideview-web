@@ -9,6 +9,7 @@ interface SearchIndexItem {
   slug: string;
   title: string;
   description: string;
+  content: string;
 }
 
 interface Props {
@@ -22,7 +23,15 @@ export default function SearchBar({ index, basePath }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fuse = useMemo(
-    () => new Fuse(index, { keys: ['title', 'description'], threshold: 0.35 }),
+    () =>
+      new Fuse(index, {
+        keys: [
+          { name: 'title', weight: 2 },
+          { name: 'description', weight: 1.5 },
+          { name: 'content', weight: 0.8 },
+        ],
+        threshold: 0.35,
+      }),
     [index]
   );
 
