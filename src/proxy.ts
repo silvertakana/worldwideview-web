@@ -6,6 +6,7 @@ export function proxy(request: NextRequest) {
   if (host.startsWith('docs.')) {
     const pathname = request.nextUrl.pathname;
     if (pathname.startsWith('/docs')) return; // already prefixed, serve directly
+    if (/\.[a-zA-Z0-9]+$/.test(pathname)) return; // static asset, serve from /public as-is
     const url = request.nextUrl.clone();
     url.pathname = pathname === '/' ? '/docs' : `/docs${pathname}`;
     return NextResponse.rewrite(url);
