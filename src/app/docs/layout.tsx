@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { getSidebarItems, getSearchIndex } from "@/lib/docs";
 import DocsSidebarNav from "./DocsSidebarNav";
 import SearchBar from "./SearchBar";
+import ScrollToHash from "./ScrollToHash";
 import styles from "./docs.module.css";
 
 export default async function DocsLayout({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,7 @@ export default async function DocsLayout({ children }: { children: React.ReactNo
         </div>
       </aside>
       <main className={styles.content}>
+        <ScrollToHash />
         {children}
       </main>
     </div>
