@@ -39,6 +39,28 @@ export function getDocIndex(): DocPage | null {
   return { slug: "index", title: data.title || "Documentation", content };
 }
 
+export interface SearchIndexItem {
+  slug: string;
+  title: string;
+  description: string;
+}
+
+export function getSearchIndex(): SearchIndexItem[] {
+  if (!fs.existsSync(DOCS_DIR)) return [];
+  return fs
+    .readdirSync(DOCS_DIR)
+    .filter((file) => file.endsWith('.md'))
+    .map((file) => {
+      const slug = file.replace('.md', '');
+      const { data } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
+      return {
+        slug: slug === 'index' ? '' : slug,
+        title: data.title || slug,
+        description: data.description || '',
+      };
+    });
+}
+
 export function getSidebarItems(): DocMeta[] {
   if (!fs.existsSync(DOCS_DIR)) return [];
   return fs

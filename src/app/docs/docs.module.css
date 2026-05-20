@@ -203,6 +203,79 @@
   margin: 2.5rem 0;
 }
 
+/* ── Search bar ── */
+.searchWrap {
+  position: relative;
+  margin-bottom: 0.75rem;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-glow);
+}
+
+.searchDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  z-index: 100;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.searchResult a {
+  display: flex;
+  flex-direction: column;
+  padding: 0.55rem 0.875rem;
+  text-decoration: none;
+  color: var(--color-text-primary);
+  gap: 0.1rem;
+}
+
+.searchResult:hover a,
+.searchResultActive a {
+  background: var(--color-bg-card-hover);
+}
+
+.searchResultTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.searchResultDesc {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchNoResults {
+  padding: 0.75rem 0.875rem;
+  font-size: 0.825rem;
+  color: var(--color-text-muted);
+}
+
 /* ── Mobile: stack layout ── */
 @media (max-width: 768px) {
   .shell {
