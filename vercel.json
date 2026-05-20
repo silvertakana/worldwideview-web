@@ -1,0 +1,23 @@
+{
+  "redirects": [
+    {
+      "source": "/docs",
+      "has": [{ "type": "host", "value": "worldwideview.dev" }],
+      "destination": "https://docs.worldwideview.dev",
+      "permanent": true
+    },
+    {
+      "source": "/docs/:path*",
+      "has": [{ "type": "host", "value": "worldwideview.dev" }],
+      "destination": "https://docs.worldwideview.dev/:path*",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!_next/|favicon\\.ico).*)",
+      "has": [{ "type": "host", "value": "docs.worldwideview.dev" }],
+      "destination": "/docs/$1"
+    }
+  ]
+}
