@@ -3,9 +3,11 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 
-function centerHash(id: string) {
+function scrollToHash(id: string) {
   const el = document.getElementById(id);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!el) return;
+  const top = window.scrollY + el.getBoundingClientRect().top - window.innerHeight * 0.25;
+  window.scrollTo({ top, behavior: 'smooth' });
 }
 
 export default function ScrollToHash() {
@@ -16,7 +18,7 @@ export default function ScrollToHash() {
     const hash = window.location.hash.slice(1);
     if (!hash) return;
     // Small delay so server-streamed page content finishes rendering
-    const t = setTimeout(() => centerHash(hash), 80);
+    const t = setTimeout(() => scrollToHash(hash), 80);
     return () => clearTimeout(t);
   }, [pathname]);
 
@@ -24,7 +26,7 @@ export default function ScrollToHash() {
   useEffect(() => {
     function onHashChange() {
       const hash = window.location.hash.slice(1);
-      if (hash) centerHash(hash);
+      if (hash) scrollToHash(hash);
     }
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
