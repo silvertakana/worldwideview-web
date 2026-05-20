@@ -39,6 +39,60 @@ export function getDocIndex(): DocPage | null {
   return { slug: "index", title: data.title || "Documentation", content };
 }
 
+export interface SearchIndexItem {
+  slug: string;
+  title: string;
+  description: string;
+  section: string;
+  sectionTitle: string;
+  anchor: string;
+}
+
+function headingToAnchor(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ /g, '-')
+    .replace(/[^\w-]/g, '')
+    .replace(/^-+|-+$/g, '');
+}
+
+function stripMarkdown(raw: string): string {
+  return raw
+    .replace(/```[a-zA-Z]*\n/g, '')
+    .replace(/```/g, '')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*[|].*[|]\s*$/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function getSearchIndex(): SearchIndexItem[] {
+  if (!fs.existsSync(DOCS_DIR)) return [];
+  const items: SearchIndexItem[] = [];
+  for (const file of fs.readdirSync(DOCS_DIR).filter((f) => f.endsWith('.md'))) {
+    const slug = file.replace('.md', '') === 'index' ? '' : file.replace('.md', '');
+    const { data, content } = matter(fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8'));
+    const title = data.title || file.replace('.md', '');
+    const description = data.description || '';
+    for (const section of content.split(/\n(?=#{1,3} )/)) {
+      const text = stripMarkdown(section);
+      if (!text.trim()) continue;
+      const headingMatch = section.match(/^#{1,3}\s+(.+)/);
+      const sectionTitle = headingMatch ? headingMatch[1].trim() : '';
+      const anchor = sectionTitle ? headingToAnchor(sectionTitle) : '';
+      items.push({ slug, title, description, section: text, sectionTitle, anchor });
+    }
+  }
+  return items;
+}
+
 export function getSidebarItems(): DocMeta[] {
   if (!fs.existsSync(DOCS_DIR)) return [];
   return fs

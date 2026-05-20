@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getDocBySlug, getAllDocSlugs } from "@/lib/docs";
@@ -27,7 +28,7 @@ export default async function DocPage({ params }: PageProps) {
 
   return (
     <article className={styles.prose}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}>{doc.content}</ReactMarkdown>
     </article>
   );
 }
