@@ -44,6 +44,16 @@ export interface SearchIndexItem {
   title: string;
   description: string;
   section: string;
+  sectionTitle: string;
+  anchor: string;
+}
+
+function headingToAnchor(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ /g, '-')
+    .replace(/[^\w-]/g, '')
+    .replace(/^-+|-+$/g, '');
 }
 
 function stripMarkdown(raw: string): string {
@@ -73,7 +83,11 @@ export function getSearchIndex(): SearchIndexItem[] {
     const description = data.description || '';
     for (const section of content.split(/\n(?=#{1,3} )/)) {
       const text = stripMarkdown(section);
-      if (text.trim()) items.push({ slug, title, description, section: text });
+      if (!text.trim()) continue;
+      const headingMatch = section.match(/^#{1,3}\s+(.+)/);
+      const sectionTitle = headingMatch ? headingMatch[1].trim() : '';
+      const anchor = sectionTitle ? headingToAnchor(sectionTitle) : '';
+      items.push({ slug, title, description, section: text, sectionTitle, anchor });
     }
   }
   return items;

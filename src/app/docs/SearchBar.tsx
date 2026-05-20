@@ -10,6 +10,8 @@ interface SearchIndexItem {
   title: string;
   description: string;
   section: string;
+  sectionTitle: string;
+  anchor: string;
 }
 
 interface Props {
@@ -67,7 +69,8 @@ export default function SearchBar({ index, basePath }: Props) {
       inputRef.current?.blur();
     } else if (e.key === 'Enter' && activeIdx >= 0) {
       e.preventDefault();
-      window.location.href = `${basePath}/${results[activeIdx].item.slug}`;
+      const { slug, anchor } = results[activeIdx].item;
+      window.location.href = `${basePath}/${slug}${anchor ? '#' + anchor : ''}`;
       close();
     }
   }
@@ -100,16 +103,20 @@ export default function SearchBar({ index, basePath }: Props) {
           ) : (
             results.map(({ item }, i) => (
               <li
-                key={item.slug}
+                key={item.slug + item.anchor}
                 id={`search-result-${i}`}
                 role="option"
                 aria-selected={i === activeIdx}
                 className={`${styles.searchResult} ${i === activeIdx ? styles.searchResultActive : ''}`}
               >
-                <Link href={`${basePath}/${item.slug}`} onClick={close} tabIndex={-1}>
+                <Link
+                  href={`${basePath}/${item.slug}${item.anchor ? '#' + item.anchor : ''}`}
+                  onClick={close}
+                  tabIndex={-1}
+                >
                   <span className={styles.searchResultTitle}>{item.title}</span>
-                  {item.description && (
-                    <span className={styles.searchResultDesc}>{item.description}</span>
+                  {item.sectionTitle && item.sectionTitle !== item.title && (
+                    <span className={styles.searchResultSection}>§ {item.sectionTitle}</span>
                   )}
                 </Link>
               </li>

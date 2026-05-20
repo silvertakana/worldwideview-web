@@ -270,6 +270,15 @@
   text-overflow: ellipsis;
 }
 
+.searchResultSection {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .searchNoResults {
   padding: 0.75rem 0.875rem;
   font-size: 0.825rem;

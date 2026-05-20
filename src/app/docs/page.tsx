@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
 import { getDocIndex } from "@/lib/docs";
 import type { Metadata } from "next";
 import styles from "./docs.module.css";
@@ -23,7 +24,7 @@ export default function DocsIndexPage() {
 
   return (
     <article className={styles.prose}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}>{doc.content}</ReactMarkdown>
     </article>
   );
 }
