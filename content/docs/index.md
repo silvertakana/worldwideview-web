@@ -14,9 +14,24 @@ WorldWideView is a real-time geospatial intelligence platform built on a 3D glob
 
 ## Where to start
 
-- **[Getting Started](/docs/getting-started)** — Install and take your first look at the globe
-- **[Plugin Quickstart](/docs/plugin-quickstart)** — Build and load your first plugin in minutes
-- **[Plugin API Reference](/docs/plugin-api)** — Full SDK reference for plugin developers
+- **[Getting Started](/getting-started)** — Install and take your first look at the globe
+- **[Plugin Quickstart](/plugin-quickstart)** — Build and load your first plugin in minutes
+- **[Architecture](/architecture)** — How the globe, DataBus, and plugin system fit together
+
+## Plugin development
+
+- **[Plugin Quickstart](/plugin-quickstart)** — Scaffold, build, and publish your first plugin
+- **[Plugin API Reference](/plugin-api)** — GlobeAPI, DataAPI, SettingsAPI overview
+- **[UI API Reference](/ui-api)** — Panels, toolbar buttons, popups, and toasts
+- **[Data Channels](/data-channels)** — Built-in channels (ADS-B, AIS) and how to publish your own
+- **[Manifest Reference](/manifest-reference)** — Full `manifest.json` field reference
+- **[Permissions](/permissions)** — Available permissions and what each one unlocks
+
+## Reference
+
+- **[Configuration](/configuration)** — App settings, `config.json`, and environment variables
+- **[Troubleshooting](/troubleshooting)** — Common issues and fixes
+- **[Contributing](/contributing)** — How to contribute code, docs, and community plugins
 
 ## Resources
 

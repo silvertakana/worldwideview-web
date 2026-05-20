@@ -75,6 +75,34 @@ Writes a plugin setting. Values are persisted between sessions.
 
 ---
 
+## UIAPI
+
+Register UI surfaces — panels, toolbar buttons, context menu items, and popups.
+
+See the full reference in [UI API Reference](/ui-api).
+
+### `registerPanel(panel: PanelConfig): () => void`
+
+Adds a panel to the side drawer. Returns an unregister function.
+
+### `registerToolbarButton(button: ToolbarButtonConfig): () => void`
+
+Adds a button to the main toolbar. Returns an unregister function.
+
+### `registerContextMenuItem(item: ContextMenuItemConfig): () => void`
+
+Adds an item to the globe's right-click context menu. Returns an unregister function.
+
+### `showPopup(popup: PopupConfig): () => void`
+
+Shows a floating popup anchored to a globe position or screen coordinate. Returns a close function.
+
+### `showToast(message: string, options?: ToastOptions): void`
+
+Displays a brief notification. Requires no cleanup.
+
+---
+
 ## Lifecycle hooks
 
 | Export | When called |
