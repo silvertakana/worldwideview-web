@@ -1,15 +1,12 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { getSidebarItems, getSearchIndex } from "@/lib/docs";
 import DocsSidebarNav from "./DocsSidebarNav";
 import SearchBar from "./SearchBar";
 import ScrollToHash from "./ScrollToHash";
 import styles from "./docs.module.css";
 
-export default async function DocsLayout({ children }: { children: React.ReactNode }) {
-  const headersList = await headers();
-  const host = headersList.get('host') ?? '';
-  const isDocsSubdomain = host.startsWith('docs.');
+export default function DocsLayout({ children }: { children: React.ReactNode }) {
+  const isDocsSubdomain = process.env.NEXT_PUBLIC_IS_DOCS_SUBDOMAIN === 'true';
   const basePath = isDocsSubdomain ? '' : '/docs';
   const sidebarItems = getSidebarItems();
   const searchIndex = getSearchIndex();
