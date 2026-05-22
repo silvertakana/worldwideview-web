@@ -6,8 +6,7 @@ import ScrollToHash from "./ScrollToHash";
 import styles from "./docs.module.css";
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
-  const isDocsSubdomain = process.env.NEXT_PUBLIC_IS_DOCS_SUBDOMAIN === 'true';
-  const basePath = isDocsSubdomain ? '' : '/docs';
+  const basePath = '/docs';
   const sidebarItems = getSidebarItems();
   const searchIndex = getSearchIndex();
 
@@ -15,7 +14,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarInner}>
-          <Link href={isDocsSubdomain ? '/' : '/docs'} className={styles.sidebarTitle}>
+          <Link href="/docs" className={styles.sidebarTitle}>
             Documentation
           </Link>
           <SearchBar index={searchIndex} basePath={basePath} />

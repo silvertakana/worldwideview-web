@@ -9,9 +9,9 @@ const PRODUCT_LINKS = [
 ];
 
 const RESOURCE_LINKS = [
-  { label: 'Documentation', href: 'https://docs.worldwideview.dev' },
+  { label: 'Documentation', href: '/docs' },
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
-  { label: 'Plugin SDK', href: 'https://docs.worldwideview.dev/plugin-quickstart' },
+  { label: 'Plugin SDK', href: '/docs/plugin-quickstart' },
   { label: 'Status', href: '/coming-soon' },
 ];
 
