@@ -1,14 +1,13 @@
-import { signInWithPassword } from './actions'
-import { OAuthButtons } from './oauth-buttons'
+import { signUp } from './actions'
 import { safeNext } from '../../lib/safeNext'
 import styles from '../hub/hub.module.css'
 
-export const metadata = { title: 'Sign In' }
+export const metadata = { title: 'Create Account' }
 
-export default async function LoginPage({
+export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; message?: string; next?: string }>
+  searchParams: Promise<{ error?: string; next?: string }>
 }) {
   const params = await searchParams
   const next = safeNext(params.next)
@@ -16,7 +15,7 @@ export default async function LoginPage({
   return (
     <div className={styles.hubContainer}>
       <div className={styles.glassCard} style={{ maxWidth: '400px', marginTop: '6vh' }}>
-        <h1 className={styles.title}>Welcome Back</h1>
+        <h1 className={styles.title}>Create Account</h1>
         <p
           style={{
             textAlign: 'center',
@@ -24,23 +23,10 @@ export default async function LoginPage({
             color: 'var(--color-text-secondary)',
           }}
         >
-          Sign in to your WorldWideView account
+          One account for the whole WorldWideView ecosystem
         </p>
 
-        {params.message && (
-          <p
-            style={{
-              marginBottom: 'var(--space-md)',
-              textAlign: 'center',
-              fontSize: '0.9rem',
-              color: 'var(--color-success)',
-            }}
-          >
-            {params.message}
-          </p>
-        )}
-
-        <form action={signInWithPassword}>
+        <form action={signUp}>
           <input type="hidden" name="next" value={next} />
           <input
             className={styles.inputField}
@@ -54,27 +40,15 @@ export default async function LoginPage({
             className={styles.inputField}
             type="password"
             name="password"
-            placeholder="Password"
-            autoComplete="current-password"
+            placeholder="Password (8+ characters)"
+            autoComplete="new-password"
+            minLength={8}
             required
           />
           <button className={styles.submitButton} type="submit">
-            Sign In
+            Sign Up
           </button>
         </form>
-
-        <div
-          style={{
-            textAlign: 'center',
-            margin: 'var(--space-md) 0',
-            color: 'var(--color-text-muted)',
-            fontSize: '0.85rem',
-          }}
-        >
-          or
-        </div>
-
-        <OAuthButtons next={next} />
 
         {params.error && (
           <p
@@ -97,12 +71,12 @@ export default async function LoginPage({
             color: 'var(--color-text-secondary)',
           }}
         >
-          No account?{' '}
+          Already have an account?{' '}
           <a
-            href={`/signup?next=${encodeURIComponent(next)}`}
+            href={`/login?next=${encodeURIComponent(next)}`}
             style={{ color: 'var(--color-accent)', fontWeight: 500 }}
           >
-            Create one
+            Sign in
           </a>
         </p>
       </div>

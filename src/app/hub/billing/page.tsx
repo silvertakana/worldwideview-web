@@ -1,10 +1,11 @@
 'use client'
 
 import React from 'react'
-import { supabase } from '../../../lib/supabase/client'
+import { createClient } from '../../../lib/supabase/client'
 
 export default function BillingPage() {
   const handleUpgrade = async (tier: string) => {
+    const supabase = createClient()
     const { data, error } = await supabase.functions.invoke('create-checkout-session', {
       body: { tier, tenantId: 'placeholder-tenant-id' }
     })

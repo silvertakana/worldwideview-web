@@ -10,11 +10,11 @@ vi.mock('next/navigation', () => ({
 
 // Mock Supabase
 vi.mock('../../../src/lib/supabase/client', () => ({
-  supabase: {
+  createClient: () => ({
     auth: {
       getSession: vi.fn().mockResolvedValue({ data: { session: { user: {} } } })
     }
-  }
+  })
 }))
 
 describe('Hub Layout', () => {

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../../lib/supabase/client'
+import { createClient } from '../../lib/supabase/client'
 
 export default function HubLayout({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
@@ -10,6 +10,7 @@ export default function HubLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const checkSession = async () => {
+      const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         router.push('/login')

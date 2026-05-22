@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { supabase } from '../../../src/lib/supabase/client'
+import { createClient } from '../../../src/lib/supabase/client'
 
 describe('Supabase Client', () => {
-  it('should be initialized', () => {
-    expect(supabase).toBeDefined()
+  it('exports a createClient factory', () => {
+    expect(typeof createClient).toBe('function')
   })
 })
