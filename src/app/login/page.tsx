@@ -58,6 +58,18 @@ export default async function LoginPage({
             autoComplete="current-password"
             required
           />
+          <p
+            style={{
+              textAlign: 'right',
+              fontSize: '0.9rem',
+              marginBottom: 'var(--space-md)',
+              marginTop: 'calc(var(--space-sm) * -1)',
+            }}
+          >
+            <a href="/auth/reset-password" style={{ color: 'var(--color-accent)', fontWeight: 500 }}>
+              Forgot password?
+            </a>
+          </p>
           <button className={styles.submitButton} type="submit">
             Sign In
           </button>
