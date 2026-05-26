@@ -96,6 +96,14 @@ body {
 a { color: var(--color-accent); text-decoration: none; transition: color var(--transition-fast); }
 a:hover { color: var(--color-accent-hover); }
 
+/* ───────── Dialog Backdrop ────────── */
+/* Used by DeleteAccountModal -- module CSS cannot target ::backdrop */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 /* ───────── Utilities ────────── */
 .container { max-width: 1200px; margin: 0 auto; padding: 0 var(--space-lg); }
 
