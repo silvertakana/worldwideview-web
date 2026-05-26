@@ -86,6 +86,30 @@ export async function deleteAccount(): Promise<{ success: boolean; error?: strin
 
   if (error) return { success: false, error: error.message }
 
+  // Best-effort marketplace cleanup. The Supabase user is already deleted at this point,
+  // so if this call fails we log and continue -- the account is effectively gone.
+  const marketplaceUrl = process.env.MARKETPLACE_INTERNAL_URL
+  const marketplaceSecret = process.env.MARKETPLACE_INTERNAL_SECRET
+  if (marketplaceUrl && marketplaceSecret) {
+    try {
+      const res = await fetch(`${marketplaceUrl}/api/internal/delete-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${marketplaceSecret}`,
+        },
+        body: JSON.stringify({ supabaseUserId: userId }),
+      })
+      if (!res.ok) {
+        console.error('[deleteAccount] Marketplace cleanup returned', res.status)
+      }
+    } catch (err) {
+      console.error('[deleteAccount] Marketplace cleanup failed:', err)
+    }
+  } else {
+    console.warn('[deleteAccount] MARKETPLACE_INTERNAL_URL or MARKETPLACE_INTERNAL_SECRET not set -- skipping marketplace cleanup')
+  }
+
   await supabase.auth.signOut()
   redirect('/')
 }
