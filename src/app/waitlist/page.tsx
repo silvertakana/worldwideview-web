@@ -25,7 +25,7 @@ export default function WaitlistPage() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setStatus("success");
-      trackEvent("waitlist_signup", { email: email.trim() });
+      trackEvent("waitlist_signup", {});
       setFirstName("");
       setEmail("");
     } catch {
