@@ -1,12 +1,12 @@
 ---
 title: Privacy Policy
-lastUpdated: 2026-05-08
+lastUpdated: 2026-05-27
 seo: noindex
 ---
 
 # Privacy Policy
 
-**Last Updated:** May 8, 2026
+**Last Updated:** May 27, 2026
 
 Welcome to WorldWideView. This Privacy Policy explains how Tri Phung trading as WorldWideView ("we," "us," or "our") collects, uses, shares, and protects your information when you use our website (worldwideview.dev), the WorldWideView Cloud Platform, the Local/Self-Hosted Edition, and the WorldWideView Marketplace.
 
@@ -26,7 +26,7 @@ We use a privacy-first, self-hosted analytics tool (Umami) to understand how our
 - Event metadata (e.g., plugin IDs, setting keys), which does not contain personally identifiable information (PII)
 
 ### C. Error Tracking
-To improve stability, we collect error stack traces and crash reports using a self-hosted instance of GlitchTip. This data includes technical diagnostics but is stripped of PII where possible.
+We do not currently use error tracking software. Errors are monitored via server logs.
 
 ### D. User Preferences (Stored Locally)
 Certain preferences are stored directly on your device:
@@ -55,6 +55,18 @@ We do not sell your personal data. We only share information with trusted third-
 | **Google Maps** / **Bing Maps** | Your API key (direct from browser), tile requests | Retrieving satellite imagery and 3D tiles |
 | **NASA FIRMS** | Your API key (direct from browser) | Retrieving wildfire data |
 | **OpenSky Network** / **AIS Stream** | Server-side connections only | Fetching real-time aviation and maritime data |
+| **Ko-fi** | Page view, referrer | Donation widget (storage.ko-fi.com) loads on every page; supports the platform financially |
+| **n8n (self-hosted at arfquant.com)** | First name, email address | Waitlist management and notification; operated by the platform owner; no separate DPA required |
+
+## 3A. Marketplace Data
+
+If you use the WorldWideView Marketplace, we store the following additional data:
+
+- **Linked Instances**: The URLs of WorldWideView instances you have connected to the Marketplace (`LinkedInstance` records), along with connection timestamps.
+- **API Key Metadata**: The names and creation/last-used dates of API keys you have generated for Marketplace access (`MarketplaceApiKey` records). The key material itself is stored only as a one-way hash and cannot be recovered.
+- **OAuth Authorization Codes**: Short-lived codes (60-second expiry) used during the Marketplace install flow. These are purged automatically on expiry or use.
+
+All Marketplace data is stored in New Zealand.
 
 ## 4. Data Storage, Security, and Residency
 
@@ -64,7 +76,7 @@ We do not sell your personal data. We only share information with trusted third-
 
 ## 5. Cookies and Tracking
 
-We use standard session and security cookies for authentication (e.g., `authjs.session-token`, `authjs.csrf-token`). For a complete list of cookies and local storage keys, please read our [Cookie Policy](/legal/cookies).
+We use Supabase session cookies for authentication (`sb-<ref>-auth-token` and related chunked parts). These cookies are HttpOnly, Secure, SameSite=Lax, and scoped to the domain `.worldwideview.dev`. For a complete list of cookies and local storage keys, please read our [Cookie Policy](/legal/cookie-policy).
 
 ## 6. Your Data Rights
 
@@ -77,7 +89,7 @@ To exercise these rights, contact us at privacy@worldwideview.dev.
 
 ## 7. Data Retention
 
-We retain your account data for as long as your account is active. If you delete your account, we will purge your personal data within 30 days. Analytics data is anonymized and retained indefinitely to help us measure long-term platform health.
+We retain your account data for as long as your account is active. If you delete your account, your Supabase authentication record and all associated marketplace data (linked instances, API keys, and your marketplace user record) are deleted immediately. Analytics data is anonymized and retained indefinitely.
 
 ## 8. Children's Privacy
 
