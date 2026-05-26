@@ -119,6 +119,11 @@
 .idleDisplayName {
   font-size: 1rem;
   color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
 }
 
 .emptyDisplayName {
@@ -163,11 +168,21 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-xl);
+  position: fixed;
+  inset: 0;
+  margin: auto;
   width: 100%;
   max-width: 360px;
-  margin: 0 var(--space-md);
+  height: fit-content;
+  max-height: calc(100vh - 2 * var(--space-md));
   box-shadow: var(--shadow-lg);
   animation: scaleIn var(--transition-base);
+}
+
+.modalCard::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .modalTitle {

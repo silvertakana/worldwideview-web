@@ -81,7 +81,13 @@ export async function deleteAccount(): Promise<{ success: boolean; error?: strin
   }
 
   const userId = user.id
-  const adminClient = createAdminClient()
+  let adminClient
+  try {
+    adminClient = createAdminClient()
+  } catch (err) {
+    console.error('[deleteAccount] Admin client unavailable:', err instanceof Error ? err.message : err)
+    return { success: false, error: 'Account deletion is temporarily unavailable. Please contact support.' }
+  }
   const { error } = await adminClient.auth.admin.deleteUser(userId)
 
   if (error) return { success: false, error: error.message }
