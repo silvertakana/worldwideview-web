@@ -1,9 +1,9 @@
 {
   "name": "worldwideview-web",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
+    "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+2-key.pem --experimental-https-cert ./certs/wwv.local+2.pem",
     "build": "next build",
     "start": "next start",
     "test": "vitest run"
@@ -35,6 +35,7 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "cross-env": "^10.1.0",
     "jsdom": "^29.1.1",
     "typescript": "^5",
     "vitest": "^4.1.5"
