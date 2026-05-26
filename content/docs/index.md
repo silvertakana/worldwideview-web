@@ -18,6 +18,12 @@ WorldWideView is a real-time geospatial intelligence platform built on a 3D glob
 - **[Plugin Quickstart](/plugin-quickstart)** — Build and load your first plugin in minutes
 - **[Architecture](/architecture)** — How the globe, DataBus, and plugin system fit together
 
+## Using the Platform
+
+- **[Using the Globe](/using-the-globe)** - Navigate the 3D globe, control the time window, inspect live entities
+- **[Platform Capabilities](/platform-capabilities)** - What data layers WorldWideView displays and how they stay current
+- **[Managing Plugins](/managing-plugins)** - Install, enable, and remove data layer plugins
+
 ## Plugin development
 
 - **[Plugin Quickstart](/plugin-quickstart)** — Scaffold, build, and publish your first plugin
