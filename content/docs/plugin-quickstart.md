@@ -17,7 +17,7 @@ This guide walks you through creating a minimal plugin that places a custom enti
 ## 1. Scaffold the plugin
 
 ```bash
-npx create-wwv-plugin my-plugin
+pnpm dlx create-wwv-plugin my-plugin
 cd my-plugin
 pnpm install
 ```
