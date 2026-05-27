@@ -12,6 +12,7 @@ const ALLOWED_AVATAR_PREFIXES = [
 ] as const
 
 const AVATAR_MAX_LENGTH = 35_000
+const AVATARS_BUCKET = 'avatars'
 
 export async function signOut() {
   const supabase = await createClient()
@@ -22,37 +23,65 @@ export async function signOut() {
 }
 
 /**
- * Persists a new avatar for the currently authenticated user.
+ * Uploads a new avatar to Supabase Storage and updates the user's avatar_url
+ * in user_metadata with the resulting public storage URL.
  *
- * Accepts only JPEG, PNG, or WebP data URLs capped at 35,000 characters.
- * External https:// URLs are rejected -- OAuth provider photos are set
- * directly via user_metadata.avatar_url by Supabase and never pass through
- * this action.
+ * Storing only the public URL (not the raw base64) keeps session cookies small.
+ * Base64 data URLs stored directly in user_metadata inflate every Cookie header
+ * and trigger HTTP 431 "Request Header Fields Too Large" from Node.js.
  *
- * @param avatarUrl - A data URL (JPEG, PNG, or WebP) produced by client-side canvas resize.
- * @throws When the user is not authenticated, the URL is invalid, or the Supabase update fails.
+ * @param dataUrl - A data URL (JPEG, PNG, or WebP) produced by client-side canvas resize.
+ * @returns The public storage URL of the uploaded avatar.
  */
-export async function updateAvatar(avatarUrl: string): Promise<void> {
-  // Reject https:// URLs (OAuth provider photos go directly via user_metadata.avatar_url
-  // set by Supabase -- they never pass through this action).
-  if (avatarUrl.startsWith('https://') || avatarUrl.startsWith('http://')) {
+export async function updateAvatar(dataUrl: string): Promise<{ publicUrl: string }> {
+  if (dataUrl.startsWith('https://') || dataUrl.startsWith('http://')) {
     throw new Error('External URLs are not allowed. Upload an image file instead.')
   }
-  // Accept only JPEG, PNG, or WebP data URLs.
-  const isAllowed = ALLOWED_AVATAR_PREFIXES.some((prefix) => avatarUrl.startsWith(prefix))
+  const isAllowed = ALLOWED_AVATAR_PREFIXES.some((prefix) => dataUrl.startsWith(prefix))
   if (!isAllowed) {
     throw new Error('Invalid image format. Only JPEG, PNG, and WebP are accepted.')
   }
-  // Cap at 35,000 chars (~26 KB decoded) to block oversized payloads.
-  if (avatarUrl.length > AVATAR_MAX_LENGTH) {
+  if (dataUrl.length > AVATAR_MAX_LENGTH) {
     throw new Error('Image is too large. Please use an image under 26 KB.')
   }
+
   const supabase = await createClient()
   const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) throw new Error('Not authenticated')
-  const { error } = await supabase.auth.updateUser({ data: { avatar_url: avatarUrl } })
+
+  // Decode data URL into raw bytes for storage upload.
+  const commaIdx = dataUrl.indexOf(',')
+  const meta = dataUrl.slice(0, commaIdx) // e.g. "data:image/jpeg;base64"
+  const b64 = dataUrl.slice(commaIdx + 1)
+  const mimeType = meta.replace('data:', '').replace(';base64', '') as 'image/jpeg' | 'image/png' | 'image/webp'
+  const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg'
+  const fileBuffer = Buffer.from(b64, 'base64')
+
+  const adminClient = createAdminClient()
+
+  // Ensure the bucket exists (ignored when already present).
+  const { error: bucketErr } = await adminClient.storage.createBucket(AVATARS_BUCKET, { public: true })
+  if (bucketErr && !/already exist/i.test(bucketErr.message)) {
+    throw new Error(`Failed to initialize avatar storage: ${bucketErr.message}`)
+  }
+
+  // Upload binary to storage, overwriting any previous avatar for this user.
+  const storagePath = `${user.id}/avatar.${ext}`
+  const { error: uploadError } = await adminClient.storage
+    .from(AVATARS_BUCKET)
+    .upload(storagePath, fileBuffer, { contentType: mimeType, upsert: true })
+  if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+  // Append a timestamp for cache-busting (CDN won't serve stale avatar on re-upload).
+  const { data: { publicUrl } } = adminClient.storage.from(AVATARS_BUCKET).getPublicUrl(storagePath)
+  const urlWithBuster = `${publicUrl}?t=${Date.now()}`
+
+  // Store only the short URL in user metadata -- not the base64 blob.
+  const { error } = await supabase.auth.updateUser({ data: { avatar_url: urlWithBuster } })
   if (error) throw new Error(error.message)
+
   revalidatePath('/accounts')
+  return { publicUrl: urlWithBuster }
 }
 
 export async function updateDisplayName(

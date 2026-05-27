@@ -81,8 +81,8 @@ export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
 
     try {
       const dataUrl = await resizeToDataUrl(file, AVATAR_SIZE)
-      await updateAvatar(dataUrl)
-      setAvatarUrl(dataUrl)
+      const { publicUrl } = await updateAvatar(dataUrl)
+      setAvatarUrl(publicUrl)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
     } finally {
