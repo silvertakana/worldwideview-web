@@ -19,6 +19,7 @@
 
 # agents
 /.agents/
+/.claude/settings.local.json
 
 # production
 /build
@@ -43,3 +44,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+certificates

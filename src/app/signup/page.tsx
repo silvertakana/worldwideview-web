@@ -1,4 +1,5 @@
 import { signUp } from './actions'
+import { OAuthButtons } from '../login/oauth-buttons'
 import { safeNext } from '../../lib/safeNext'
 import styles from '../hub/hub.module.css'
 
@@ -50,8 +51,21 @@ export default async function SignupPage({
           </button>
         </form>
 
+        <div
+          style={{
+            textAlign: 'center',
+            margin: 'var(--space-md) 0',
+            color: 'var(--color-text-muted)',
+            fontSize: '0.85rem',
+          }}
+        >
+          or
+        </div>
+
+        <OAuthButtons next={next} />
+
         {params.error && (
-          <p
+          <div
             style={{
               marginTop: 'var(--space-md)',
               textAlign: 'center',
@@ -59,8 +73,21 @@ export default async function SignupPage({
               color: 'var(--color-accent)',
             }}
           >
-            {params.error}
-          </p>
+            {params.error.toLowerCase().includes('already registered') ||
+            params.error.toLowerCase().includes('already exists') ? (
+              <>
+                An account with this email already exists.{' '}
+                <a
+                  href={`/login?next=${encodeURIComponent(next)}`}
+                  style={{ color: 'var(--color-accent)', fontWeight: 600 }}
+                >
+                  Sign in instead?
+                </a>
+              </>
+            ) : (
+              params.error
+            )}
+          </div>
         )}
 
         <p

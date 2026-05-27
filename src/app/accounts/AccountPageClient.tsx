@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { updateDisplayName, signOut } from './actions'
+import { AvatarUpload } from './AvatarUpload'
 import { DeleteAccountModal } from './DeleteAccountModal'
 import hubStyles from '../hub/hub.module.css'
 import styles from './accounts.module.css'
@@ -9,9 +10,14 @@ import styles from './accounts.module.css'
 interface AccountPageClientProps {
   email: string
   initialDisplayName: string | null
+  initialAvatarUrl: string | null
 }
 
-export function AccountPageClient({ email, initialDisplayName }: AccountPageClientProps) {
+export function AccountPageClient({
+  email,
+  initialDisplayName,
+  initialAvatarUrl,
+}: AccountPageClientProps) {
   const [editMode, setEditMode] = useState(false)
   const [displayName, setDisplayName] = useState(initialDisplayName ?? '')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -22,6 +28,13 @@ export function AccountPageClient({ email, initialDisplayName }: AccountPageClie
     <div className={hubStyles.hubContainer}>
       <div className={hubStyles.glassCard} style={{ maxWidth: '480px', marginTop: '6vh' }}>
         <h1 className={hubStyles.title}>Your Account</h1>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-lg)' }}>
+          <AvatarUpload
+            name={displayName || email}
+            initialAvatarUrl={initialAvatarUrl}
+          />
+        </div>
 
         <p
           style={{

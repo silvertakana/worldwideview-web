@@ -45,6 +45,32 @@
   gap: 2rem;
 }
 
+.avatarChip {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1.5px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.avatarChip:hover {
+  border-color: rgba(255,255,255,0.5);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+}
+
+.avatarImg {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 .link {
   color: var(--color-text-secondary);
   transition: color var(--transition-fast);
@@ -151,6 +177,21 @@
 .mobileCta {
   margin-top: 0.5rem;
   text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .links {
+    gap: 1rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Hide lower-priority links to keep the header breathing room */
+  .links a[href="/sponsor"],
+  .links a[href="/about"] {
+    display: none;
+  }
 }
 
 @media (max-width: 768px) {

@@ -1,27 +1,13 @@
-'use client'
+import React from 'react'
+import { redirect } from 'next/navigation'
+import { createClient } from '../../lib/supabase/server'
 
-import React, { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '../../lib/supabase/client'
-
-export default function HubLayout({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
-
-  useEffect(() => {
-    const checkSession = async () => {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-      } else {
-        setLoading(false)
-      }
-    }
-    checkSession()
-  }, [router])
-
-  if (loading) return <div>Loading Hub...</div>
+export default async function HubLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getClaims()
+  if (!data?.claims) {
+    redirect('/login?next=/hub')
+  }
 
   return (
     <div>

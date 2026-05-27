@@ -6,18 +6,27 @@ export const metadata = { title: 'Your Account' }
 
 export default async function AccountsPage() {
   const supabase = await createClient()
-  const { data } = await supabase.auth.getClaims()
-  const claims = data?.claims
+  const { data: { user } } = await supabase.auth.getUser()
 
-  if (!claims) {
+  if (!user) {
     redirect('/login?next=/accounts')
   }
 
-  const email = typeof claims.email === 'string' ? claims.email : 'your account'
+  const email = user.email ?? 'your account'
   const displayName =
-    typeof claims.user_metadata?.display_name === 'string'
-      ? claims.user_metadata.display_name
+    typeof user.user_metadata?.display_name === 'string'
+      ? user.user_metadata.display_name
+      : null
+  const avatarUrl =
+    typeof user.user_metadata?.avatar_url === 'string'
+      ? user.user_metadata.avatar_url
       : null
 
-  return <AccountPageClient email={email} initialDisplayName={displayName} />
+  return (
+    <AccountPageClient
+      email={email}
+      initialDisplayName={displayName}
+      initialAvatarUrl={avatarUrl}
+    />
+  )
 }

@@ -89,34 +89,50 @@ export default async function LoginPage({
         <OAuthButtons next={next} />
 
         {params.error && (
-          <p
-            style={{
-              marginTop: 'var(--space-md)',
-              textAlign: 'center',
-              fontSize: '0.9rem',
-              color: 'var(--color-accent)',
-            }}
-          >
-            {params.error}
-          </p>
+          <div style={{ marginTop: 'var(--space-md)' }}>
+            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: 'var(--color-accent)' }}>
+              {params.error}
+            </p>
+            {(params.error.toLowerCase().includes('invalid') ||
+              params.error.toLowerCase().includes('credential')) && (
+              <p
+                style={{
+                  textAlign: 'center',
+                  fontSize: '0.875rem',
+                  marginTop: 'var(--space-sm)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                No account yet?{' '}
+                <a
+                  href={`/signup?next=${encodeURIComponent(next)}`}
+                  style={{ color: 'var(--color-accent)', fontWeight: 600 }}
+                >
+                  Create one free
+                </a>
+              </p>
+            )}
+          </div>
         )}
 
-        <p
-          style={{
-            marginTop: 'var(--space-lg)',
-            textAlign: 'center',
-            fontSize: '0.9rem',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          No account?{' '}
-          <a
-            href={`/signup?next=${encodeURIComponent(next)}`}
-            style={{ color: 'var(--color-accent)', fontWeight: 500 }}
+        {!params.error && (
+          <p
+            style={{
+              marginTop: 'var(--space-lg)',
+              textAlign: 'center',
+              fontSize: '0.9rem',
+              color: 'var(--color-text-secondary)',
+            }}
           >
-            Create one
-          </a>
-        </p>
+            No account?{' '}
+            <a
+              href={`/signup?next=${encodeURIComponent(next)}`}
+              style={{ color: 'var(--color-accent)', fontWeight: 500 }}
+            >
+              Create one
+            </a>
+          </p>
+        )}
       </div>
     </div>
   )
