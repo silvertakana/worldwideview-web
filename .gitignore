@@ -46,3 +46,7 @@ yarn-error.log*
 next-env.d.ts
 
 certificates
+
+# local dev artifacts
+.dev-server.log
+.vscode/
