@@ -13,7 +13,8 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      return NextResponse.redirect(`${base}${next}`)
+      const target = next.startsWith('https://') || next.startsWith('http://') ? next : `${base}${next}`
+      return NextResponse.redirect(target)
     }
 
     console.error('[auth/callback] FAILED:', error.message, '| status:', error.status)

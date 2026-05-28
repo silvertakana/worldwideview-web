@@ -5,7 +5,11 @@ describe('safeNext', () => {
   it('allows same-origin relative paths', () => {
     expect(safeNext('/accounts')).toBe('/accounts')
     expect(safeNext('/hub/billing')).toBe('/hub/billing')
-    expect(safeNext('/')).toBe('/')
+  })
+
+  it('redirects bare "/" to /accounts (prevents landing on marketing root)', () => {
+    expect(safeNext('/')).toBe('/accounts')
+    expect(safeNext('//')).toBe('/accounts')
   })
 
   it('rejects absolute URLs to untrusted hosts (open redirect)', () => {
