@@ -117,3 +117,15 @@
     flex-direction: column;
   }
 }
+
+.legalConsent {
+  margin-top: var(--space-sm);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.legalConsent a {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
