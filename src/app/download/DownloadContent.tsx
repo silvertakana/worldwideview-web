@@ -134,8 +134,9 @@ export default function DownloadContent() {
           <section>
             <SpecsHeader title="Requirements" />
             <div>
-              <SpecRow label="Node.js" value="v18.17 or higher" />
-              <SpecRow label="pnpm" value="v8 or higher" />
+              <SpecRow label="Node.js" value="v20.0.0 or higher" />
+              <SpecRow label="pnpm" value="v9 or higher" />
+              <SpecRow label="Docker Desktop" value="Required for local database" />
               <SpecRow label="Browser" value="Chrome, Firefox, or Edge (WebGL)" />
               <SpecRow label="API Keys" value="Cesium Ion, Bing Maps" />
             </div>

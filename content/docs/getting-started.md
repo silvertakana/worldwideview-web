@@ -8,8 +8,9 @@ order: 1
 
 ## Requirements
 
-- Node.js v18.17 or higher
-- pnpm v8 or higher
+- Node.js v20.0.0 or higher
+- pnpm v9 or higher
+- Docker Desktop (required for the local database)
 - A GPU with WebGL 2.0 support
 - API keys for Cesium Ion and Bing Maps
 
