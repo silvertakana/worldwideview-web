@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { CheckCircle2, Link2 } from 'lucide-react'
 import { updateDisplayName, signOut } from './actions'
 import { AvatarUpload } from './AvatarUpload'
 import { DeleteAccountModal } from './DeleteAccountModal'
+import LinkedAccounts from './LinkedAccounts'
 import hubStyles from '../hub/hub.module.css'
 import styles from './accounts.module.css'
 
@@ -11,12 +13,14 @@ interface AccountPageClientProps {
   email: string
   initialDisplayName: string | null
   initialAvatarUrl: string | null
+  justLinked?: boolean
 }
 
 export function AccountPageClient({
   email,
   initialDisplayName,
   initialAvatarUrl,
+  justLinked = false,
 }: AccountPageClientProps) {
   const [editMode, setEditMode] = useState(false)
   const [displayName, setDisplayName] = useState(initialDisplayName ?? '')
@@ -28,6 +32,13 @@ export function AccountPageClient({
     <div className={hubStyles.hubContainer}>
       <div className={hubStyles.glassCard} style={{ maxWidth: '480px', marginTop: '6vh' }}>
         <h1 className={hubStyles.title}>Your Account</h1>
+
+        {justLinked && (
+          <div className={styles.linkedSuccessBanner} role="status">
+            <CheckCircle2 size={18} className={styles.linkedSuccessIcon} />
+            <span>GitHub account linked successfully.</span>
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-lg)' }}>
           <AvatarUpload
@@ -123,6 +134,15 @@ export function AccountPageClient({
             {saveError}
           </p>
         )}
+
+        <hr className={styles.sectionDivider} />
+
+        {/* Linked accounts */}
+        <div className={styles.sectionHeading}>
+          <Link2 size={16} className={styles.sectionIcon} />
+          <span className={styles.fieldLabel} style={{ marginBottom: 0 }}>Linked Accounts</span>
+        </div>
+        <LinkedAccounts />
 
         <hr className={styles.sectionDivider} />
 

@@ -4,7 +4,11 @@ import { AccountPageClient } from './AccountPageClient'
 
 export const metadata = { title: 'Your Account' }
 
-export default async function AccountsPage() {
+export default async function AccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -12,6 +16,8 @@ export default async function AccountsPage() {
     redirect('/login?next=/accounts')
   }
 
+  const params = await searchParams
+  const justLinked = params.linked === '1'
   const email = user.email ?? 'your account'
   const displayName =
     typeof user.user_metadata?.display_name === 'string'
@@ -27,6 +33,7 @@ export default async function AccountsPage() {
       email={email}
       initialDisplayName={displayName}
       initialAvatarUrl={avatarUrl}
+      justLinked={justLinked}
     />
   )
 }
