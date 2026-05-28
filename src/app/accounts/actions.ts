@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import type { UserIdentity } from '@supabase/supabase-js'
 import { createClient } from '../../lib/supabase/server'
 import { createAdminClient } from '../../lib/supabase/admin'
 
@@ -147,4 +148,22 @@ export async function deleteAccount(): Promise<{ success: boolean; error?: strin
 
   await supabase.auth.signOut()
   redirect('/')
+}
+
+export async function getIdentities(): Promise<UserIdentity[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getUserIdentities()
+  if (error) throw error
+  return data?.identities ?? []
+}
+
+export async function startGitHubLink(redirectTo: string): Promise<string> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: 'github',
+    options: { redirectTo, skipBrowserRedirect: true },
+  })
+  if (error) throw error
+  if (!data?.url) throw new Error('No OAuth URL returned from Supabase')
+  return data.url
 }

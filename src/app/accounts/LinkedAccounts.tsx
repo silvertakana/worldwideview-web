@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { Github, Mail, Link2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import type { UserIdentity } from '@supabase/supabase-js'
+import { getIdentities, startGitHubLink } from './actions'
 import styles from './accounts.module.css'
 
 function titleCase(str: string): string {
@@ -38,33 +38,21 @@ export default function LinkedAccounts() {
   const [linking, setLinking] = useState(false)
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUserIdentities().then(({ data, error: fetchError }) => {
-      if (fetchError) {
-        setError(fetchError.message)
-      } else {
-        setIdentities(data?.identities ?? [])
-      }
-      setLoading(false)
-    })
+    getIdentities()
+      .then(setIdentities)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load accounts'))
+      .finally(() => setLoading(false))
   }, [])
 
   async function handleLinkGithub() {
     setLinking(true)
     setError(null)
-    const supabase = createClient()
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
     try {
-      const { error: linkError } = await supabase.auth.linkIdentity({
-        provider: 'github',
-        options: { redirectTo: `${siteUrl}/accounts?linked=1` },
-      })
-      if (linkError) {
-        setError(linkError.message)
-        setLinking(false)
-      }
-      // On success the browser navigates away; no state update needed.
-    } catch {
+      const url = await startGitHubLink(`${siteUrl}/accounts?linked=1`)
+      window.location.href = url
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to start GitHub linking')
       setLinking(false)
     }
   }
