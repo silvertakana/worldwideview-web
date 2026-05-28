@@ -1,16 +1,1 @@
-{
-  "redirects": [
-    {
-      "source": "/docs",
-      "has": [{ "type": "host", "value": "worldwideview.dev" }],
-      "destination": "https://docs.worldwideview.dev",
-      "permanent": true
-    },
-    {
-      "source": "/docs/:path*",
-      "has": [{ "type": "host", "value": "worldwideview.dev" }],
-      "destination": "https://docs.worldwideview.dev/:path*",
-      "permanent": true
-    }
-  ]
-}
+{}

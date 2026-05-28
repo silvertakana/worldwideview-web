@@ -48,3 +48,11 @@ pnpm build  # Runs `next build` to generate the `/out` directory
 ```
 
 - **Deployment**: The `Dockerfile` uses Nginx (`nginx.conf`) to serve the static HTML/JS/CSS assets from the `out/` directory. No Node.js process runs in production.
+
+---
+
+## 6. Troubleshooting
+
+| Symptom | Reference |
+|---|---|
+| OAuth callback redirects to `/login`, "Authentication failed", `unable to verify the first certificate`, chunked `sb-*` cookies, Mode 1 / Mode 2 / Pattern C | [`docs/troubleshooting/oauth-auth-flow.md`](docs/troubleshooting/oauth-auth-flow.md) |

@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install WorldWideView and take your first look at the globe.
+description: Set up WorldWideView locally and take your first look at the globe.
 order: 1
 ---
 
@@ -8,17 +8,29 @@ order: 1
 
 ## Requirements
 
-- Windows 10/11 (64-bit)
-- 4 GB RAM minimum, 8 GB recommended
+- Node.js v18.17 or higher
+- pnpm v8 or higher
 - A GPU with WebGL 2.0 support
+- API keys for Cesium Ion and Bing Maps
 
-## Download
+## Setup
 
-Download the latest release from the [download page](https://worldwideview.dev/download). Run the installer and launch WorldWideView.
+WorldWideView is a self-hosted Next.js application. Clone the repository and start the dev server:
+
+```bash
+git clone https://github.com/silvertakana/worldwideview.git
+cd worldwideview && pnpm install
+pnpm setup
+pnpm dev
+```
+
+`pnpm setup` generates a `.env.local` file with a secure `AUTH_SECRET`. After that, open [http://localhost:3000](http://localhost:3000) in your browser.
+
+For the full setup guide including API key configuration, see the [download page](/download).
 
 ## First launch
 
-On first launch, WorldWideView opens to a 3D globe with live ADS-B flight data loaded by default.
+WorldWideView opens to a 3D globe with live ADS-B flight data loaded by default.
 
 | Action | Input |
 |--------|-------|

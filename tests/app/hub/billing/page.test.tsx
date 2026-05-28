@@ -5,11 +5,11 @@ import BillingPage from '../../../../src/app/hub/billing/page'
 
 // Mock Supabase
 vi.mock('../../../../src/lib/supabase/client', () => ({
-  supabase: {
+  createClient: () => ({
     functions: {
       invoke: vi.fn().mockResolvedValue({ data: { url: 'http://stripe.test' } })
     }
-  }
+  })
 }))
 
 describe('Billing Page', () => {

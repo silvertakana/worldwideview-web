@@ -1,0 +1,54 @@
+.wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.uploadImg {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  border: 2px solid rgba(255,255,255,0.15);
+}
+
+.changeBtn {
+  font-size: 0.8rem;
+  background: none;
+  border: 1px dashed rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.changeBtn:hover {
+  border-color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.9);
+}
+
+.changeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin: 0;
+}

@@ -1,16 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { User } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
-import ThemeToggle from './ThemeToggle';
+import { diceBearUrl } from '@/lib/diceBear';
 import styles from './Header.module.css';
 
 const NAV_LINKS = [
   { label: 'Home', href: '/' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Download', href: '/download' },
+  { label: 'Docs', href: '/docs' },
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
   { label: 'Sponsor', href: '/sponsor' },
   { label: 'About', href: '/about' },
@@ -18,7 +21,24 @@ const NAV_LINKS = [
 
 export default function Header() {
   const pathname = usePathname();
+  const [activePath, setActivePath] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Defer pathname comparison to after client mount to prevent hydration
+  // mismatch on statically prerendered pages when proxy.ts is present (Next.js 16).
+  useEffect(() => {
+    setActivePath(pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <header className={styles.header}>
@@ -38,7 +58,7 @@ export default function Header() {
               key={href}
               href={href}
               className={
-                pathname === href
+                activePath === href
                   ? `${styles.link} ${styles.linkActive}`
                   : styles.link
               }
@@ -49,23 +69,44 @@ export default function Header() {
         </div>
 
         <div className={styles.actions}>
-          <ThemeToggle />
-          <a
-            href="/coming-soon"
-            className={styles.signIn}
-            onClick={() => trackEvent('cta_click', { label: 'Sign In' })}
-          >
-            Sign In
-          </a>
-          <a
-            href="/waitlist"
-            className={`${styles.waitlistBtn} ${styles.headerWaitlist}`}
-            onClick={() =>
-              trackEvent('cta_click', { label: 'Join Waitlist' })
-            }
-          >
-            Join Waitlist
-          </a>
+          {user ? (
+            <Link
+              href="/accounts"
+              className={styles.avatarChip}
+              title={user.email ?? ''}
+            >
+              <img
+                src={diceBearUrl(
+                  user.user_metadata?.display_name ||
+                  user.user_metadata?.full_name ||
+                  user.user_metadata?.name ||
+                  user.email ||
+                  'user'
+                )}
+                alt=""
+                className={styles.avatarImg}
+              />
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className={styles.signIn}
+              onClick={() => trackEvent('cta_click', { label: 'Sign In' })}
+            >
+              Sign In
+            </Link>
+          )}
+          {!user && (
+            <a
+              href="/waitlist"
+              className={`${styles.waitlistBtn} ${styles.headerWaitlist}`}
+              onClick={() =>
+                trackEvent('cta_click', { label: 'Join Waitlist' })
+              }
+            >
+              Join Waitlist
+            </a>
+          )}
           <button
             className={styles.menuBtn}
             onClick={() => setMenuOpen((v) => !v)}
@@ -89,25 +130,27 @@ export default function Header() {
             key={href}
             href={href}
             className={`${styles.mobileLink} ${
-              pathname === href ? styles.mobileLinkActive : ''
+              activePath === href ? styles.mobileLinkActive : ''
             }`}
             onClick={() => setMenuOpen(false)}
           >
             {label}
           </Link>
         ))}
-        <div className={styles.mobileCta}>
-          <a
-            href="/waitlist"
-            className={styles.waitlistBtn}
-            onClick={() => {
-              setMenuOpen(false);
-              trackEvent('cta_click', { label: 'Join Waitlist' });
-            }}
-          >
-            Join Waitlist
-          </a>
-        </div>
+        {!user && (
+          <div className={styles.mobileCta}>
+            <a
+              href="/waitlist"
+              className={styles.waitlistBtn}
+              onClick={() => {
+                setMenuOpen(false);
+                trackEvent('cta_click', { label: 'Join Waitlist' });
+              }}
+            >
+              Join Waitlist
+            </a>
+          </div>
+        )}
       </div>
     </header>
   );

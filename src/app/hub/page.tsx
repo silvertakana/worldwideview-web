@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase/client'
+import { createClient } from '../../lib/supabase/client'
 import styles from './hub.module.css'
 
 interface Workspace {
@@ -17,6 +17,7 @@ export default function HubDashboard() {
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
+      const supabase = createClient()
       // Changed 'Tenant' to 'workspaces' per Prisma schema mapping
       const { data, error } = await supabase.from('workspaces').select('*')
       if (data) {

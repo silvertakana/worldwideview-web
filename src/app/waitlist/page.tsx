@@ -25,7 +25,7 @@ export default function WaitlistPage() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setStatus("success");
-      trackEvent("waitlist_signup", { email: email.trim() });
+      trackEvent("waitlist_signup", {});
       setFirstName("");
       setEmail("");
     } catch {
@@ -50,39 +50,52 @@ export default function WaitlistPage() {
           </p>
         </div>
       ) : (
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <div className={styles.fields}>
-            <input
-              type="text"
-              required
-              name="firstName"
-              autoComplete="given-name"
-              placeholder="First name"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              className={styles.input}
+        <>
+          <form className={styles.form} onSubmit={handleSubmit}>
+            <div className={styles.fields}>
+              <input
+                type="text"
+                required
+                name="firstName"
+                autoComplete="given-name"
+                placeholder="First name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className={styles.input}
+                disabled={status === "loading"}
+              />
+              <input
+                type="email"
+                required
+                name="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={styles.input}
+                disabled={status === "loading"}
+              />
+            </div>
+            <button
+              type="submit"
+              className={styles.submitBtn}
               disabled={status === "loading"}
-            />
-            <input
-              type="email"
-              required
-              name="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={styles.input}
-              disabled={status === "loading"}
-            />
-          </div>
-          <button
-            type="submit"
-            className={styles.submitBtn}
-            disabled={status === "loading"}
-          >
-            {status === "loading" ? "Submitting…" : "Join Waitlist"}
-          </button>
-        </form>
+            >
+              {status === "loading" ? "Submitting…" : "Join Waitlist"}
+            </button>
+          </form>
+          <p className={styles.legalConsent}>
+            By joining, you agree to our{" "}
+            <a
+              href="https://worldwideview.dev/legal/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Privacy Policy
+            </a>
+            .
+          </p>
+        </>
       )}
 
       {status === "error" && (

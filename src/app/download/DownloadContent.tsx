@@ -9,13 +9,13 @@ const INSTALL_CODE = `# Clone the repository
 git clone https://github.com/silvertakana/worldwideview.git
 
 # Install dependencies
-cd worldwideview && npm install
+cd worldwideview && pnpm install
 
 # Generate .env.local with a secure AUTH_SECRET (first time only)
-npm run setup
+pnpm setup
 
 # Start the dev server
-npm run dev`;
+pnpm dev`;
 
 export default function DownloadContent() {
   return (
@@ -135,9 +135,9 @@ export default function DownloadContent() {
             <SpecsHeader title="Requirements" />
             <div>
               <SpecRow label="Node.js" value="v18.17 or higher" />
-              <SpecRow label="npm" value="v9 or higher" />
+              <SpecRow label="pnpm" value="v8 or higher" />
               <SpecRow label="Browser" value="Chrome, Firefox, or Edge (WebGL)" />
-              <SpecRow label="API Keys" value="Cesium Ion, Bing Maps, Supabase" />
+              <SpecRow label="API Keys" value="Cesium Ion, Bing Maps" />
             </div>
           </section>
         </AnimateIn>
@@ -178,7 +178,7 @@ function ReleaseCard() {
     <section className={styles.releaseCard}>
       <div className={styles.releaseHeader}>
         <div>
-          <h3 className={styles.releaseTitle}>Version 0.1.0</h3>
+          <h3 className={styles.releaseTitle}>Version 2.20.1</h3>
           <p className={styles.releaseSubtitle}>Early Access</p>
         </div>
         <span className={styles.releaseBadge}>Latest</span>

@@ -1,12 +1,12 @@
 ---
 title: Cookie Policy
-lastUpdated: 2026-05-08
+lastUpdated: 2026-05-27
 seo: noindex
 ---
 
 # Cookie Policy
 
-**Last Updated:** May 8, 2026
+**Last Updated:** May 27, 2026
 
 This Cookie Policy explains how Tri Phung trading as WorldWideView ("we," "us," or "our") uses cookies and similar local storage technologies across our website (worldwideview.dev), Cloud Platform, and Marketplace.
 
@@ -19,9 +19,10 @@ The following cookies are strictly necessary for the operation and security of t
 
 | Cookie Name | Duration | Purpose |
 |---|---|---|
-| `authjs.session-token` | Session | NextAuth v5 token verifying you are logged in. |
-| `authjs.csrf-token` | Session | Protects forms against Cross-Site Request Forgery attacks. |
-| `authjs.callback-url` | Session | Remembers where to redirect you after a successful login. |
+| `sb-<ref>-auth-token` | Session | Supabase session token verifying you are logged in. HttpOnly, Secure, SameSite=Lax, domain `.worldwideview.dev`. |
+| `sb-<ref>-auth-token.0`, `.1`, etc. | Session | Chunked session token parts (same attributes as above). Present when the session token exceeds single-cookie size limits. |
+
+Note: `<ref>` represents the Supabase project reference identifier specific to this deployment.
 
 ## 3. Preference Cookies
 These cookies enhance your experience by remembering your choices:
@@ -40,11 +41,19 @@ To ensure your privacy and reduce our liability, we do not store your third-part
 | `wwv_key_nasa_firms` | Your personal NASA FIRMS MAP_KEY (for wildfire plugins). |
 
 ## 5. Third-Party Analytics and Advertising
-- **Umami**: We use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for privacy-focused analytics. Umami does not use cookies to track users across websites and anonymizes IP addresses.
-- **Optional Services**: Depending on our marketing configuration, we may utilize services like Vercel Analytics, Cloudflare Insights, or Google AdSense. These services may set their own cookies to monitor performance or serve relevant ads (to Free tier users).
+- **Umami**: We use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for
+  privacy-focused analytics. Umami is fully cookieless: it sets no cookies of any kind,
+  including session cookies. It does not use fingerprinting or assign any persistent
+  identifier to visitors. The data collected is limited to anonymized visit metadata --
+  page URL, referrer, browser type, and approximate country -- with no IP address stored
+  or logged at any point. Because Umami is self-hosted on our own infrastructure, this
+  data never leaves the WorldWideView platform and is not shared with any third party.
+  No consent is required to use Umami under ePrivacy Directive rules for cookieless,
+  anonymized analytics.
+- We do not currently use advertising cookies or third-party ad networks.
 
 ## 6. How to Manage Cookies
-You have the right to decide whether to accept or reject cookies. You can set or amend your web browser controls to accept or refuse cookies. If you choose to reject essential cookies (like `authjs.session-token`), you will not be able to log in to the Cloud Edition or Marketplace.
+You have the right to decide whether to accept or reject cookies. You can set or amend your web browser controls to accept or refuse cookies. If you choose to reject essential cookies (like `sb-<ref>-auth-token`), you will not be able to log in to the Cloud Edition or Marketplace.
 
 For self-hosted Local Edition users, you have full control over your environment and may block outbound analytics requests via your network firewall or ad-blocker without degrading core functionality.
 

@@ -5,11 +5,11 @@ import HubDashboard from '../../../src/app/hub/page'
 
 // Mock Supabase
 vi.mock('../../../src/lib/supabase/client', () => ({
-  supabase: {
+  createClient: () => ({
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockResolvedValue({ data: [] })
     })
-  }
+  })
 }))
 
 describe('Hub Dashboard', () => {
