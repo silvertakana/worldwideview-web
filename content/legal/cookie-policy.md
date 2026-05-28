@@ -41,7 +41,15 @@ To ensure your privacy and reduce our liability, we do not store your third-part
 | `wwv_key_nasa_firms` | Your personal NASA FIRMS MAP_KEY (for wildfire plugins). |
 
 ## 5. Third-Party Analytics and Advertising
-- **Umami**: We use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for privacy-focused analytics. Umami does not use cookies to track users across websites and anonymizes IP addresses.
+- **Umami**: We use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for
+  privacy-focused analytics. Umami is fully cookieless: it sets no cookies of any kind,
+  including session cookies. It does not use fingerprinting or assign any persistent
+  identifier to visitors. The data collected is limited to anonymized visit metadata --
+  page URL, referrer, browser type, and approximate country -- with no IP address stored
+  or logged at any point. Because Umami is self-hosted on our own infrastructure, this
+  data never leaves the WorldWideView platform and is not shared with any third party.
+  No consent is required to use Umami under ePrivacy Directive rules for cookieless,
+  anonymized analytics.
 - We do not currently use advertising cookies or third-party ad networks.
 
 ## 6. How to Manage Cookies
