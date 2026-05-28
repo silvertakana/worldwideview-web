@@ -33,6 +33,7 @@ export async function signInWithOAuth(
     provider,
     options: {
       redirectTo: `${siteUrl}/api/auth/callback?next=${encodeURIComponent(next)}`,
+      queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
     },
   })
 

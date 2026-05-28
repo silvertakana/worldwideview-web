@@ -1,6 +1,6 @@
 {
   "name": "worldwideview-web",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+2-key.pem --experimental-https-cert ./certs/wwv.local+2.pem",
