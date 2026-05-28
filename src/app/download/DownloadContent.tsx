@@ -12,7 +12,7 @@ git clone https://github.com/silvertakana/worldwideview.git
 cd worldwideview && pnpm install
 
 # Generate .env.local with a secure AUTH_SECRET (first time only)
-pnpm setup
+pnpm run setup
 
 # Start the dev server
 pnpm dev`;

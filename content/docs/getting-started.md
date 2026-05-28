@@ -21,11 +21,11 @@ WorldWideView is a self-hosted Next.js application. Clone the repository and sta
 ```bash
 git clone https://github.com/silvertakana/worldwideview.git
 cd worldwideview && pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 
-`pnpm setup` generates a `.env.local` file with a secure `AUTH_SECRET`. After that, open [http://localhost:3000](http://localhost:3000) in your browser.
+`pnpm run setup` generates a `.env.local` file with a secure `AUTH_SECRET`. After that, open [http://localhost:3000](http://localhost:3000) in your browser.
 
 For the full setup guide including API key configuration, see the [download page](/download).
 
