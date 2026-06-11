@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { verifyEmail } from './actions'
+import { getSafeRedirect } from '../../../lib/safeRedirect'
 import hubStyles from '../../hub/hub.module.css'
 import styles from '../../accounts/accounts.module.css'
 
@@ -13,13 +14,15 @@ function VerifyContent() {
 
   useEffect(() => {
     const code = searchParams.get('code')
+    const next = searchParams.get('next')
     if (!code) {
       setStatus('error')
       return
     }
+    const safeNext = getSafeRedirect(next)
     verifyEmail(code).then((result) => {
       if (result.success) {
-        router.replace('/accounts')
+        router.replace(safeNext)
       } else {
         setStatus('error')
       }
