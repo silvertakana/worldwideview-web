@@ -22,33 +22,18 @@ const TIERS = [
     ],
   },
   {
-    name: "Cloud: Basic",
-    desc: "Zero setup. Hosted 3D globe with live premium data.",
+    name: "Cloud: Pro",
+    desc: "Full cloud instance with real-time data, team collaboration, and all plugins.",
     price: "$19",
     label: "/month",
     highlighted: true,
-    cta: { label: "Start Free Trial", href: "/waitlist" },
+    cta: { label: "Start Free Trial", href: "/provision?plan=pro" },
     features: [
       { text: "Everything in Local Free", inherited: true },
       { text: "Zero setup & managed hosting", inherited: false },
       { text: "Google 3D Tiles included", inherited: false },
-      { text: "Access to 1st-party live data", inherited: false },
-      { text: "1 user seat", inherited: false },
-    ],
-  },
-  {
-    name: "Cloud: Pro",
-    desc: "Shared workspaces, synchronized filters, historical data.",
-    price: "$79",
-    label: "/month per seat",
-    highlighted: false,
-    cta: { label: "Join Waitlist", href: "/waitlist" },
-    features: [
-      { text: "Everything in Cloud Basic", inherited: true },
-      { text: "Shared team workspaces", inherited: false },
-      { text: "Synchronized filters & views", inherited: false },
-      { text: "Unlimited historical data", inherited: false },
-      { text: "Priority support", inherited: false },
+      { text: "Access to all live data layers", inherited: false },
+      { text: "Team collaboration (up to 5 seats)", inherited: false },
     ],
   },
 ];
@@ -118,20 +103,19 @@ export default function PricingContent() {
         <section className={styles.enterprise}>
           <div className={styles.enterpriseCard}>
             <div className={styles.enterpriseGlow} />
-            <h4 className={styles.enterpriseTitle}>Enterprise Needs?</h4>
+            <h4 className={styles.enterpriseTitle}>Enterprise</h4>
             <p className={styles.enterpriseDesc}>
-              For custom deployment, air-gapped environments, or
-              high-throughput API access, contact our team.
+              Custom deployment, air-gapped environments, dedicated infrastructure.
+              Available for organizations with specific security requirements.
             </p>
-            <a href="#" className={styles.enterpriseLink}>
-              <span>Contact Us</span>
-              <span className="material-symbols-outlined">
-                arrow_forward
-              </span>
-            </a>
+            <span className={styles.enterpriseLink} style={{ opacity: 0.5, cursor: 'default' }}>
+              <span>Coming Soon</span>
+              <span className="material-symbols-outlined">schedule</span>
+            </span>
           </div>
         </section>
       </AnimateIn>
+
     </div>
   );
 }
