@@ -23,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const res = await fetch(`${API_URL}/api/workspace/${id}`, {
+  const res = await fetch(`${API_URL}/api/instance/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -49,7 +49,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const { id } = await params
 
-  const res = await fetch(`${API_URL}/api/workspace/${id}`, {
+  const res = await fetch(`${API_URL}/api/instance/${id}`, {
     method: 'DELETE',
     headers: { 'x-api-key': API_KEY },
   })

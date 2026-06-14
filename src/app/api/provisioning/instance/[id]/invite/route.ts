@@ -19,7 +19,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const res = await fetch(`${API_URL}/api/workspace/${id}/invite`, {
+  const res = await fetch(`${API_URL}/api/instance/${id}/invite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
     body: JSON.stringify(body),

@@ -7,15 +7,15 @@ import { safeNext } from '../../lib/safeNext'
 const PROVISIONING_API_URL = process.env.PROVISIONING_API_URL || 'http://localhost:3000'
 const PROVISIONING_API_KEY = process.env.PROVISIONING_API_KEY
 
-async function userHasWorkspaces(userId: string, email: string): Promise<boolean> {
+async function userHasInstances(userId: string, email: string): Promise<boolean> {
   if (!PROVISIONING_API_KEY) return false
   try {
     const res = await fetch(
-      `${PROVISIONING_API_URL}/api/workspace?userId=${userId}&email=${encodeURIComponent(email)}`,
+      `${PROVISIONING_API_URL}/api/instance?userId=${userId}&email=${encodeURIComponent(email)}`,
       { headers: { 'x-api-key': PROVISIONING_API_KEY } }
     )
-    const data = await res.json().catch(() => ({ workspaces: [] }))
-    return (data.workspaces?.length ?? 0) > 0
+    const data = await res.json().catch(() => ({ instances: [] }))
+    return (data.instances?.length ?? 0) > 0
   } catch {
     return false
   }
@@ -42,8 +42,8 @@ export async function signInWithPassword(formData: FormData) {
 
   // Otherwise, check if they have workspaces to decide where to send them
   if (data.user) {
-    const hasWorkspaces = await userHasWorkspaces(data.user.id, data.user.email ?? '')
-    redirect(hasWorkspaces ? '/hub' : '/pricing')
+    const hasInstances = await userHasInstances(data.user.id, data.user.email ?? '')
+    redirect(hasInstances ? '/hub' : '/pricing')
   }
 
   redirect('/pricing')
