@@ -11,6 +11,15 @@ interface Workspace {
   subdomain: string
   plan: string
   status: string
+  trialEndsAt?: string | null
+  createdAt?: string
+}
+
+function daysRemaining(endDate: string | null | undefined): number | null {
+  if (!endDate) return null
+  const ms = new Date(endDate).getTime() - Date.now()
+  if (ms <= 0) return 0
+  return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -125,6 +134,14 @@ export default function HubDashboard() {
                         <span className={styles.workspaceTier}>
                           {workspace.subdomain}.cloud-wwv.dev &middot; Plan: {workspace.plan}
                         </span>
+                        {workspace.status === 'trialing' && (
+                          <span className={styles.trialHint}>
+                            {daysRemaining(workspace.trialEndsAt) === 0
+                              ? 'Trial expired — upgrade to continue'
+                              : `Trial: ${daysRemaining(workspace.trialEndsAt)} day${daysRemaining(workspace.trialEndsAt) === 1 ? '' : 's'} remaining`
+                            }
+                          </span>
+                        )}
                       </>
                     )}
                   </div>

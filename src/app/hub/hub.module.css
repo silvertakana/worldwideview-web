@@ -330,3 +330,9 @@
   color: var(--color-text-muted);
   padding: var(--space-md);
 }
+
+.trialHint {
+  font-size: 0.8rem;
+  color: var(--color-warning, #ca8a04);
+  margin-top: 2px;
+}
