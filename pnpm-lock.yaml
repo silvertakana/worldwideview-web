@@ -59,6 +59,9 @@ importers:
       scheduler:
         specifier: ^0.27.0
         version: 0.27.0
+      stripe:
+        specifier: ^22.2.1
+        version: 22.2.1(@types/node@20.19.37)
       three:
         specifier: ^0.183.2
         version: 0.183.2
@@ -1624,6 +1627,15 @@ packages:
   strip-indent@3.0.0:
     resolution: {integrity: sha512-laJTa3Jb+VQpaC6DseHhF7dXVqHTfJPCRDaEbid/drOhgitgYku/letMUqOXFoWV0zIIUbjpdH2t+tYj4bQMRQ==}
     engines: {node: '>=8'}
+
+  stripe@22.2.1:
+    resolution: {integrity: sha512-ULAtq25USBEx3yeN5zimEkfYVFETVMP5om25Ryr8ol11P62imaCZLBIEW78T7zm7Wg3wnZi+80S72yf3LCpNhw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   style-to-js@1.1.21:
     resolution: {integrity: sha512-RjQetxJrrUJLQPHbLku6U/ocGtzyjbJMP9lCNK7Ag0CNh690nSH8woqWH9u16nMjYBAok+i7JO1NP2pOy8IsPQ==}
@@ -3731,6 +3743,10 @@ snapshots:
   strip-indent@3.0.0:
     dependencies:
       min-indent: 1.0.1
+
+  stripe@22.2.1(@types/node@20.19.37):
+    optionalDependencies:
+      '@types/node': 20.19.37
 
   style-to-js@1.1.21:
     dependencies:

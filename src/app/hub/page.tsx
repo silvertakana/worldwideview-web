@@ -1,8 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { createClient } from '../../lib/supabase/client'
-import CreateWorkspaceForm from './CreateWorkspaceForm'
+import CreateInstanceForm from './CreateInstanceForm'
 import styles from './hub.module.css'
 
 interface Workspace {
@@ -39,9 +38,13 @@ export default function HubDashboard() {
   const [error, setError] = useState('')
 
   const fetchWorkspaces = useCallback(async () => {
-    const supabase = createClient()
-    const { data } = await supabase.from('workspaces').select('*')
-    if (data) setWorkspaces(data)
+    try {
+      const res = await fetch('/api/provisioning/workspace')
+      const data = await res.json()
+      if (data.workspaces) setWorkspaces(data.workspaces)
+    } catch {
+      // network error -- keep current list
+    }
     setLoading(false)
   }, [])
 
@@ -97,7 +100,7 @@ export default function HubDashboard() {
   return (
     <div className={styles.hubContainer}>
       <div className={styles.glassCard}>
-        <h1 className={styles.title}>Your Workspaces</h1>
+        <h1 className={styles.title}>Your Instances</h1>
 
         {loading ? (
           <p className={styles.emptyText}>Loading workspaces...</p>
@@ -132,7 +135,7 @@ export default function HubDashboard() {
                           </span>
                         </div>
                         <span className={styles.workspaceTier}>
-                          {workspace.subdomain}.cloud-wwv.dev &middot; Plan: {workspace.plan}
+                          {workspace.subdomain}.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'} &middot; Plan: {workspace.plan}
                         </span>
                         {workspace.status === 'trialing' && (
                           <span className={styles.trialHint}>
@@ -148,7 +151,7 @@ export default function HubDashboard() {
 
                   <div className={styles.actions}>
                     <a
-                      href={`https://${workspace.subdomain}.cloud-wwv.dev`}
+                      href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}`}
                       className={styles.launchButton}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -185,7 +188,7 @@ export default function HubDashboard() {
                 </li>
               ))}
               {workspaces.length === 0 && (
-                <li className={styles.emptyText}>No workspaces found. Create one below!</li>
+                <li className={styles.emptyText}>No instances found. Create one below!</li>
               )}
             </ul>
           </>
@@ -194,10 +197,10 @@ export default function HubDashboard() {
         {error && <p className={styles.errorBox}>{error}</p>}
 
         {showForm ? (
-          <CreateWorkspaceForm onCreated={() => { setShowForm(false); fetchWorkspaces() }} />
+          <CreateInstanceForm onCreated={() => { setShowForm(false); fetchWorkspaces() }} />
         ) : (
           <button className={styles.createButton} onClick={() => setShowForm(true)}>
-            + Create New Workspace
+            + Create New Instance
           </button>
         )}
       </div>

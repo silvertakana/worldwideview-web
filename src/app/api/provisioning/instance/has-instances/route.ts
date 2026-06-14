@@ -16,10 +16,10 @@ export async function GET() {
   }
 
   const res = await fetch(
-    `${API_URL}/api/workspace?userId=${user.id}&email=${encodeURIComponent(user.email ?? '')}`,
+    `${API_URL}/api/instance?userId=${user.id}&email=${encodeURIComponent(user.email ?? '')}`,
     { headers: { 'x-api-key': API_KEY } }
   )
   const data = await res.json().catch(() => ({ workspaces: [] }))
 
-  return NextResponse.json({ hasWorkspaces: (data.workspaces?.length ?? 0) > 0 })
+  return NextResponse.json({ hasInstances: (data.workspaces?.length ?? 0) > 0 })
 }

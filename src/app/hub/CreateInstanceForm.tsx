@@ -11,7 +11,7 @@ const RESERVED = new Set([
   'billing', 'account', 'accounts', 'auth', 'login',
 ])
 
-export default function CreateWorkspaceForm({
+export default function CreateInstanceForm({
   onCreated,
 }: {
   onCreated: () => void
@@ -90,7 +90,7 @@ export default function CreateWorkspaceForm({
             autoComplete="off"
             maxLength={63}
           />
-          <span className={styles.inputSuffix}>.cloud-wwv.dev</span>
+          <span className={styles.inputSuffix}>.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}</span>
         </div>
         {validationError && <span className={styles.errorText}>{validationError}</span>}
       </label>
@@ -116,8 +116,7 @@ export default function CreateWorkspaceForm({
           className={styles.inputField}
           disabled={loading}
         >
-          <option value="">Cloud Pro (Free Trial)</option>
-          <option value="price_basic">Cloud Basic (Free)</option>
+          <option value="">Pro (Free Trial)</option>
           <option value="price_enterprise">Cloud Enterprise ($99/mo)</option>
         </select>
       </label>
@@ -125,7 +124,7 @@ export default function CreateWorkspaceForm({
       {error && <p className={styles.errorBox}>{error}</p>}
 
       <button type="submit" className={styles.submitButton} disabled={loading}>
-        {loading ? 'Creating...' : 'Create Workspace'}
+        {loading ? 'Creating...' : 'Create Instance'}
       </button>
     </form>
   )

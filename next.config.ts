@@ -2,10 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  allowedDevOrigins: ["wwv.local"],
+  allowedDevOrigins: ["wwv.local", "*.wwv.local"],
   images: {
     unoptimized: true,
   },
+
   async headers() {
     return [
       {

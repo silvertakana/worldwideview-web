@@ -10,21 +10,22 @@ This repository (`worldwideview-web`) is the **Public Landing / Marketing Page**
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 16 (Static Export: `output: "export"`) |
+| Framework | Next.js 16 (`output: "standalone"`) |
 | Language | TypeScript 5, strict mode |
 | 3D Visualization | React Three Fiber (`@react-three/fiber` + `drei`) |
 | Styling | Vanilla CSS (`.module.css`) — **no Tailwind** |
-| Deployment | Nginx serving static `out/` directory |
+| Deployment | Docker (Coolify), Node.js server |
 | Package Manager | pnpm |
 
 ---
 
 ## 3. Architecture & Core Workflows
 
-### 3.1 Static Site Generation (SSG)
-Unlike the main engine or the marketplace, this is a **Static Export**.
-- **No Server-Side Code**: You cannot use Next.js API Routes (`/api/*`), NextAuth, or server actions here.
-- Everything runs on the client or is baked at build time.
+### 3.1 Node.js Server (Standalone)
+This app runs as a Node.js server in production (Coolify Docker, `output: "standalone"`).
+- **Has Server-Side Code**: API Routes (`/api/auth/*`), Server Actions, and Server Components are all in use.
+- Session cookies are read/written server-side via `@supabase/ssr`.
+- **IMPORTANT**: `NEXT_PUBLIC_*` env vars are inlined at build time in Next.js. The Dockerfile passes them via `ARG` + `ENV ${ARG}`. Coolify must have them marked as build-time variables. If an API route shows placeholder values, check the Dockerfile `ENV`/`ARG` directives.
 
 ### 3.2 3D Rendering (Three.js instead of Cesium)
 To keep the marketing page lightweight and fast-loading, 3D visualizations here use **React Three Fiber (R3F)** instead of the full CesiumJS engine. 
