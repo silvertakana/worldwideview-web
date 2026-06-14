@@ -61,7 +61,7 @@ export default function ProvisionPage() {
               id="displayName"
               type="text"
               className={styles.input}
-              placeholder="My Workspace"
+              placeholder="My Instance"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               autoComplete="off"

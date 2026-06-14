@@ -38,7 +38,7 @@ export async function provisionWorkspace(formData: FormData) {
     body.accessCode = accessCode
   }
 
-  const res = await fetch(`${API_URL}/api/workspace`, {
+  const res = await fetch(`${API_URL}/api/instance`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
