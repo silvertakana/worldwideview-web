@@ -24,6 +24,13 @@ export default function CTASection() {
             <span style={{ position: "relative", zIndex: 10, color: "#fff" }}>Try the Demo</span>
           </a>
           <a
+            href="/pricing"
+            className={styles.outlineBtn}
+            onClick={() => trackEvent("cta_click", { label: "Create Your Cloud Instance" })}
+          >
+            Create Your Cloud Instance
+          </a>
+          <a
             href="/download"
             className={styles.outlineBtn}
             onClick={() => trackEvent("cta_click", { label: "Download" })}
