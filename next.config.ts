@@ -7,6 +7,16 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
 
+  async redirects() {
+    return [
+      {
+        source: "/provision",
+        destination: "/accounts/instances",
+        permanent: true,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {

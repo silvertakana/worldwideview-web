@@ -27,7 +27,7 @@ const TIERS = [
     price: "$19",
     label: "/month",
     highlighted: true,
-    cta: { label: "Start Free Trial", href: "/provision?plan=pro" },
+    cta: { label: "Start Free Trial", href: "/signup?plan=pro" },
     features: [
       { text: "Everything in Local Free", inherited: true },
       { text: "Zero setup & managed hosting", inherited: false },
