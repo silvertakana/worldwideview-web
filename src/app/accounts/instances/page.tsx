@@ -63,6 +63,17 @@ export default function InstancesPage() {
     fetchWorkspaces()
   }, [fetchWorkspaces])
 
+  // Poll for account after successful checkout redirect (webhook may not have fired yet)
+  useEffect(() => {
+    const checkout = new URLSearchParams(window.location.search).get('checkout')
+    if (checkout === 'success' && !account && !loading) {
+      const interval = setInterval(() => fetchWorkspaces(), 2000)
+      // Stop after 30 seconds to avoid indefinite polling
+      const timeout = setTimeout(() => clearInterval(interval), 30000)
+      return () => { clearInterval(interval); clearTimeout(timeout) }
+    }
+  }, [account, loading, fetchWorkspaces])
+
   const handleRename = async (id: string) => {
     setError('')
     if (!renameValue.trim()) return
@@ -127,11 +138,13 @@ export default function InstancesPage() {
   }
 
   const isSuspended = account?.status === 'suspended'
+  const isDeleted = account?.status === 'deleted'
   const atInstanceLimit = account ? account.instanceCount >= account.instanceLimit : false
-  const canCreate = !isSuspended && !atInstanceLimit
+  const canCreate = !isSuspended && !isDeleted && !atInstanceLimit
 
   const createButtonLabel = () => {
     if (isSuspended) return 'Account Suspended'
+    if (isDeleted) return 'Account Deleted'
     if (atInstanceLimit) return 'Upgrade to Create More'
     return '+ Create New Instance'
   }
@@ -150,7 +163,7 @@ export default function InstancesPage() {
             <div className={styles.accountTierRow}>
               <Zap size={14} className={account.plan === 'local' ? styles.accountZapMuted : styles.accountZapAccent} />
               <span className={styles.accountPlanName}>{accountPlanLabel(account.plan)} Plan</span>
-              {account.status !== 'local' && (
+              {account.plan !== 'local' && (
                 <span className={`${styles.accountStatusBadge} ${accountStatusClass(account.status)}`}>
                   {account.status === 'trialing' ? 'Trial' : account.status === 'active' ? 'Active' : account.status === 'suspended' ? 'Suspended' : account.status}
                 </span>
@@ -175,6 +188,11 @@ export default function InstancesPage() {
                 Payment failed. Update your payment method to continue.
               </span>
             )}
+            {isDeleted && !isSuspended && (
+              <span className={styles.accountSuspendedText}>
+                Account deleted. Contact support to reactivate your subscription.
+              </span>
+            )}
           </div>
           <div className={styles.accountBannerAction}>
             {account.plan === 'local' ? (
@@ -184,6 +202,10 @@ export default function InstancesPage() {
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
                 Update Payment
+              </a>
+            ) : isDeleted ? (
+              <a href="mailto:support@worldwideview.dev" className={styles.accountManageBtn}>
+                Contact Support
               </a>
             ) : (
               <a href="/accounts/billing" className={styles.accountManageBtn}>
@@ -286,8 +308,8 @@ export default function InstancesPage() {
         <button
           className={`${styles.createButton} ${!canCreate ? styles.createButtonDisabled : ''}`}
           onClick={() => canCreate ? setShowForm(true) : undefined}
-          disabled={isSuspended}
-          title={isSuspended ? 'Account suspended -- update payment to create instances' : atInstanceLimit ? 'You\'ve reached the instance limit for your plan.' : ''}
+          disabled={isSuspended || isDeleted}
+          title={isSuspended ? 'Account suspended -- update payment to create instances' : isDeleted ? 'Account deleted' : atInstanceLimit ? 'You\'ve reached the instance limit for your plan.' : ''}
         >
           {createButtonLabel()}
         </button>
@@ -297,7 +319,12 @@ export default function InstancesPage() {
           Account suspended -- update payment to create instances
         </p>
       )}
-      {atInstanceLimit && !isSuspended && (
+      {isDeleted && !isSuspended && (
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-danger, #ef4444)', textAlign: 'center', marginTop: 'var(--space-sm)' }}>
+          Account deleted -- contact support to reactivate your subscription.
+        </p>
+      )}
+      {atInstanceLimit && !isSuspended && !isDeleted && (
         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-sm)' }}>
           You've reached the instance limit for your plan.
         </p>
