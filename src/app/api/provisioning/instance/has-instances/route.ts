@@ -21,5 +21,7 @@ export async function GET() {
   )
   const data = await res.json().catch(() => ({ workspaces: [] }))
 
-  return NextResponse.json({ hasInstances: (data.workspaces?.length ?? 0) > 0 })
+  // TODO: could eventually switch to checking account instance count
+  // instead of listing all instances, once Account model is fully integrated.
+  return NextResponse.json({ hasInstances: (data.workspaces?.length ?? data.instances?.length ?? 0) > 0 })
 }

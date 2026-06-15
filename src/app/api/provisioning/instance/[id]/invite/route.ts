@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '../../../../../lib/supabase/server'
+import { createClient } from '../../../../../../lib/supabase/server'
 
 const API_URL = process.env.PROVISIONING_API_URL || 'https://wwv.local:3443'
 const API_KEY = process.env.PROVISIONING_API_KEY

@@ -22,11 +22,41 @@ export async function GET() {
   const auth = await requireUser()
   if (auth.response) return auth.response
 
-  const res = await fetch(`${API_URL}/api/instance?userId=${auth.user.id}&email=${encodeURIComponent(auth.user.email)}`, {
+  const { user } = auth
+
+  // Fetch instances from globe
+  const instancesRes = await fetch(`${API_URL}/api/instance?userId=${user.id}&email=${encodeURIComponent(user.email)}`, {
     headers: { 'x-api-key': API_KEY! },
   })
-  const data = await res.json().catch(() => null)
-  return NextResponse.json(data || { workspaces: [] }, { status: res.status })
+  const instancesData = await instancesRes.json().catch(() => ({ instances: [] }))
+
+  // Fetch account info from globe
+  const accountRes = await fetch(`${API_URL}/api/account?userId=${user.id}`, {
+    headers: { 'x-api-key': API_KEY! },
+  })
+  const accountData = await accountRes.json().catch(() => null)
+
+  // Map instances to workspaces format and merge account info
+  const workspaces = (instancesData.instances || []).map((inst: any) => ({
+    id: inst.id,
+    name: inst.name,
+    subdomain: inst.subdomain,
+    status: inst.status,
+    createdAt: inst.createdAt,
+  }))
+
+  return NextResponse.json({
+    workspaces,
+    account: accountData ? {
+      plan: accountData.account?.plan || accountData.plan || 'local',
+      status: accountData.account?.status || accountData.status || 'active',
+      trialEndsAt: accountData.account?.trialEndsAt || accountData.trialEndsAt || null,
+      instanceCount: accountData.account?.instanceCount || accountData.instanceCount || 0,
+      instanceLimit: accountData.account?.instanceLimit || accountData.instanceLimit || Infinity,
+      isTrialing: accountData.account?.isTrialing || accountData.isTrialing || false,
+      trialDaysRemaining: accountData.account?.trialDaysRemaining || accountData.trialDaysRemaining || null,
+    } : null,
+  })
 }
 
 export async function POST(request: Request) {
