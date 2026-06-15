@@ -6,6 +6,7 @@
     "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+4-key.pem --experimental-https-cert ./certs/wwv.local+4.pem",
     "build": "next build",
     "start": "next start",
+    "lint": "eslint",
     "test": "vitest run"
   },
   "dependencies": {
@@ -39,6 +40,9 @@
     "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^6.0.1",
     "cross-env": "^10.1.0",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.9",
+    "eslint-plugin-security": "^4.0.1",
     "jsdom": "^29.1.1",
     "typescript": "^5",
     "vitest": "^4.1.5"
