@@ -39,7 +39,8 @@ export default async function BillingPage() {
     }
 
     const plan = account?.account?.plan || account?.plan || "local";
-    const status = account?.account?.status || account?.status || "active";
+    const resolvedStatus = account?.account?.status ?? account?.status;
+    const status = resolvedStatus ?? "not_found";
     const trialEndsAt = account?.account?.trialEndsAt || account?.trialEndsAt || null;
     const instanceCount = account?.account?.instanceCount ?? account?.instanceCount ?? 0;
     const instanceLimit = account?.account?.instanceLimit ?? account?.instanceLimit ?? Infinity;
