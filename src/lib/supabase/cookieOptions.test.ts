@@ -24,8 +24,8 @@ describe('resolveCookieDomain', () => {
 })
 
 describe('buildCookieOptions', () => {
-  it('sets httpOnly: true to block XSS exfiltration of the session token', () => {
-    expect(buildCookieOptions().httpOnly).toBe(true)
+  it('does not set httpOnly (client-side auth token needs JS access)', () => {
+    expect(buildCookieOptions()).not.toHaveProperty('httpOnly')
   })
 
   it('sets secure: true (cross-subdomain cookies require HTTPS)', () => {

@@ -19,6 +19,10 @@ const NAV_LINKS = [
   { label: 'About', href: '/about' },
 ];
 
+const AUTH_NAV_LINKS = [
+  { label: 'Account', href: '/accounts' },
+];
+
 export default function Header() {
   const pathname = usePathname();
   const [activePath, setActivePath] = useState('');
@@ -54,6 +58,19 @@ export default function Header() {
 
         <div className={styles.links}>
           {NAV_LINKS.map(({ label, href }) => (
+            <Link
+              key={href}
+              href={href}
+              className={
+                activePath === href
+                  ? `${styles.link} ${styles.linkActive}`
+                  : styles.link
+              }
+            >
+              {label}
+            </Link>
+          ))}
+          {user && AUTH_NAV_LINKS.map(({ label, href }) => (
             <Link
               key={href}
               href={href}
@@ -126,6 +143,18 @@ export default function Header() {
         }`}
       >
         {NAV_LINKS.map(({ label, href }) => (
+          <Link
+            key={href}
+            href={href}
+            className={`${styles.mobileLink} ${
+              activePath === href ? styles.mobileLinkActive : ''
+            }`}
+            onClick={() => setMenuOpen(false)}
+          >
+            {label}
+          </Link>
+        ))}
+        {user && AUTH_NAV_LINKS.map(({ label, href }) => (
           <Link
             key={href}
             href={href}

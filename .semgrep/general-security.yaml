@@ -1,0 +1,46 @@
+rules:
+  - id: eval-usage
+    pattern-either:
+      - pattern: |
+          eval(...)
+      - pattern: |
+          new Function(...)
+      - pattern: |
+          setTimeout("...")
+      - pattern: |
+          setInterval("...")
+    message: Avoid eval/new Function - leads to code injection
+    languages: [typescript]
+    severity: ERROR
+
+  - id: dangerous-innerhtml
+    pattern-either:
+      - pattern: |
+          $ELEMENT.innerHTML = $VALUE
+      - pattern: |
+          dangerouslySetInnerHTML=$VALUE
+      - pattern: |
+          dangerouslySetInnerHTML={...}
+      - pattern: |
+          document.write(...)
+    message: Dangerous HTML injection - use safe rendering methods
+    languages: [typescript]
+    severity: ERROR
+
+  - id: command-injection
+    pattern-either:
+      - pattern: |
+          execSync(...)
+      - pattern: |
+          exec(...)
+      - pattern: |
+          spawnSync(...)
+      - pattern: |
+          child_process.exec(...)
+      - pattern: |
+          child_process.execSync(...)
+      - pattern: |
+          child_process.spawnSync(...)
+    message: Potential command injection - validate inputs
+    languages: [typescript]
+    severity: ERROR

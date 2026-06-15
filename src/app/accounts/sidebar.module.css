@@ -1,0 +1,134 @@
+.sidebar {
+    width: 240px;
+    min-height: 100vh;
+    background: var(--header-bg);
+    border-right: 1px solid var(--color-border);
+    flex-shrink: 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+@media (max-width: 767px) {
+    .sidebar {
+        display: none;
+    }
+}
+
+.sidebarInner {
+    padding: var(--space-xl) var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.navSection {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.navLabel {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+    padding: 0 var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+
+.navItem {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+.navItem:hover {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+}
+
+.navItemActive {
+    background: var(--color-accent-glow);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.navIcon {
+    flex-shrink: 0;
+    opacity: 0.75;
+}
+
+.navItemActive .navIcon {
+    opacity: 1;
+}
+
+.externalIcon {
+    margin-left: auto;
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+.navDivider {
+    border: none;
+    border-top: 1px solid var(--color-border);
+}
+
+/* ── Mobile top nav ── */
+.mobileNav {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .mobileNav {
+        display: flex;
+        gap: var(--space-xs);
+        padding: 0 0 var(--space-lg) 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .mobileNav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .mobileItem {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: var(--radius-full);
+        font-size: 0.88rem;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-elevated);
+        border: 1px solid var(--color-border);
+        text-decoration: none;
+        white-space: nowrap;
+        transition: all var(--transition-fast);
+    }
+
+    .mobileItem:active {
+        transform: scale(0.97);
+    }
+
+    .mobileItemActive {
+        background: var(--color-accent-glow);
+        color: var(--color-accent);
+        border-color: var(--color-accent);
+        font-weight: 600;
+    }
+
+    .mobileExternalIcon {
+        opacity: 0.4;
+        flex-shrink: 0;
+    }
+}

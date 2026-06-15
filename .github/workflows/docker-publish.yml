@@ -1,0 +1,22 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - '.gitignore'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: silvertakana/worldwideview/.github/workflows/shared-docker.yml@ci/infra-overhaul
+    with:
+      tags: |
+        type=sha,prefix=sha-
+        type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      smoke-test-path: /
+    secrets: inherit

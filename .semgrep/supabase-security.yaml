@@ -1,0 +1,53 @@
+rules:
+  - id: service-role-in-browser
+    patterns:
+      - pattern: |
+          createClient($URL, $KEY, {...})
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: .*service.*role.*|.*SERVICE_ROLE.*
+    message: Service role key used without 'server-only' guard - exposes admin privileges
+    languages: [typescript]
+    severity: ERROR
+
+  - id: getSession-for-auth
+    patterns:
+      - pattern: |
+          supabase.auth.getSession()
+      - pattern-not-inside: |
+          import "server-only"
+      - pattern-not-inside: |
+          require("server-only")
+    message: getSession() is unreliable for auth decisions - use getUser() which verifies with Supabase Auth server
+    languages: [typescript]
+    severity: WARNING
+
+  - id: auth-error-swallowed
+    patterns:
+      - pattern: |
+          const { error } = await supabase.auth.$ACTION(...)
+      - pattern-not: |
+          if (error) { ... }
+      - pattern-not: |
+          if (!error) { ... }
+      - pattern-not: |
+          if(error) { ... }
+    message: Auth error silently ignored - check and handle the error response
+    languages: [typescript]
+    severity: WARNING
+
+  - id: supabase-admin-delete-user
+    patterns:
+      - pattern: |
+          adminClient.auth.admin.deleteUser(...)
+    message: Admin user deletion - ensure proper authorization and audit logging
+    languages: [typescript]
+    severity: WARNING
+
+  - id: signInWithOAuth-redirect
+    patterns:
+      - pattern: |
+          supabase.auth.signInWithOAuth({options: {redirectTo: $URL}})
+    message: OAuth redirectTo should use a fixed trusted URL, not user input
+    languages: [typescript]
+    severity: WARNING

@@ -3,7 +3,7 @@
   "version": "0.10.7",
   "private": true,
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+2-key.pem --experimental-https-cert ./certs/wwv.local+2.pem",
+    "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+4-key.pem --experimental-https-cert ./certs/wwv.local+4.pem",
     "build": "next build",
     "start": "next start",
     "test": "vitest run"
@@ -26,6 +26,7 @@
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "scheduler": "^0.27.0",
+    "stripe": "^22.2.1",
     "three": "^0.183.2"
   },
   "devDependencies": {

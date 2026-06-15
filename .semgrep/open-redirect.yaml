@@ -1,0 +1,33 @@
+rules:
+  - id: unsanitized-redirect
+    pattern-either:
+      - pattern: |
+          redirect($PARAM)
+      - pattern: |
+          NextResponse.redirect($PARAM)
+      - pattern: |
+          permanentRedirect($PARAM)
+    message: Redirect to user-controlled URL without validation check
+    languages: [typescript]
+    severity: WARNING
+
+  - id: open-redirect-next-param
+    patterns:
+      - pattern: |
+          redirect(`${base}${next}`)
+      - pattern-not-inside: |
+          safeNext(...)
+    message: Open redirect - use safeNext() or validate 'next' parameter before redirect
+    languages: [typescript]
+    severity: WARNING
+
+  - id: oauth-callback-direct-redirect
+    patterns:
+      - pattern: |
+          NextResponse.redirect($URL)
+      - metavariable-regex:
+          metavariable: $URL
+          regex: .*next.*
+    message: OAuth callback redirect with 'next' parameter - ensure safeNext() is applied
+    languages: [typescript]
+    severity: WARNING
