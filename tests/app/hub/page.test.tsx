@@ -15,6 +15,6 @@ vi.mock('../../../src/lib/supabase/client', () => ({
 describe('Hub Dashboard', () => {
   it('renders dashboard heading', async () => {
     render(<HubDashboard />)
-    expect(await screen.findByRole('heading', { name: /workspaces/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /instances/i })).toBeInTheDocument()
   })
 })

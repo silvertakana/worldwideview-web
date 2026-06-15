@@ -1,0 +1,630 @@
+{
+  "communities": {
+    "0": [
+      "app_page",
+      "app_page_homepage",
+      "components_animatein",
+      "components_animatein_animatein",
+      "components_animatein_animateinprops",
+      "components_globe",
+      "components_globe_globe",
+      "components_globe_globecanvas",
+      "components_trackedlink",
+      "components_trackedlink_trackedlink",
+      "components_trackedlink_trackedlinkprops",
+      "hooks_useinview",
+      "hooks_useinview_useinview",
+      "lib_analytics",
+      "lib_analytics_trackevent",
+      "lib_analytics_window",
+      "pricing_page",
+      "pricing_page_metadata",
+      "pricing_page_pricingpage",
+      "pricing_pricingcontent",
+      "pricing_pricingcontent_pricingcontent",
+      "pricing_pricingcontent_tiers",
+      "sections_cloudhostedsection",
+      "sections_cloudhostedsection_cloudhostedsection",
+      "sections_cloudhostedsection_smallcard",
+      "sections_ctasection",
+      "sections_ctasection_ctasection",
+      "sections_featuressection",
+      "sections_featuressection_features",
+      "sections_featuressection_featuressection",
+      "sections_herosection",
+      "sections_herosection_herosection",
+      "sections_usecasessection",
+      "sections_usecasessection_cases",
+      "sections_usecasessection_usecasessection",
+      "waitlist_page",
+      "waitlist_page_waitlistpage"
+    ],
+    "1": [
+      "app_login_test",
+      "callback_route",
+      "callback_route_get",
+      "export_route",
+      "export_route_get",
+      "lib_safenext",
+      "lib_safenext_safenext",
+      "lib_safenext_test",
+      "login_actions",
+      "login_actions_signinwithpassword",
+      "login_oauth_actions",
+      "login_oauth_actions_signinwithoauth",
+      "login_oauth_actions_signinwithoauthresult",
+      "login_oauth_buttons",
+      "login_oauth_buttons_outlinestyle",
+      "login_oauth_buttons_provider",
+      "login_page",
+      "login_page_loginpage",
+      "login_page_metadata",
+      "reset_password_actions",
+      "reset_password_actions_requestpasswordreset",
+      "reset_password_page",
+      "reset_password_page_resetpasswordpage",
+      "signup_actions",
+      "signup_actions_signup",
+      "signup_page",
+      "signup_page_metadata",
+      "signup_page_signuppage",
+      "supabase_server",
+      "supabase_server_createclient",
+      "verify_actions",
+      "verify_actions_verifyemail",
+      "verify_page",
+      "verify_page_verifycontent",
+      "verify_page_verifypage"
+    ],
+    "2": [
+      "docs_docssidebarnav",
+      "docs_docssidebarnav_docssidebarnav",
+      "docs_docssidebarnav_sidebaritem",
+      "docs_layout_docslayout",
+      "docs_page",
+      "docs_page_docsindexpage",
+      "docs_page_metadata",
+      "docs_scrolltohash",
+      "docs_scrolltohash_scrolltohash",
+      "docs_searchbar",
+      "docs_searchbar_props",
+      "docs_searchbar_searchbar",
+      "docs_searchbar_searchindexitem",
+      "hub_layout",
+      "hub_layout_hublayout",
+      "hub_layout_test_mockredirect_mockgetclaims",
+      "lib_docs",
+      "lib_docs_docmeta",
+      "lib_docs_docpage",
+      "lib_docs_docs_dir",
+      "lib_docs_getalldocslugs",
+      "lib_docs_getdocbyslug",
+      "lib_docs_getdocindex",
+      "lib_docs_getsearchindex",
+      "lib_docs_getsidebaritems",
+      "lib_docs_headingtoanchor",
+      "lib_docs_searchindexitem",
+      "lib_docs_stripmarkdown",
+      "slug_page_docpage",
+      "src_app_docs_slug_page_tsx_slug_page",
+      "src_app_docs_slug_page_tsx_slug_page_generatemetadata",
+      "src_app_docs_slug_page_tsx_slug_page_generatestaticparams",
+      "src_app_docs_slug_page_tsx_slug_page_pageprops"
+    ],
+    "3": [
+      "accounts_accountpageclient",
+      "accounts_accountpageclient_accountpageclient",
+      "accounts_actions",
+      "accounts_actions_allowed_avatar_prefixes",
+      "accounts_actions_deleteaccount",
+      "accounts_actions_getidentities",
+      "accounts_actions_signout",
+      "accounts_actions_startgithublink",
+      "accounts_actions_updateavatar",
+      "accounts_actions_updatedisplayname",
+      "accounts_avatarupload",
+      "accounts_avatarupload_avatarupload",
+      "accounts_avatarupload_avataruploadprops",
+      "accounts_avatarupload_resizetodataurl",
+      "accounts_deleteaccountmodal",
+      "accounts_deleteaccountmodal_deleteaccountmodal",
+      "accounts_deleteaccountmodal_deleteaccountmodalprops",
+      "accounts_linkedaccounts",
+      "accounts_linkedaccounts_getdisplayvalue",
+      "accounts_linkedaccounts_linkedaccounts",
+      "accounts_linkedaccounts_providericon",
+      "accounts_linkedaccounts_titlecase",
+      "accounts_page",
+      "accounts_page_accountspage",
+      "accounts_page_metadata",
+      "components_header",
+      "components_header_header",
+      "components_header_nav_links",
+      "lib_dicebear",
+      "lib_dicebear_dicebearurl",
+      "supabase_admin",
+      "supabase_admin_createadminclient"
+    ],
+    "4": [
+      "agents_md_source",
+      "concept_cloud_orchestrator_hub",
+      "concept_databus",
+      "concept_edge_functions",
+      "concept_globe",
+      "concept_marketplace",
+      "concept_nextjs",
+      "concept_oauth",
+      "concept_plugin_manager",
+      "concept_plugin_sdk",
+      "concept_react_three_fiber",
+      "concept_stripe",
+      "concept_supabase",
+      "concept_typescript",
+      "concept_worldwideview_web",
+      "content_docs_architecture_source",
+      "content_docs_configuration_source",
+      "content_docs_contributing_source",
+      "content_docs_data_channels_source",
+      "content_docs_getting_started_source",
+      "content_docs_index_source",
+      "content_docs_managing_plugins_source",
+      "content_docs_manifest_reference_source",
+      "content_docs_permissions_source",
+      "content_docs_platform_capabilities_source",
+      "content_docs_plugin_api_source",
+      "content_docs_plugin_quickstart_source",
+      "content_docs_troubleshooting_source",
+      "content_docs_ui_api_source",
+      "content_docs_using_the_globe_source",
+      "docs_system_design_cloud_orchestrator_hub_source",
+      "docs_troubleshooting_oauth_auth_flow_source"
+    ],
+    "5": [
+      "package",
+      "package_devdependencies",
+      "package_devdependencies_cross_env",
+      "package_devdependencies_jsdom",
+      "package_devdependencies_testing_library_dom",
+      "package_devdependencies_testing_library_jest_dom",
+      "package_devdependencies_testing_library_react",
+      "package_devdependencies_types_node",
+      "package_devdependencies_types_react",
+      "package_devdependencies_types_react_dom",
+      "package_devdependencies_types_three",
+      "package_devdependencies_typescript",
+      "package_devdependencies_vitejs_plugin_react",
+      "package_devdependencies_vitest",
+      "package_name",
+      "package_packagemanager",
+      "package_pnpm",
+      "package_pnpm_onlybuiltdependencies",
+      "package_private",
+      "package_scripts",
+      "package_scripts_build",
+      "package_scripts_dev",
+      "package_scripts_start",
+      "package_scripts_test",
+      "package_version"
+    ],
+    "6": [
+      "app_layout",
+      "app_layout_metadata",
+      "app_layout_rootlayout",
+      "components_footer",
+      "components_footer_community_links",
+      "components_footer_footer",
+      "components_footer_footercolumn",
+      "components_footer_legal_links",
+      "components_footer_product_links",
+      "components_footer_resource_links",
+      "components_outagebanner",
+      "components_outagebanner_outagebanner",
+      "components_themeprovider",
+      "components_themeprovider_theme",
+      "components_themeprovider_themecontext",
+      "components_themeprovider_themeprovider",
+      "components_themeprovider_usetheme",
+      "components_themetoggle",
+      "components_themetoggle_themetoggle",
+      "config_site",
+      "config_site_siteconfig"
+    ],
+    "7": [
+      "tsconfig",
+      "tsconfig_compileroptions",
+      "tsconfig_compileroptions_allowjs",
+      "tsconfig_compileroptions_esmoduleinterop",
+      "tsconfig_compileroptions_incremental",
+      "tsconfig_compileroptions_isolatedmodules",
+      "tsconfig_compileroptions_jsx",
+      "tsconfig_compileroptions_lib",
+      "tsconfig_compileroptions_module",
+      "tsconfig_compileroptions_moduleresolution",
+      "tsconfig_compileroptions_noemit",
+      "tsconfig_compileroptions_paths",
+      "tsconfig_compileroptions_plugins",
+      "tsconfig_compileroptions_resolvejsonmodule",
+      "tsconfig_compileroptions_skiplibcheck",
+      "tsconfig_compileroptions_strict",
+      "tsconfig_compileroptions_target",
+      "tsconfig_exclude",
+      "tsconfig_include",
+      "tsconfig_paths"
+    ],
+    "8": [
+      "package_dependencies",
+      "package_dependencies_fontsource_inter",
+      "package_dependencies_fuse_js",
+      "package_dependencies_gray_matter",
+      "package_dependencies_lucide_react",
+      "package_dependencies_material_symbols_font_200",
+      "package_dependencies_next",
+      "package_dependencies_next_mdx_remote",
+      "package_dependencies_react",
+      "package_dependencies_react_dom",
+      "package_dependencies_react_markdown",
+      "package_dependencies_react_three_drei",
+      "package_dependencies_react_three_fiber",
+      "package_dependencies_rehype_slug",
+      "package_dependencies_remark_gfm",
+      "package_dependencies_scheduler",
+      "package_dependencies_supabase_ssr",
+      "package_dependencies_supabase_supabase_js",
+      "package_dependencies_three"
+    ],
+    "9": [
+      "billing_page",
+      "billing_page_billingpage",
+      "billing_page_test",
+      "hub_page",
+      "hub_page_hubdashboard",
+      "hub_page_test",
+      "hub_page_workspace",
+      "src_proxy",
+      "src_proxy_config",
+      "src_proxy_proxy",
+      "supabase_client",
+      "supabase_client_createclient",
+      "supabase_client_test",
+      "supabase_cookieoptions",
+      "supabase_cookieoptions_buildcookieoptions",
+      "supabase_cookieoptions_resolvecookiedomain"
+    ],
+    "10": [
+      "components_terminalblock",
+      "components_terminalblock_terminalblock",
+      "components_terminalblock_terminalblockprops",
+      "download_downloadcontent",
+      "download_downloadcontent_downloadcontent",
+      "download_downloadcontent_releasecard",
+      "download_downloadcontent_specrow",
+      "download_downloadcontent_specsheader",
+      "download_page",
+      "download_page_downloadpage",
+      "download_page_metadata"
+    ],
+    "11": [
+      "components_globecanvas",
+      "components_globecanvas_globecanvas",
+      "components_globedata",
+      "components_globedata_generatearcs",
+      "components_globedata_globearc",
+      "components_globedata_globepoint",
+      "components_globedata_latlngtovec3",
+      "components_globescene",
+      "components_globescene_createarccurve",
+      "components_globescene_globescene"
+    ],
+    "12": [
+      "about_aboutcontent",
+      "about_aboutcontent_aboutcontent",
+      "about_aboutcontent_sectionheader",
+      "about_page",
+      "about_page_aboutpage",
+      "about_page_metadata"
+    ],
+    "13": [
+      "slug_page_legalpage",
+      "src_app_legal_slug_page_tsx_slug_page",
+      "src_app_legal_slug_page_tsx_slug_page_generatemetadata",
+      "src_app_legal_slug_page_tsx_slug_page_generatestaticparams",
+      "src_app_legal_slug_page_tsx_slug_page_pageprops"
+    ],
+    "14": [
+      "legal_page",
+      "legal_page_legaldocument",
+      "legal_page_legalindexpage",
+      "legal_page_metadata"
+    ],
+    "15": [
+      "check_email_page",
+      "check_email_page_checkemailpage",
+      "check_email_page_metadata"
+    ],
+    "16": [
+      "coming_soon_page",
+      "coming_soon_page_comingsoonpage",
+      "coming_soon_page_metadata"
+    ],
+    "17": [
+      "sponsor_page",
+      "sponsor_page_metadata",
+      "sponsor_page_sponsorpage"
+    ],
+    "18": [
+      "avatar_route",
+      "avatar_route_get"
+    ],
+    "19": [
+      "confirm_page",
+      "confirm_page_resetpasswordconfirmpage"
+    ],
+    "20": [
+      "create_checkout_session_index",
+      "create_checkout_session_index_corsheaders"
+    ],
+    "21": [
+      "health_route",
+      "health_route_get"
+    ],
+    "22": [
+      "plugins_page",
+      "plugins_page_pluginspage"
+    ],
+    "23": [
+      "tmp_fetch_mines",
+      "tmp_fetch_mines_features"
+    ],
+    "24": [
+      "concept_static_site_generation"
+    ],
+    "25": [
+      "concept_worldwideview"
+    ],
+    "26": [
+      "content_legal_acceptable_use_policy_source"
+    ],
+    "27": [
+      "content_legal_cloud_terms_of_service_source"
+    ],
+    "28": [
+      "content_legal_cookie_policy_source"
+    ],
+    "29": [
+      "content_legal_data_accuracy_disclaimer_source"
+    ],
+    "30": [
+      "content_legal_developer_distribution_agreement_source"
+    ],
+    "31": [
+      "content_legal_eula_source"
+    ],
+    "32": [
+      "content_legal_marketplace_terms_source"
+    ],
+    "33": [
+      "content_legal_privacy_policy_source"
+    ],
+    "34": [
+      "content_legal_website_terms_source"
+    ],
+    "35": [
+      "github_workflows_ci_yml_source"
+    ],
+    "36": [
+      "next_config"
+    ],
+    "37": [
+      "public_favicon_svg_source"
+    ],
+    "38": [
+      "public_file_svg_source"
+    ],
+    "39": [
+      "public_globe_svg_source"
+    ],
+    "40": [
+      "public_logo_favicon_inverted_svg_source"
+    ],
+    "41": [
+      "public_logo_logo_full_png_source"
+    ],
+    "42": [
+      "public_logo_logo_icon_png_source"
+    ],
+    "43": [
+      "public_logo_logo_icon_svg_source"
+    ],
+    "44": [
+      "public_next_svg_source"
+    ],
+    "45": [
+      "public_vercel_svg_source"
+    ],
+    "46": [
+      "public_window_svg_source"
+    ],
+    "47": [
+      "readme_md_source"
+    ],
+    "48": [
+      "src_app_icon_svg_source"
+    ],
+    "49": [
+      "tests_setup"
+    ],
+    "50": [
+      "vercel"
+    ],
+    "51": [
+      "vitest_config"
+    ]
+  },
+  "cohesion": {
+    "0": 0.09309309309309309,
+    "1": 0.10588235294117647,
+    "2": 0.08522727272727272,
+    "3": 0.1028225806451613,
+    "4": 0.08266129032258064,
+    "5": 0.08,
+    "6": 0.10952380952380952,
+    "7": 0.1,
+    "8": 0.10526315789473684,
+    "9": 0.19166666666666668,
+    "10": 0.18181818181818182,
+    "11": 0.26666666666666666,
+    "12": 0.3333333333333333,
+    "13": 0.4,
+    "14": 0.5,
+    "15": 0.6666666666666666,
+    "16": 0.6666666666666666,
+    "17": 0.6666666666666666,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0,
+    "37": 1.0,
+    "38": 1.0,
+    "39": 1.0,
+    "40": 1.0,
+    "41": 1.0,
+    "42": 1.0,
+    "43": 1.0,
+    "44": 1.0,
+    "45": 1.0,
+    "46": 1.0,
+    "47": 1.0,
+    "48": 1.0,
+    "49": 1.0,
+    "50": 1.0,
+    "51": 1.0
+  },
+  "gods": [
+    {
+      "id": "tsconfig_compileroptions",
+      "label": "compilerOptions",
+      "degree": 16
+    },
+    {
+      "id": "content_docs_index_source",
+      "label": "Documentation Index",
+      "degree": 15
+    },
+    {
+      "id": "hooks_useinview_useinview",
+      "label": "useInView()",
+      "degree": 13
+    },
+    {
+      "id": "lib_safenext_safenext",
+      "label": "safeNext()",
+      "degree": 12
+    },
+    {
+      "id": "supabase_server_createclient",
+      "label": "createClient()",
+      "degree": 12
+    },
+    {
+      "id": "lib_analytics_trackevent",
+      "label": "trackEvent()",
+      "degree": 8
+    },
+    {
+      "id": "supabase_cookieoptions_buildcookieoptions",
+      "label": "buildCookieOptions()",
+      "degree": 8
+    },
+    {
+      "id": "supabase_client_createclient",
+      "label": "createClient()",
+      "degree": 6
+    },
+    {
+      "id": "package_scripts",
+      "label": "scripts",
+      "degree": 5
+    },
+    {
+      "id": "lib_dicebear_dicebearurl",
+      "label": "diceBearUrl()",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "Agent Rules",
+      "target": "OAuth Auth Flow Troubleshooting",
+      "source_files": [
+        "AGENTS.md",
+        "docs/troubleshooting/oauth-auth-flow.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories"
+    },
+    {
+      "source": "GET()",
+      "target": "safeNext()",
+      "source_files": [
+        "src/app/api/auth/callback/route.ts",
+        "src/lib/safeNext.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "peripheral node `GET()` unexpectedly reaches hub `safeNext()`"
+    },
+    {
+      "source": "generateMetadata()",
+      "target": "getDocBySlug()",
+      "source_files": [
+        "src/app/docs/[slug]/page.tsx",
+        "src/lib/docs.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "generateStaticParams()",
+      "target": "getAllDocSlugs()",
+      "source_files": [
+        "src/app/docs/[slug]/page.tsx",
+        "src/lib/docs.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    },
+    {
+      "source": "DocPage()",
+      "target": "getDocBySlug()",
+      "source_files": [
+        "src/app/docs/[slug]/page.tsx",
+        "src/lib/docs.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source"
+    }
+  ],
+  "tokens": {
+    "input": 34623,
+    "output": 18279
+  }
+}

@@ -20,10 +20,9 @@ You must provide accurate and complete information when registering an account. 
 
 ## 3. Subscription, Tiers, and Billing
 WorldWideView Cloud is offered under the following tiers:
-- **Local: Free**: $0 forever. This tier refers to the self-hosted downloadable software, governed by the EULA. It is not a cloud service.
-- **Cloud: Basic**: $19/month. Includes zero-setup managed hosting, Google 3D Tiles, 1st-party live data, and 1 user seat.
-- **Cloud: Pro**: $79/month per seat. Includes shared team workspaces, synchronized filters, unlimited historical data, and priority support.
-- **Enterprise**: Custom pricing. Contact sales for air-gapped deployments, custom implementations, and high-throughput API access.
+- **Free Local**: $0 forever. This tier refers to the self-hosted downloadable software, governed by the EULA. It is not a cloud service.
+- **Pro**: $19/month. Includes zero-setup managed hosting, Google 3D Tiles, 1st-party live data, and 1 user seat.
+- **Cloud Enterprise**: Coming soon. Collaboration tools, higher usage limits, and advanced features for teams. Custom pricing available for air-gapped deployments, custom implementations, and high-throughput API access.
 
 **Billing Terms**:
 - Subscriptions are billed monthly via Stripe.

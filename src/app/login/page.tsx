@@ -1,5 +1,5 @@
 import { signInWithPassword } from './actions'
-import { OAuthButtons } from './oauth-buttons'
+// import { OAuthButtons } from './oauth-buttons'
 import { safeNext } from '../../lib/safeNext'
 import styles from '../hub/hub.module.css'
 
@@ -86,7 +86,7 @@ export default async function LoginPage({
           or
         </div>
 
-        <OAuthButtons next={next} />
+        {/* <OAuthButtons next={next} /> */}
 
         {params.error && (
           <div style={{ marginTop: 'var(--space-md)' }}>
