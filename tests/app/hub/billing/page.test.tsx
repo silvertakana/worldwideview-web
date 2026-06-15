@@ -1,20 +1,13 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import BillingPage from '../../../../src/app/hub/billing/page'
 
-// Mock Supabase
-vi.mock('../../../../src/lib/supabase/client', () => ({
-  createClient: () => ({
-    functions: {
-      invoke: vi.fn().mockResolvedValue({ data: { url: 'http://stripe.test' } })
-    }
-  })
-}))
+vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
 describe('Billing Page', () => {
-  it('renders billing heading', () => {
-    render(<BillingPage />)
-    expect(screen.getByRole('heading', { name: /billing/i })).toBeInTheDocument()
+  it('redirects to /accounts/billing', async () => {
+    const { default: HubBillingPage } = await import('../../../../src/app/hub/billing/page')
+    HubBillingPage()
+    const { redirect } = await import('next/navigation')
+    expect(redirect).toHaveBeenCalledWith('/accounts/billing')
   })
 })
