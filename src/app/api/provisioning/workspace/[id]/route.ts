@@ -49,6 +49,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': API_KEY,
+      'x-user-id': user.id,
     },
     body: JSON.stringify(body),
   })
@@ -72,7 +73,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const res = await fetch(`${API_URL}/api/instance/${id}`, {
     method: 'DELETE',
-    headers: { 'x-api-key': API_KEY },
+    headers: { 'x-api-key': API_KEY, 'x-user-id': user.id },
   })
 
   const data = await res.json()
