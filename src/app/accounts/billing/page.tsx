@@ -1,9 +1,7 @@
 import { CreditCard, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
-
-const API_URL = process.env.PROVISIONING_API_URL || "https://wwv.local:3443";
-const API_KEY = process.env.PROVISIONING_API_KEY;
+import { crossServiceFetch } from "@/lib/cross-service/fetch";
 
 export const metadata = { title: "Billing | Your Account" };
 
@@ -12,40 +10,32 @@ export default async function BillingPage() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Fetch account from globe API
-    let account: {
-        account: any;
-        plan: string;
-        status: string;
-        trialEndsAt: string | null;
-        instanceCount: number;
-        instanceLimit: number;
-        isTrialing: boolean;
-        trialDaysRemaining: number | null;
-    } | null = null;
+    let plan = "local";
+    let status = "not_found";
+    let trialEndsAt: string | null = null;
+    let instanceCount = 0;
+    let instanceLimit = Infinity;
+    let isTrialing = false;
+    let trialDaysRemaining: number | null = null;
 
-    if (user && API_KEY) {
+    if (user) {
         try {
-            const res = await fetch(`${API_URL}/api/account?userId=${user.id}`, {
-                headers: { "x-api-key": API_KEY },
-                cache: "no-store",
-            });
+            const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
-                account = await res.json();
+                const data = await res.json();
+                plan = data.plan || "local";
+                status = data.status || "not_found";
+                trialEndsAt = data.trialEndsAt || null;
+                instanceCount = data.instanceCount ?? 0;
+                instanceLimit = data.instanceLimit ?? Infinity;
+                isTrialing = data.isTrialing ?? (status === "trialing");
+                trialDaysRemaining = data.trialDaysRemaining ?? null;
             }
         } catch {
             // Globe unreachable - fall back to local plan
         }
     }
 
-    const plan = account?.account?.plan || account?.plan || "local";
-    const resolvedStatus = account?.account?.status ?? account?.status;
-    const status = resolvedStatus ?? "not_found";
-    const trialEndsAt = account?.account?.trialEndsAt || account?.trialEndsAt || null;
-    const instanceCount = account?.account?.instanceCount ?? account?.instanceCount ?? 0;
-    const instanceLimit = account?.account?.instanceLimit ?? account?.instanceLimit ?? Infinity;
-    const isTrialing = account?.account?.isTrialing ?? account?.isTrialing ?? false;
-    const trialDaysRemaining = account?.account?.trialDaysRemaining ?? account?.trialDaysRemaining ?? null;
     const isLocal = plan === "local";
 
     return (
