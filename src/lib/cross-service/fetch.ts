@@ -4,7 +4,10 @@ export async function crossServiceFetch(
     path: string,
     opts: { method?: string; body?: unknown; searchParams?: Record<string, string>; headers?: Record<string, string> } = {},
 ): Promise<Response> {
-    const baseUrl = process.env.PROVISIONING_API_URL || "https://wwv.local:3443";
+    const baseUrl = process.env.PROVISIONING_API_URL;
+    if (!baseUrl) {
+        throw new Error("PROVISIONING_API_URL is required");
+    }
 
     let url = `${baseUrl}${path}`;
     if (opts.searchParams) {
