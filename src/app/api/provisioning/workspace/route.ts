@@ -1,14 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
-
-const API_URL = process.env.PROVISIONING_API_URL || 'https://wwv.local:3443'
-const API_KEY = process.env.PROVISIONING_API_KEY
+import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
 
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
-  if (!API_KEY) {
-    return { user: null, response: NextResponse.json({ error: 'Provisioning API not configured' }, { status: 500 }) }
-  }
-
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -24,15 +18,13 @@ export async function GET() {
 
   const { user } = auth
 
-  // Fetch instances from globe
-  const instancesRes = await fetch(`${API_URL}/api/instance?userId=${user.id}&email=${encodeURIComponent(user.email)}`, {
-    headers: { 'x-api-key': API_KEY! },
+  const instancesRes = await crossServiceFetch('/api/instance', {
+    searchParams: { userId: user.id, email: user.email },
   })
   const instancesData = await instancesRes.json().catch(() => ({ instances: [] }))
 
-  // Fetch account info from globe
-  const accountRes = await fetch(`${API_URL}/api/account?userId=${user.id}`, {
-    headers: { 'x-api-key': API_KEY! },
+  const accountRes = await crossServiceFetch('/api/account', {
+    searchParams: { userId: user.id },
   })
   const accountData = await accountRes.json().catch(() => null)
 
@@ -76,18 +68,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'subdomain is required' }, { status: 400 })
   }
 
-  const res = await fetch(`${API_URL}/api/instance`, {
+  const res = await crossServiceFetch('/api/instance', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY!,
-    },
-    body: JSON.stringify({
+    body: {
       subdomain: body.subdomain,
       name: body.name || undefined,
       userId: user.id,
       email: user.email,
-    }),
+    },
   })
 
   const data = await res.json().catch(() => null)

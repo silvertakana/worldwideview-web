@@ -1,14 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../../lib/supabase/server'
-
-const API_URL = process.env.PROVISIONING_API_URL || 'https://wwv.local:3443'
-const API_KEY = process.env.PROVISIONING_API_KEY
+import { crossServiceFetch } from '../../../../../lib/cross-service/fetch'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!API_KEY) {
-    return NextResponse.json({ error: 'Provisioning API not configured' }, { status: 500 })
-  }
-
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -23,13 +17,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const res = await fetch(`${API_URL}/api/instance/${id}`, {
+  const res = await crossServiceFetch(`/api/instance/${id}`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-    },
-    body: JSON.stringify(body),
+    body,
   })
 
   const data = await res.json()
@@ -37,10 +27,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!API_KEY) {
-    return NextResponse.json({ error: 'Provisioning API not configured' }, { status: 500 })
-  }
-
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -49,9 +35,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const { id } = await params
 
-  const res = await fetch(`${API_URL}/api/instance/${id}`, {
+  const res = await crossServiceFetch(`/api/instance/${id}`, {
     method: 'DELETE',
-    headers: { 'x-api-key': API_KEY },
   })
 
   const data = await res.json()
