@@ -68,16 +68,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'subdomain is required' }, { status: 400 })
   }
 
-  const res = await crossServiceFetch('/api/instance', {
+  const res = await crossServiceFetch('/api/provision', {
     method: 'POST',
     body: {
-      subdomain: body.subdomain,
-      name: body.name || undefined,
-      userId: user.id,
       email: user.email,
+      name: body.name || user.email,
+      hubUserId: user.id,
+      subdomain: body.subdomain,
     },
   })
 
   const data = await res.json().catch(() => null)
-  return NextResponse.json(data || { error: 'Provisioning service error' }, { status: res.status })
+  if (!res.ok) {
+    return NextResponse.json(data || { error: 'Provisioning service error' }, { status: res.status })
+  }
+
+  return NextResponse.json({
+    setupUrl: data.setupUrl,
+    setupToken: data.setupToken,
+  })
 }
