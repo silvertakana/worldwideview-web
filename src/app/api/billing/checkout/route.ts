@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { stripe } from "@/lib/stripe/client";
+import { getStripe } from "@/lib/stripe/client";
 import { getPriceId } from "@/lib/billing/constants";
 import type { PlanOption, IntervalOption } from "@/lib/billing/constants";
 
 export async function POST(req: Request) {
+  const stripe = getStripe();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {

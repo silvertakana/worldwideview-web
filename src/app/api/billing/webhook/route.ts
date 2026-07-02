@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe/client";
+import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 
@@ -26,6 +26,7 @@ async function syncTierToGlobe(email: string, tier: string, status: string, tria
 }
 
 export async function POST(req: Request) {
+  const stripe = getStripe();
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
 
