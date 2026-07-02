@@ -56,6 +56,11 @@ export default function CreateInstanceForm({
         return
       }
 
+      if (data.setupUrl) {
+        window.location.href = data.setupUrl
+        return
+      }
+
       onCreated()
     } catch {
       setError('Network error - please try again')
