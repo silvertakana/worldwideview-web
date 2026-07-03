@@ -1,10 +1,12 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { redeemCode } from './actions'
 import styles from './RedeemForm.module.css'
 
 export default function RedeemForm() {
+  const router = useRouter()
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -15,10 +17,19 @@ export default function RedeemForm() {
     if (!code.trim()) { setError('Please enter an access code'); return }
 
     setLoading(true)
-    const result = await redeemCode(code)
-    setLoading(false)
+    try {
+      const result = await redeemCode(code)
 
-    if (result?.error) setError(result.error)
+      if (result?.success) {
+        setError('')
+        router.push('/accounts/instances')
+      } else if (result?.error) {
+        setError(result.error)
+      }
+    } catch {
+      setError('Something went wrong. Please try again.')
+    }
+    setLoading(false)
   }
 
   return (
