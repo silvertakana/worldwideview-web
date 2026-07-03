@@ -5,6 +5,7 @@ import RedeemForm from './RedeemForm'
 export default async function RedeemPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   if (!user) redirect('/login?next=/redeem')
 
   const { data: entitlement } = await supabase
@@ -14,6 +15,7 @@ export default async function RedeemPage() {
     .eq('used_for_instance', false)
     .maybeSingle()
 
+  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   if (entitlement) redirect('/accounts/instances')
 
   return (

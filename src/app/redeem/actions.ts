@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export async function redeemCode(code: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   if (!user) redirect('/login?next=/redeem')
 
   const trimmed = code.trim()
@@ -65,5 +66,6 @@ export async function redeemCode(code: string) {
     return { error: 'Code was just redeemed by someone else. Please try again.' }
   }
 
+  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   redirect('/accounts/instances')
 }
