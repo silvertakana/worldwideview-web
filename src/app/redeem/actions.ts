@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { crossServiceFetch } from '@/lib/cross-service/fetch'
+import { redirect } from 'next/navigation'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
@@ -54,5 +56,19 @@ export async function redeemCode(code: string) {
     return { error: 'Code was just redeemed by someone else. Please try again.' }
   }
 
-  return { success: true }
+  try {
+    const res = await crossServiceFetch('/api/access-code', {
+      method: 'POST',
+      body: { code: accessCode.code, userId: user.id },
+    })
+    if (!res.ok) {
+      const errorBody = await res.text()
+      console.error('Globe Account creation failed:', res.status, errorBody)
+    }
+  } catch (err) {
+    console.error('Failed to reach globe for Account creation:', err)
+  }
+
+  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
+  redirect('/accounts/instances')
 }
