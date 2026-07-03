@@ -15,9 +15,13 @@ const RESOURCE_LINKS = [
   { label: 'Status', href: '/coming-soon' },
 ];
 
+const COMPANY_LINKS = [
+  { label: 'About', href: '/about' },
+  { label: 'Sponsor', href: '/sponsor' },
+];
+
 const COMMUNITY_LINKS = [
   { label: 'GitHub', href: 'https://github.com/silvertakana/worldwideview' },
-  { label: 'Sponsor', href: '/sponsor' },
   { label: 'Contributing', href: 'https://github.com/silvertakana/worldwideview/blob/main/CONTRIBUTING.md' },
   { label: 'Code of Conduct', href: 'https://github.com/silvertakana/worldwideview/blob/main/CODE_OF_CONDUCT.md' },
 ];
@@ -48,6 +52,7 @@ export default function Footer() {
 
         <FooterColumn title="Product" links={PRODUCT_LINKS} />
         <FooterColumn title="Resources" links={RESOURCE_LINKS} />
+        <FooterColumn title="Company" links={COMPANY_LINKS} />
         <FooterColumn title="Community" links={COMMUNITY_LINKS} />
         <FooterColumn title="Legal" links={LEGAL_LINKS} />
       </div>
