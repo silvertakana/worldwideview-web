@@ -1,6 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Check } from "lucide-react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+import { BILLING_ENABLED } from "@/lib/billing/constants";
 import TrackedLink from "@/components/TrackedLink";
 import AnimateIn from "@/components/AnimateIn";
 import styles from "./page.module.css";
@@ -27,7 +31,6 @@ const TIERS = [
     price: "$19",
     label: "/month",
     highlighted: true,
-    cta: { label: "Start Free Trial", href: "/signup?plan=pro" },
     features: [
       { text: "Everything in Local Free", inherited: true },
       { text: "Zero setup & managed hosting", inherited: false },
@@ -39,6 +42,17 @@ const TIERS = [
 ];
 
 export default function PricingContent() {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <div className={styles.page}>
       <div className={styles.glowTL} />
@@ -86,14 +100,45 @@ export default function PricingContent() {
                   </div>
                 ))}
               </div>
-              <TrackedLink
-                href={tier.cta.href}
-                className={styles.ctaBtn}
-                eventName="pricing_cta_click"
-                eventData={{ tier: tier.name, label: tier.cta.label }}
-              >
-                {tier.cta.label}
-              </TrackedLink>
+              {tier.name === "Cloud: Pro" ? (
+                BILLING_ENABLED && user ? (
+                  <TrackedLink
+                    href="/accounts/billing"
+                    className={styles.ctaBtn}
+                    eventName="pricing_cta_click"
+                    eventData={{ tier: tier.name, label: "Manage Billing" }}
+                  >
+                    Manage Billing
+                  </TrackedLink>
+                ) : BILLING_ENABLED ? (
+                  <TrackedLink
+                    href="/signup?plan=pro"
+                    className={styles.ctaBtn}
+                    eventName="pricing_cta_click"
+                    eventData={{ tier: tier.name, label: "Start Free Trial" }}
+                  >
+                    Start Free Trial
+                  </TrackedLink>
+                ) : (
+                  <TrackedLink
+                    href="/waitlist"
+                    className={styles.ctaBtn}
+                    eventName="pricing_cta_click"
+                    eventData={{ tier: tier.name, label: "Join the Beta" }}
+                  >
+                    Join the Beta
+                  </TrackedLink>
+                )
+              ) : tier.cta ? (
+                <TrackedLink
+                  href={tier.cta.href}
+                  className={styles.ctaBtn}
+                  eventName="pricing_cta_click"
+                  eventData={{ tier: tier.name, label: tier.cta.label }}
+                >
+                  {tier.cta.label}
+                </TrackedLink>
+              ) : null}
             </div>
           </AnimateIn>
         ))}
