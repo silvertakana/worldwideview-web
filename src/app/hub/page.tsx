@@ -29,8 +29,14 @@ const STATUS_LABELS: Record<string, string> = {
   deleted: 'Deleted',
 }
 
+interface EntitlementInfo {
+  hasEntitlement: boolean
+  entitlementUsed: boolean
+}
+
 export default function HubDashboard() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [entitlement, setEntitlement] = useState<EntitlementInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -40,9 +46,16 @@ export default function HubDashboard() {
 
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const res = await fetch('/api/provisioning/workspace')
-      const data = await res.json()
-      if (data.workspaces) setWorkspaces(data.workspaces)
+      const [wsRes, entRes] = await Promise.all([
+        fetch('/api/provisioning/workspace'),
+        fetch('/api/auth/entitlement'),
+      ])
+      const wsData = await wsRes.json()
+      if (wsData.workspaces) setWorkspaces(wsData.workspaces)
+      if (entRes.ok) {
+        const entData = await entRes.json()
+        setEntitlement(entData)
+      }
     } catch {
       // network error -- keep current list
     }
@@ -197,7 +210,31 @@ export default function HubDashboard() {
 
         {error && <p className={styles.errorBox}>{error}</p>}
 
-        {showForm ? (
+        {!entitlement ? null : !entitlement.hasEntitlement && workspaces.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 'var(--space-lg)' }}>
+            <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', marginBottom: 'var(--space-md)' }}>
+              You need an access code to create an instance.
+            </p>
+            <a
+              href="/redeem"
+              style={{
+                display: 'inline-block',
+                padding: 'var(--space-sm) var(--space-lg)',
+                background: 'var(--color-accent)',
+                color: 'white',
+                borderRadius: 'var(--radius-md)',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              Redeem Code
+            </a>
+          </div>
+        ) : entitlement.hasEntitlement && workspaces.length > 0 ? (
+          <p style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--color-text-muted)', padding: 'var(--space-md)' }}>
+            You've already created your instance.
+          </p>
+        ) : showForm ? (
           <CreateInstanceForm onCreated={() => { setShowForm(false); fetchWorkspaces() }} />
         ) : (
           <button className={styles.createButton} onClick={() => setShowForm(true)}>

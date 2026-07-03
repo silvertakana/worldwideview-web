@@ -21,6 +21,7 @@ const NAV_LINKS = [
 
 const AUTH_NAV_LINKS = [
   { label: 'Account', href: '/accounts' },
+  { label: 'Redeem Code', href: '/redeem' },
 ];
 
 export default function Header() {

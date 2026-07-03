@@ -38,9 +38,15 @@ const STATUS_LABELS: Record<string, string> = {
   deleted: 'Deleted',
 }
 
+interface EntitlementInfo {
+  hasEntitlement: boolean
+  entitlementUsed: boolean
+}
+
 export default function InstancesPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [account, setAccount] = useState<AccountInfo | null>(null)
+  const [entitlement, setEntitlement] = useState<EntitlementInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -50,10 +56,17 @@ export default function InstancesPage() {
 
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const res = await fetch('/api/provisioning/workspace')
-      const data = await res.json()
-      if (data.workspaces) setWorkspaces(data.workspaces)
-      if (data.account) setAccount(data.account)
+      const [wsRes, entRes] = await Promise.all([
+        fetch('/api/provisioning/workspace'),
+        fetch('/api/auth/entitlement'),
+      ])
+      const wsData = await wsRes.json()
+      if (wsData.workspaces) setWorkspaces(wsData.workspaces)
+      if (wsData.account) setAccount(wsData.account)
+      if (entRes.ok) {
+        const entData = await entRes.json()
+        setEntitlement(entData)
+      }
     } catch {
       // network error -- keep current list
     }
@@ -141,7 +154,9 @@ export default function InstancesPage() {
   const isSuspended = account?.status === 'suspended'
   const isDeleted = account?.status === 'deleted'
   const atInstanceLimit = account ? account.instanceCount >= account.instanceLimit : false
-  const canCreate = !isSuspended && !isDeleted && !atInstanceLimit
+  const needsEntitlement = !entitlement || !entitlement.hasEntitlement
+  const entitlementAlreadyUsed = entitlement?.entitlementUsed
+  const canCreate = !isSuspended && !isDeleted && !atInstanceLimit && !needsEntitlement && !entitlementAlreadyUsed
 
   const createButtonLabel = () => {
     if (isSuspended) return 'Account Suspended'
@@ -308,7 +323,33 @@ export default function InstancesPage() {
 
       {error && <p className={styles.errorBox}>{error}</p>}
 
-      {showForm ? (
+      {needsEntitlement && workspaces.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
+          <p style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)', marginBottom: 'var(--space-md)' }}>
+            You need an access code to create an instance.
+          </p>
+          <a
+            href="/redeem"
+            style={{
+              display: 'inline-block',
+              padding: 'var(--space-sm) var(--space-lg)',
+              background: 'var(--color-accent)',
+              color: 'white',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Redeem Code
+          </a>
+        </div>
+      ) : entitlementAlreadyUsed && workspaces.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
+          <p style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)' }}>
+            You've already created your instance.
+          </p>
+        </div>
+      ) : showForm ? (
         <CreateInstanceForm onCreated={() => { setShowForm(false); fetchWorkspaces() }} />
       ) : (
         <button
