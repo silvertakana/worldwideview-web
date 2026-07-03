@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { Server, Zap } from 'lucide-react'
+import { BILLING_ENABLED } from '@/lib/billing/constants'
 import CreateInstanceForm from './CreateInstanceForm'
 import styles from './instances.module.css'
 import acctStyles from '../accounts.module.css'
@@ -145,6 +146,7 @@ export default function InstancesPage() {
   const createButtonLabel = () => {
     if (isSuspended) return 'Account Suspended'
     if (isDeleted) return 'Account Deleted'
+    if (atInstanceLimit && !BILLING_ENABLED) return 'Instance limit reached'
     if (atInstanceLimit) return 'Upgrade to Create More'
     return '+ Create New Instance'
   }
@@ -175,7 +177,7 @@ export default function InstancesPage() {
                 : `Instances: ${account.instanceCount} / ${account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}`
               }
             </span>
-            {account.isTrialing && account.trialDaysRemaining !== null && (
+            {BILLING_ENABLED && account.isTrialing && account.trialDaysRemaining !== null && (
               <span className={`${styles.accountTrialText} ${account.trialDaysRemaining <= 0 ? styles.accountTrialExpired : ''}`}>
                 {account.trialDaysRemaining <= 0
                   ? 'Trial expired -- upgrade to continue'
@@ -195,10 +197,14 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.plan === 'local' ? (
+            {account.plan === 'local' && BILLING_ENABLED ? (
               <a href="/signup?plan=pro" className={styles.accountUpgradeBtn}>
                 Upgrade to Pro
               </a>
+            ) : account.plan === 'local' && !BILLING_ENABLED ? (
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                Billing coming soon
+              </span>
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
                 Update Payment
@@ -324,9 +330,14 @@ export default function InstancesPage() {
           Account deleted -- contact support to reactivate your subscription.
         </p>
       )}
-      {atInstanceLimit && !isSuspended && !isDeleted && (
+      {atInstanceLimit && !isSuspended && !isDeleted && BILLING_ENABLED && (
         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-sm)' }}>
           You've reached the instance limit for your plan.
+        </p>
+      )}
+      {atInstanceLimit && !isSuspended && !isDeleted && !BILLING_ENABLED && (
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-sm)' }}>
+          Instance limit reached. Billing is not available during the beta period.
         </p>
       )}
     </div>

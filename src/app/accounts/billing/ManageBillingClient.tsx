@@ -2,11 +2,20 @@
 
 import { useState } from "react";
 import { Zap, ExternalLink } from "lucide-react";
+import { BILLING_ENABLED } from "@/lib/billing/constants";
 import hubStyles from "../../hub/hub.module.css";
 
 export function ManageBillingClient({ plan, status }: { plan: string; status: string }) {
     const [loading, setLoading] = useState(false);
     const isLocal = plan === "local";
+
+    if (!BILLING_ENABLED) {
+        return (
+            <p style={{ color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+                Billing is not available during the beta period.
+            </p>
+        );
+    }
     const isSuspended = status === "suspended";
     const isDeleted = status === "deleted";
 

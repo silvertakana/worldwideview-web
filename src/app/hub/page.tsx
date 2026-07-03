@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
+import { BILLING_ENABLED } from '@/lib/billing/constants'
 import CreateInstanceForm from './CreateInstanceForm'
 import styles from './hub.module.css'
 
@@ -137,7 +138,7 @@ export default function HubDashboard() {
                         <span className={styles.workspaceTier}>
                           {workspace.subdomain}.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'} &middot; Plan: {workspace.plan}
                         </span>
-                        {workspace.status === 'trialing' && (
+                        {BILLING_ENABLED && workspace.status === 'trialing' && (
                           <span className={styles.trialHint}>
                             {daysRemaining(workspace.trialEndsAt) === 0
                               ? 'Trial expired — upgrade to continue'
