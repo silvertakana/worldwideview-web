@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
+import { BILLING_ENABLED } from '@/lib/billing/constants';
 import { diceBearUrl } from '@/lib/diceBear';
 import styles from './Header.module.css';
 
@@ -15,25 +16,28 @@ const NAV_LINKS = [
   { label: 'Download', href: '/download' },
   { label: 'Docs', href: '/docs' },
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
-  { label: 'Sponsor', href: '/sponsor' },
-  { label: 'About', href: '/about' },
-];
-
-const AUTH_NAV_LINKS = [
-  { label: 'Account', href: '/accounts' },
 ];
 
 export default function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const [activePath, setActivePath] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Defer pathname comparison to after client mount to prevent hydration
-  // mismatch on statically prerendered pages when proxy.ts is present (Next.js 16).
+  const closeDropdown = useCallback(() => {
+    setDropdownOpen(false);
+  }, []);
+
   useEffect(() => {
     setActivePath(pathname);
   }, [pathname]);
+
+  useEffect(() => {
+    closeDropdown();
+  }, [pathname, closeDropdown]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -43,6 +47,30 @@ export default function Header() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeDropdown();
+    }
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        closeDropdown();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClick);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [dropdownOpen, closeDropdown]);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/');
+  }
 
   return (
     <header className={styles.header}>
@@ -70,34 +98,45 @@ export default function Header() {
               {label}
             </Link>
           ))}
-          {user && AUTH_NAV_LINKS.map(({ label, href }) => (
-            <Link
-              key={href}
-              href={href}
-              className={
-                activePath === href
-                  ? `${styles.link} ${styles.linkActive}`
-                  : styles.link
-              }
-            >
-              {label}
-            </Link>
-          ))}
         </div>
 
         <div className={styles.actions}>
           {user ? (
-            <Link
-              href="/accounts"
-              className={styles.avatarChip}
-              title={user.email ?? ''}
-            >
-              <img
-                src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
-                alt=""
-                className={styles.avatarImg}
-              />
-            </Link>
+            <div className={styles.avatarWrapper} ref={dropdownRef}>
+              <button
+                className={styles.avatarBtn}
+                onClick={() => setDropdownOpen((v) => !v)}
+                aria-expanded={dropdownOpen}
+                aria-haspopup="true"
+                aria-label="User menu"
+                title={user.email ?? ''}
+              >
+                <img
+                  src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
+                  alt=""
+                  className={styles.avatarImg}
+                />
+              </button>
+              {dropdownOpen && (
+                <div className={styles.dropdown} role="menu">
+                  <Link href="/accounts" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
+                    Account Dashboard
+                  </Link>
+                  {BILLING_ENABLED && (
+                    <Link href="/accounts/billing" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
+                      Billing
+                    </Link>
+                  )}
+                  <Link href="/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
+                    Redeem Code
+                  </Link>
+                  <div className={styles.dropdownDivider} />
+                  <button className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`} role="menuitem" onClick={handleSignOut}>
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (
             <Link
               href="/login"
@@ -130,7 +169,6 @@ export default function Header() {
         </div>
       </nav>
 
-      {/* Mobile drawer */}
       <div
         className={`${styles.mobileMenu} ${
           menuOpen ? styles.mobileMenuOpen : ''
@@ -148,18 +186,45 @@ export default function Header() {
             {label}
           </Link>
         ))}
-        {user && AUTH_NAV_LINKS.map(({ label, href }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`${styles.mobileLink} ${
-              activePath === href ? styles.mobileLinkActive : ''
-            }`}
-            onClick={() => setMenuOpen(false)}
-          >
-            {label}
-          </Link>
-        ))}
+        {user && (
+          <>
+            <Link
+              href="/accounts"
+              className={`${styles.mobileLink} ${
+                activePath === '/accounts' ? styles.mobileLinkActive : ''
+              }`}
+              onClick={() => setMenuOpen(false)}
+            >
+              Account Dashboard
+            </Link>
+            {BILLING_ENABLED && (
+              <Link
+                href="/accounts/billing"
+                className={`${styles.mobileLink} ${
+                  activePath === '/accounts/billing' ? styles.mobileLinkActive : ''
+                }`}
+                onClick={() => setMenuOpen(false)}
+              >
+                Billing
+              </Link>
+            )}
+            <Link
+              href="/redeem"
+              className={`${styles.mobileLink} ${
+                activePath === '/redeem' ? styles.mobileLinkActive : ''
+              }`}
+              onClick={() => setMenuOpen(false)}
+            >
+              Redeem Code
+            </Link>
+            <button
+              className={`${styles.mobileLink} ${styles.mobileSignOut}`}
+              onClick={() => { setMenuOpen(false); handleSignOut(); }}
+            >
+              Sign Out
+            </button>
+          </>
+        )}
         {!user && (
           <div className={styles.mobileCta}>
             <a
