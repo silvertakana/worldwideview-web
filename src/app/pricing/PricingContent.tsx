@@ -121,7 +121,7 @@ export default function PricingContent() {
                   </TrackedLink>
                 ) : (
                   <TrackedLink
-                    href="/waitlist"
+                    href="/redeem"
                     className={styles.ctaBtn}
                     eventName="pricing_cta_click"
                     eventData={{ tier: tier.name, label: "Join the Beta" }}

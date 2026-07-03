@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
+import { hasInstanceEntitlement, markEntitlementUsed } from '../../../../lib/auth/entitlements'
 
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
   const supabase = await createClient()
@@ -40,6 +41,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'subdomain is required' }, { status: 400 })
   }
 
+  const entitled = await hasInstanceEntitlement(user.id)
+  if (!entitled) {
+    return NextResponse.json(
+      { error: 'No active entitlement. Redeem an access code at /redeem.' },
+      { status: 403 },
+    )
+  }
+
   const res = await crossServiceFetch('/api/instance', {
     method: 'POST',
     body: {
@@ -51,5 +60,10 @@ export async function POST(request: Request) {
   })
 
   const data = await res.json().catch(() => null)
+
+  if (res.ok) {
+    await markEntitlementUsed(user.id)
+  }
+
   return NextResponse.json(data || { error: 'Provisioning service error' }, { status: res.status })
 }
