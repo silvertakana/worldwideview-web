@@ -64,3 +64,8 @@ jobs:
         run: supabase db push --local
       - name: Lint database
         run: supabase db lint --local --fail-on error
+      - name: Test production connection
+        if: env.SUPABASE_DB_URL != ''
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
