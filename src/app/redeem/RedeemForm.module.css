@@ -56,6 +56,13 @@
   margin-bottom: var(--space-md);
 }
 
+.success {
+  font-size: 0.85rem;
+  color: var(--color-success, #22c55e);
+  text-align: center;
+  margin-bottom: var(--space-md);
+}
+
 .button {
   width: 100%;
   padding: var(--space-md);

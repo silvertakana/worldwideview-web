@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserCircle, CreditCard, ExternalLink, Package } from "lucide-react";
+import { UserCircle, CreditCard, ExternalLink, Package, Server } from "lucide-react";
 import styles from "./sidebar.module.css";
 
 const MARKETPLACE_URL = process.env.NEXT_PUBLIC_MARKETPLACE_URL ?? "https://marketplace.worldwideview.dev";
 
 const NAV_ITEMS = [
     { label: "Overview", href: "/accounts", icon: UserCircle },
+    { label: "Instances", href: "/accounts/instances", icon: Server },
     { label: "Billing", href: "/accounts/billing", icon: CreditCard },
     { label: "Plugin Management", href: `${MARKETPLACE_URL}/account`, icon: Package, external: true },
 ];
