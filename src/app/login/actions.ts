@@ -3,17 +3,14 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '../../lib/supabase/server'
 import { safeNext } from '../../lib/safeNext'
-
-const PROVISIONING_API_URL = process.env.PROVISIONING_API_URL || 'http://localhost:3000'
-const PROVISIONING_API_KEY = process.env.PROVISIONING_API_KEY
+import { crossServiceFetch } from '../../lib/cross-service/fetch'
 
 async function userHasInstances(userId: string, email: string): Promise<boolean> {
-  if (!PROVISIONING_API_KEY) return false
   try {
-    const res = await fetch(
-      `${PROVISIONING_API_URL}/api/instance?userId=${userId}&email=${encodeURIComponent(email)}`,
-      { headers: { 'x-api-key': PROVISIONING_API_KEY } }
-    )
+    const res = await crossServiceFetch('/api/instance', {
+      searchParams: { userId, email },
+    })
+    if (!res.ok) return false
     const data = await res.json().catch(() => ({ instances: [] }))
     return (data.instances?.length ?? 0) > 0
   } catch {
