@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
@@ -54,7 +55,8 @@ export async function revokeCode(
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminGuard(user)) return { success: false, error: 'Unauthorized' }
 
-  const { error } = await supabase
+  const admin = createAdminClient()
+  const { error } = await admin
     .from('access_codes')
     .update({ revoked_at: new Date().toISOString() })
     .eq('id', codeId)

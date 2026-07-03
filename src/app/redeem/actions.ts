@@ -34,7 +34,7 @@ export async function redeemCode(code: string) {
     return { error: 'Invalid, expired, or already used code' }
   }
 
-  const { error: insertError } = await supabase
+  const { error: insertError } = await admin
     .from('user_entitlements')
     .insert({
       user_id: user.id,
@@ -43,17 +43,7 @@ export async function redeemCode(code: string) {
       grants_days: accessCode.grants_days,
     })
 
-  if (insertError) {
-    const { error: adminInsertError } = await admin
-      .from('user_entitlements')
-      .insert({
-        user_id: user.id,
-        code_id: accessCode.id,
-        source: 'access_code',
-        grants_days: accessCode.grants_days,
-      })
-    if (adminInsertError) return { error: 'Failed to redeem code. Please try again.' }
-  }
+  if (insertError) return { error: 'Failed to redeem code. Please try again.' }
 
   const { data: updated } = await admin
     .from('access_codes')
