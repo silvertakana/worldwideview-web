@@ -93,13 +93,7 @@ export default function Header() {
               title={user.email ?? ''}
             >
               <img
-                src={diceBearUrl(
-                  user.user_metadata?.display_name ||
-                  user.user_metadata?.full_name ||
-                  user.user_metadata?.name ||
-                  user.email ||
-                  'user'
-                )}
+                src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
                 alt=""
                 className={styles.avatarImg}
               />
