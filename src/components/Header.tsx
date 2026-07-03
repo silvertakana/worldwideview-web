@@ -41,12 +41,12 @@ export default function Header() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+      if (event === 'SIGNED_IN') router.refresh();
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
