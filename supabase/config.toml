@@ -4,7 +4,6 @@ schemas = ["public", "graphql_public", "storage"]
 
 [db]
 port = 54322
-password = "postgres"
 
 [auth]
 enabled = true
