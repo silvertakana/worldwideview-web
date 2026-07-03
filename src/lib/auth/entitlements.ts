@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function getUserEntitlement(userId: string) {
   const supabase = await createClient()
@@ -17,8 +18,8 @@ export async function hasInstanceEntitlement(userId: string) {
 }
 
 export async function markEntitlementUsed(userId: string) {
-  const supabase = await createClient()
-  await supabase
+  const admin = createAdminClient()
+  await admin
     .from('user_entitlements')
     .update({ used_for_instance: true, instance_created_at: new Date().toISOString() })
     .eq('user_id', userId)
