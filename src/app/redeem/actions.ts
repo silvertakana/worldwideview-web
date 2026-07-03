@@ -1,14 +1,12 @@
 'use server'
 
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
-  if (!user) redirect('/login?next=/redeem')
+  if (!user) return { error: 'You must be signed in to redeem a code.' }
 
   const trimmed = code.trim()
   if (!trimmed) return { error: 'Please enter an access code' }
@@ -66,6 +64,5 @@ export async function redeemCode(code: string) {
     return { error: 'Code was just redeemed by someone else. Please try again.' }
   }
 
-  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
-  redirect('/accounts/instances')
+  return { success: true }
 }
