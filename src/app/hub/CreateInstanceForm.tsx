@@ -42,13 +42,12 @@ export default function CreateInstanceForm({
 
     setLoading(true)
     try {
-      const res = await fetch('/api/provisioning/workspace', {
+      const res = await fetch('/api/provisioning/instance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subdomain: sd,
           name: name || undefined,
-          priceId: priceId || undefined,
         }),
       })
 
