@@ -1,0 +1,19 @@
+[api]
+port = 54321
+schemas = ["public", "graphql_public", "storage"]
+
+[db]
+port = 54322
+
+[auth]
+enabled = true
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+
+[analytics]
+enabled = false
