@@ -65,5 +65,12 @@ export async function POST(request: Request) {
     await markEntitlementUsed(user.id)
   }
 
+  if (data && data.subdomain && !data.setupUrl) {
+    const pattern = process.env.NEXT_PUBLIC_INSTANCE_URL_PATTERN
+    if (pattern) {
+      data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
+    }
+  }
+
   return NextResponse.json(data || { error: 'Provisioning service error' }, { status: res.status })
 }
