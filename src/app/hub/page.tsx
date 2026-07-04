@@ -216,7 +216,7 @@ export default function HubDashboard() {
               You need an access code to create an instance.
             </p>
             <a
-              href="/redeem"
+              href="/accounts/redeem"
               style={{
                 display: 'inline-block',
                 padding: 'var(--space-sm) var(--space-lg)',

@@ -127,7 +127,7 @@ export default function Header() {
                       Billing
                     </Link>
                   )}
-                  <Link href="/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
+                  <Link href="/accounts/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
                     Redeem Code
                   </Link>
                   <div className={styles.dropdownDivider} />
@@ -209,9 +209,9 @@ export default function Header() {
               </Link>
             )}
             <Link
-              href="/redeem"
+              href="/accounts/redeem"
               className={`${styles.mobileLink} ${
-                activePath === '/redeem' ? styles.mobileLinkActive : ''
+                activePath === '/accounts/redeem' ? styles.mobileLinkActive : ''
               }`}
               onClick={() => setMenuOpen(false)}
             >
