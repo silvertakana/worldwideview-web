@@ -18,13 +18,13 @@ const NAV_LINKS = [
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
 ];
 
-export default function Header() {
+export default function Header({ initialUser = null }: { initialUser?: User | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [activePath, setActivePath] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(initialUser);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const closeDropdown = useCallback(() => {
@@ -41,6 +41,10 @@ export default function Header() {
 
   useEffect(() => {
     const supabase = createClient();
+    // nosemgrep: semgrep.getSession-for-auth - client-side session hydration, getUser() requires server API
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUser(session.user);
+    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       if (event === 'SIGNED_IN' || event === 'USER_UPDATED') router.refresh();
