@@ -82,6 +82,7 @@ export async function updateAvatar(dataUrl: string): Promise<{ publicUrl: string
   if (error) throw new Error(error.message)
 
   revalidatePath('/accounts')
+  revalidatePath('/')
   return { publicUrl: urlWithBuster }
 }
 

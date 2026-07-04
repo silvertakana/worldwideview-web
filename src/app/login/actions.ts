@@ -40,7 +40,7 @@ export async function signInWithPassword(formData: FormData) {
   // Otherwise, check if they have workspaces to decide where to send them
   if (data.user) {
     const hasInstances = await userHasInstances(data.user.id, data.user.email ?? '')
-    redirect(hasInstances ? '/hub' : '/pricing')
+    redirect(hasInstances ? '/accounts/instances' : '/pricing')
   }
 
   redirect('/pricing')
