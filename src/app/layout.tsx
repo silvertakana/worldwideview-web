@@ -41,7 +41,7 @@ export default async function RootLayout({
       <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <ThemeProvider>
           <OutageBanner />
-          <Header initialUser={user ?? null} />
+          <Header initialUser={user} />
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />
         </ThemeProvider>

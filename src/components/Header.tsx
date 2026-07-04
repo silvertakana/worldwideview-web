@@ -41,13 +41,9 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
 
   useEffect(() => {
     const supabase = createClient();
-    // nosemgrep: semgrep.getSession-for-auth - client-side session hydration, getUser() requires server API
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) setUser(session.user);
-    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') router.refresh();
+      if (event === 'SIGNED_IN') router.refresh();
     });
     return () => subscription.unsubscribe();
   }, [router]);
@@ -116,7 +112,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                 title={user.email ?? ''}
               >
                 <img
-                  src={user.user_metadata?.avatar_url || diceBearUrl(user.user_metadata?.display_name || user.email || user.id)}
+                  src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
                   alt=""
                   className={styles.avatarImg}
                 />
@@ -131,7 +127,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                       Billing
                     </Link>
                   )}
-                  <Link href="/accounts/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
+                  <Link href="/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
                     Redeem Code
                   </Link>
                   <div className={styles.dropdownDivider} />
@@ -213,9 +209,9 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
               </Link>
             )}
             <Link
-              href="/accounts/redeem"
+              href="/redeem"
               className={`${styles.mobileLink} ${
-                activePath === '/accounts/redeem' ? styles.mobileLinkActive : ''
+                activePath === '/redeem' ? styles.mobileLinkActive : ''
               }`}
               onClick={() => setMenuOpen(false)}
             >
