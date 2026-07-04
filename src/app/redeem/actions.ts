@@ -34,6 +34,13 @@ export async function redeemCode(code: string) {
     return { error: 'Invalid, expired, or already used code' }
   }
 
+  // Remove any existing unused entitlement for this user (allows re-redemption)
+  await admin
+    .from('user_entitlements')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('used_for_instance', false)
+
   const { error: insertError } = await admin
     .from('user_entitlements')
     .insert({

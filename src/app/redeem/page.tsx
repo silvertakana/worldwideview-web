@@ -8,15 +8,15 @@ export default async function RedeemPage() {
   // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   if (!user) redirect('/login?next=/redeem')
 
-  const { data: entitlement } = await supabase
+  const { data: usedEntitlement } = await supabase
     .from('user_entitlements')
-    .select('*')
+    .select('id')
     .eq('user_id', user.id)
-    .eq('used_for_instance', false)
+    .eq('used_for_instance', true)
     .maybeSingle()
 
   // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
-  if (entitlement) redirect('/accounts/instances')
+  if (usedEntitlement) redirect('/accounts/instances')
 
   return (
     <div style={{
