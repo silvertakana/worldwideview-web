@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   const entitled = await hasInstanceEntitlement(user.id)
   if (!entitled) {
     return NextResponse.json(
-      { error: 'No active entitlement. Redeem an access code at /redeem.' },
+      { error: 'No active entitlement. Redeem an access code at /accounts/redeem.' },
       { status: 403 },
     )
   }
