@@ -212,10 +212,14 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.plan === 'local' && BILLING_ENABLED ? (
+            {account.plan === 'local' && BILLING_ENABLED && !entitlement?.hasEntitlement ? (
               <a href="/signup?plan=pro" className={styles.accountUpgradeBtn}>
                 Upgrade to Pro
               </a>
+            ) : account.plan === 'local' && BILLING_ENABLED && entitlement?.hasEntitlement ? (
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                Access code active
+              </span>
             ) : account.plan === 'local' && !BILLING_ENABLED ? (
               <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                 Billing coming soon
