@@ -44,7 +44,7 @@ export async function GET() {
       status: accountData.account?.status || accountData.status || 'active',
       trialEndsAt: accountData.account?.trialEndsAt || accountData.trialEndsAt || null,
       instanceCount: accountData.account?.instanceCount || accountData.instanceCount || 0,
-      instanceLimit: accountData.account?.instanceLimit || accountData.instanceLimit || Infinity,
+      instanceLimit: accountData.account?.instanceLimit ?? accountData.instanceLimit ?? 0,
       isTrialing: accountData.account?.isTrialing || accountData.isTrialing || false,
       trialDaysRemaining: accountData.account?.trialDaysRemaining || accountData.trialDaysRemaining || null,
     } : null,

@@ -187,10 +187,7 @@ export default function InstancesPage() {
               )}
             </div>
             <span className={styles.accountInstanceCount}>
-              {account.plan === 'local'
-                ? 'Instances: Unlimited'
-                : `Instances: ${account.instanceCount} / ${account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}`
-              }
+              Instances: {account.instanceCount} / {account.instanceLimit === null || account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}
             </span>
             {BILLING_ENABLED && account.isTrialing && account.trialDaysRemaining !== null && (
               <span className={`${styles.accountTrialText} ${account.trialDaysRemaining <= 0 ? styles.accountTrialExpired : ''}`}>
@@ -212,18 +209,16 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.plan === 'local' && BILLING_ENABLED && !entitlement?.hasEntitlement ? (
-              <a href="/signup?plan=pro" className={styles.accountUpgradeBtn}>
-                Upgrade to Pro
-              </a>
-            ) : account.plan === 'local' && BILLING_ENABLED && entitlement?.hasEntitlement ? (
-              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                Access code active
-              </span>
-            ) : account.plan === 'local' && !BILLING_ENABLED ? (
-              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                Billing coming soon
-              </span>
+            {account.plan === 'local' ? (
+              needsEntitlement ? (
+                <a href="/accounts/redeem" className={styles.accountUpgradeBtn}>
+                  Redeem Code
+                </a>
+              ) : (
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                  Access code active
+                </span>
+              )
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
                 Update Payment
