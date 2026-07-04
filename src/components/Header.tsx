@@ -18,13 +18,13 @@ const NAV_LINKS = [
   { label: 'Marketplace', href: 'https://marketplace.worldwideview.dev/' },
 ];
 
-export default function Header() {
+export default function Header({ initialUser }: { initialUser?: User | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [activePath, setActivePath] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(initialUser ?? null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const closeDropdown = useCallback(() => {

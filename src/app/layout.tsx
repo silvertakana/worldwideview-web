@@ -4,6 +4,7 @@ import ThemeProvider from "@/components/ThemeProvider";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import OutageBanner from "@/components/OutageBanner";
+import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,11 +25,14 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
@@ -37,7 +41,7 @@ export default function RootLayout({
       <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <ThemeProvider>
           <OutageBanner />
-          <Header />
+          <Header initialUser={user} />
           <main style={{ flex: 1 }}>{children}</main>
           <Footer />
         </ThemeProvider>
