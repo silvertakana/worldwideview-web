@@ -62,6 +62,13 @@ export async function revokeCode(
     .eq('id', codeId)
 
   if (error) return { success: false, error: error.message }
+
+  await admin
+    .from('user_entitlements')
+    .delete()
+    .eq('code_id', codeId)
+    .eq('used_for_instance', false)
+
   revalidatePath('/admin/codes')
   return { success: true }
 }
