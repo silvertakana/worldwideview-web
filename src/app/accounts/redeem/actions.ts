@@ -3,7 +3,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { crossServiceFetch } from '@/lib/cross-service/fetch'
-import { redirect } from 'next/navigation'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
@@ -33,6 +32,13 @@ export async function redeemCode(code: string) {
   if (accessCode.use_count >= accessCode.max_uses) {
     return { error: 'Invalid, expired, or already used code' }
   }
+
+  // Remove any existing unused entitlement for this user (allows re-redemption)
+  await admin
+    .from('user_entitlements')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('used_for_instance', false)
 
   const { error: insertError } = await admin
     .from('user_entitlements')
@@ -69,6 +75,5 @@ export async function redeemCode(code: string) {
     console.error('Failed to reach globe for Account creation:', err)
   }
 
-  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
-  redirect('/accounts/instances')
+  return { success: true }
 }

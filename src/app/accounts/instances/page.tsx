@@ -20,7 +20,7 @@ interface AccountInfo {
   status: string
   trialEndsAt: string | null
   instanceCount: number
-  instanceLimit: number
+  instanceLimit: number | null
   isTrialing: boolean
   trialDaysRemaining: number | null
 }
@@ -153,7 +153,7 @@ export default function InstancesPage() {
 
   const isSuspended = account?.status === 'suspended'
   const isDeleted = account?.status === 'deleted'
-  const atInstanceLimit = account ? account.instanceCount >= account.instanceLimit : false
+  const atInstanceLimit = account ? account.instanceLimit !== null && account.instanceCount >= account.instanceLimit : false
   const needsEntitlement = !entitlement || !entitlement.hasEntitlement
   const entitlementAlreadyUsed = entitlement?.entitlementUsed
   const canCreate = !isSuspended && !isDeleted && !atInstanceLimit && !needsEntitlement && !entitlementAlreadyUsed
@@ -187,10 +187,7 @@ export default function InstancesPage() {
               )}
             </div>
             <span className={styles.accountInstanceCount}>
-              {account.plan === 'local'
-                ? 'Instances: Unlimited'
-                : `Instances: ${account.instanceCount} / ${account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}`
-              }
+              Instances: {account.instanceCount} / {account.instanceLimit === null || account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}
             </span>
             {BILLING_ENABLED && account.isTrialing && account.trialDaysRemaining !== null && (
               <span className={`${styles.accountTrialText} ${account.trialDaysRemaining <= 0 ? styles.accountTrialExpired : ''}`}>
@@ -212,14 +209,16 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.plan === 'local' && BILLING_ENABLED ? (
-              <a href="/signup?plan=pro" className={styles.accountUpgradeBtn}>
-                Upgrade to Pro
-              </a>
-            ) : account.plan === 'local' && !BILLING_ENABLED ? (
-              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                Billing coming soon
-              </span>
+            {account.plan === 'local' ? (
+              needsEntitlement ? (
+                <a href="/accounts/redeem" className={styles.accountUpgradeBtn}>
+                  Redeem Code
+                </a>
+              ) : (
+                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                  Access code active
+                </span>
+              )
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
                 Update Payment
@@ -329,7 +328,7 @@ export default function InstancesPage() {
             You need an access code to create an instance.
           </p>
           <a
-            href="/redeem"
+            href="/accounts/redeem"
             style={{
               display: 'inline-block',
               padding: 'var(--space-sm) var(--space-lg)',
