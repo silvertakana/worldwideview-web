@@ -23,7 +23,7 @@ export async function GET() {
       status: 'active',
       trialEndsAt: null,
       instanceCount: 0,
-      instanceLimit: Infinity,
+      instanceLimit: 0,
       isTrialing: false,
       trialDaysRemaining: null,
     })
