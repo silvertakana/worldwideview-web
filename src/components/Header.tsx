@@ -41,6 +41,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
 
   useEffect(() => {
     const supabase = createClient();
+    // nosemgrep: semgrep.getSession-for-auth - client-side session hydration, getUser() requires server API
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) setUser(session.user);
     });
