@@ -43,7 +43,7 @@ export default function Header() {
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (event === 'SIGNED_IN') router.refresh();
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') router.refresh();
     });
     return () => subscription.unsubscribe();
   }, [router]);
@@ -112,7 +112,7 @@ export default function Header() {
                 title={user.email ?? ''}
               >
                 <img
-                  src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
+                  src={user.user_metadata?.avatar_url || diceBearUrl(user.user_metadata?.display_name || user.email || user.id)}
                   alt=""
                   className={styles.avatarImg}
                 />
