@@ -36,7 +36,9 @@ export default async function RootLayout({
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
-        <script defer src="https://analytics.worldwideview.dev/script.js" data-website-id="b70ed34b-4361-490b-9a66-1e43bb74f4ec"></script>
+        {process.env.NEXT_PUBLIC_ANALYTICS_SCRIPT_URL && (
+          <script defer src={process.env.NEXT_PUBLIC_ANALYTICS_SCRIPT_URL} data-website-id="b70ed34b-4361-490b-9a66-1e43bb74f4ec"></script>
+        )}
       </head>
       <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <ThemeProvider>

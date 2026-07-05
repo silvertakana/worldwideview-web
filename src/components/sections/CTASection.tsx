@@ -17,7 +17,7 @@ export default function CTASection() {
         <h2 className={styles.heading}>Start visualizing the world</h2>
         <div className={styles.buttons}>
           <a
-            href="https://demo.worldwideview.dev"
+            href={process.env.NEXT_PUBLIC_DEMO_URL ?? "https://demo.worldwideview.dev"}
             className={styles.primaryBtn}
             onClick={() => trackEvent("cta_click", { label: "Try the Demo" })}
           >
