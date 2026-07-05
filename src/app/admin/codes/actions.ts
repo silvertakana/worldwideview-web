@@ -67,9 +67,9 @@ export async function revokeCode(
 
   await admin
     .from('user_entitlements')
-    .delete()
+    .update({ revoked_at: new Date().toISOString() })
     .eq('code_id', codeId)
-    .eq('used_for_instance', false)
+    .is('revoked_at', null)
 
   revalidatePath('/admin/codes')
   return { success: true }
