@@ -16,6 +16,7 @@ interface Workspace {
 }
 
 interface AccountInfo {
+  tier: string
   plan: string
   status: string
   trialEndsAt: string | null
@@ -145,6 +146,9 @@ export default function InstancesPage() {
   const accountPlanLabel = (plan: string) => {
     switch (plan) {
       case 'local': return 'Local'
+      case 'free': return 'Local'
+      case 'beta_tester': return 'Beta Tester'
+      case 'early_access': return 'Early Access'
       case 'pro': return 'Pro'
       case 'enterprise': return 'Enterprise'
       default: return plan
@@ -180,7 +184,7 @@ export default function InstancesPage() {
             <div className={styles.accountTierRow}>
               <Zap size={14} className={account.plan === 'local' ? styles.accountZapMuted : styles.accountZapAccent} />
               <span className={styles.accountPlanName}>{accountPlanLabel(account.plan)} Plan</span>
-              {account.plan !== 'local' && (
+              {account.tier !== 'free' && (
                 <span className={`${styles.accountStatusBadge} ${accountStatusClass(account.status)}`}>
                   {account.status === 'trialing' ? 'Trial' : account.status === 'active' ? 'Active' : account.status === 'suspended' ? 'Suspended' : account.status}
                 </span>
@@ -209,16 +213,14 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.plan === 'local' ? (
-              needsEntitlement ? (
-                <a href="/accounts/redeem" className={styles.accountUpgradeBtn}>
-                  Redeem Code
-                </a>
-              ) : (
-                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                  Access code active
-                </span>
-              )
+            {account.tier === 'free' ? (
+              <a href="/accounts/redeem" className={styles.accountUpgradeBtn}>
+                Redeem Code
+              </a>
+            ) : ['beta_tester', 'early_access'].includes(account.tier) ? (
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                Access code active
+              </span>
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
                 Update Payment

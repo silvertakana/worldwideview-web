@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
+import { getHighestTier } from '../../../../lib/auth/entitlements'
 
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
   const supabase = await createClient()
@@ -23,12 +24,19 @@ export async function GET() {
   })
   const instancesData = await instancesRes.json().catch(() => ({ instances: [] }))
 
-  const accountRes = await crossServiceFetch('/api/account', {
-    searchParams: { userId: user.id },
-  })
-  const accountData = await accountRes.json().catch(() => null)
+  // Get user's tier from hub entitlements (source of truth)
+  const userTier = await getHighestTier(user.id)
 
-  // Map instances to workspaces format and merge account info
+  const TIER_INSTANCE_LIMITS: Record<string, number | null> = {
+    free: null,
+    beta_tester: 1,
+    early_access: 3,
+    pro: null,
+    enterprise: null,
+  }
+  const instanceLimit = TIER_INSTANCE_LIMITS[userTier] ?? null
+
+  // Map instances to workspaces format
   const workspaces = (instancesData.instances || []).map((inst: any) => ({
     id: inst.id,
     name: inst.name,
@@ -39,15 +47,16 @@ export async function GET() {
 
   return NextResponse.json({
     workspaces,
-    account: accountData ? {
-      plan: accountData.account?.plan || accountData.plan || 'local',
-      status: accountData.account?.status || accountData.status || 'active',
-      trialEndsAt: accountData.account?.trialEndsAt || accountData.trialEndsAt || null,
-      instanceCount: accountData.account?.instanceCount || accountData.instanceCount || 0,
-      instanceLimit: accountData.account?.instanceLimit ?? accountData.instanceLimit ?? null,
-      isTrialing: accountData.account?.isTrialing || accountData.isTrialing || false,
-      trialDaysRemaining: accountData.account?.trialDaysRemaining || accountData.trialDaysRemaining || null,
-    } : null,
+    account: {
+      tier: userTier,
+      plan: userTier === 'free' ? 'local' : userTier,
+      status: 'active',
+      trialEndsAt: null,
+      instanceCount: workspaces.length,
+      instanceLimit,
+      isTrialing: false,
+      trialDaysRemaining: null,
+    },
   })
 }
 
