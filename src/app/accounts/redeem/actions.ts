@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasTier } from '@/lib/auth/entitlements'
+import { crossServiceFetch } from '@/lib/cross-service/fetch'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
@@ -58,6 +59,19 @@ export async function redeemCode(code: string) {
 
   if (!updated || updated.length === 0) {
     return { error: 'Code was just redeemed by someone else. Please try again.' }
+  }
+
+  try {
+    const res = await crossServiceFetch('/api/access-code', {
+      method: 'POST',
+      body: { code: accessCode.code, userId: user.id, email: user.email },
+    })
+    if (!res.ok) {
+      const errorBody = await res.text()
+      console.error('Globe Account creation failed:', res.status, errorBody)
+    }
+  } catch (err) {
+    console.error('Failed to reach globe for Account creation:', err)
   }
 
   return { success: true, tier: accessCode.tier }
