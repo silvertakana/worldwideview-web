@@ -20,12 +20,14 @@ export default function RedeemForm() {
     try {
       const result = await redeemCode(code)
 
+      if (result?.error) {
+        setError(result.error)
+        return
+      }
+
       if (result?.success) {
         router.push('/accounts/instances')
         return
-      }
-      if (result?.error) {
-        setError(result.error)
       }
     } catch {
       setError('Something went wrong. Please try again.')

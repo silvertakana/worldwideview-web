@@ -10,7 +10,7 @@ const MARKETPLACE_URL = process.env.NEXT_PUBLIC_MARKETPLACE_URL ?? "https://mark
 const NAV_ITEMS = [
     { label: "Overview", href: "/accounts", icon: UserCircle },
     { label: "Instances", href: "/accounts/instances", icon: Server },
-    { label: "Redeem Code", href: "/redeem", icon: Ticket },
+    { label: "Redeem Code", href: "/accounts/redeem", icon: Ticket },
     { label: "Billing", href: "/accounts/billing", icon: CreditCard },
 ];
 
