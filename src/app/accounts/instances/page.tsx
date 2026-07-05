@@ -224,9 +224,7 @@ export default function InstancesPage() {
                 Update Payment
               </a>
             ) : isDeleted ? (
-              <a href="mailto:support@worldwideview.dev" className={styles.accountManageBtn}>
-                Contact Support
-              </a>
+              <a href="mailto:support@worldwideview.dev" className={styles.accountManageBtn}>{/* lint-url: allow */}Contact Support</a>
             ) : (
               <a href="/accounts/billing" className={styles.accountManageBtn}>
                 Manage Billing

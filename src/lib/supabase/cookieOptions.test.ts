@@ -15,7 +15,7 @@ describe('resolveCookieDomain', () => {
   })
 
   it('returns the configured production domain', () => {
-    expect(resolveCookieDomain('.worldwideview.dev')).toBe('.worldwideview.dev')
+    expect(resolveCookieDomain('.worldwideview.dev')).toBe('.worldwideview.dev') // lint-url: allow
   })
 
   it('trims surrounding whitespace', () => {

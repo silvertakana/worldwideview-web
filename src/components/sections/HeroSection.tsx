@@ -26,7 +26,7 @@ export default function HeroSection() {
           </p>
           <div className={styles.buttons}>
             <a
-              href="https://demo.worldwideview.dev"
+              href={process.env.NEXT_PUBLIC_DEMO_URL ?? "https://demo.worldwideview.dev"}
               className={styles.primaryBtn}
               onClick={() => trackEvent("cta_click", { label: "Try Demo" })}
             >

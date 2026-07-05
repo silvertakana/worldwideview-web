@@ -117,13 +117,7 @@ export default async function BillingPage() {
                 color: "var(--color-text-muted)", fontSize: "0.9rem",
             }}>
                 <span>Need more? Contact Us</span>
-                <a href="mailto:sales@worldwideview.dev"
-                    style={{
-                        color: "var(--color-accent)", textDecoration: "none",
-                        fontWeight: 500,
-                    }}>
-                    Contact Us
-                </a>
+                <a href="mailto:sales@worldwideview.dev" style={{ color: "var(--color-accent)", textDecoration: "none", fontWeight: 500 }}>{/* lint-url: allow */}Contact Us</a>
             </div>
         </div>
     );

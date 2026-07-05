@@ -6,7 +6,8 @@
     "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+4-key.pem --experimental-https-cert ./certs/wwv.local+4.pem",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint:urls": "node scripts/lint-urls.mjs",
+    "lint": "eslint && node scripts/lint-urls.mjs",
     "test": "vitest run"
   },
   "dependencies": {

@@ -87,7 +87,7 @@ export default function WaitlistPage() {
           <p className={styles.legalConsent}>
             By joining, you agree to our{" "}
             <a
-              href="https://worldwideview.dev/legal/privacy-policy"
+              href={`${process.env.NEXT_PUBLIC_LEGAL_URL ?? "https://worldwideview.dev/legal"}/privacy-policy`}
               target="_blank"
               rel="noopener noreferrer"
             >
