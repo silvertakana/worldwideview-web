@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getUserEntitlement } from '@/lib/auth/entitlements'
 import RedeemForm from './RedeemForm'
 
 export default async function RedeemPage() {
@@ -9,10 +8,6 @@ export default async function RedeemPage() {
   // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
   if (!user) redirect('/login?next=/redeem')
 
-  const entitlement = await getUserEntitlement(user.id)
-
-  // nosemgrep: semgrep.unsanitized-redirect - hardcoded path, not user-controlled
-  if (entitlement) redirect('/accounts/instances')
 
   return (
     <div style={{

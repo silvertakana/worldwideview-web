@@ -28,6 +28,7 @@ export async function generateCodes(
   quantity: number,
   grantsDays: number,
   notes: string,
+  tier: string = 'beta_tester',
 ): Promise<{ codes: string[]; error?: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -39,6 +40,7 @@ export async function generateCodes(
     max_uses: 1,
     notes: notes || null,
     created_by: user!.id,
+    tier,
   }))
 
   const { error } = await supabase.from('access_codes').insert(records)
