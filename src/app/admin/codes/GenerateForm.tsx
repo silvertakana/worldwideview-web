@@ -17,8 +17,9 @@ export function GenerateForm() {
     const quantity = Math.min(Math.max(Number(formData.get('quantity') ?? 1), 1), 100)
     const grantsDays = Math.max(Number(formData.get('grantsDays') ?? 30), 1)
     const notes = String(formData.get('notes') ?? '')
+    const tier = String(formData.get('tier') ?? 'beta_tester')
 
-    const result = await generateCodes(quantity, grantsDays, notes)
+    const result = await generateCodes(quantity, grantsDays, notes, tier)
     if (result.error) {
       setError(result.error)
     } else {
@@ -63,6 +64,21 @@ export function GenerateForm() {
             className={styles.input}
             required
           />
+        </div>
+
+        <div className={styles.field}>
+          <label htmlFor="tier" className={styles.label}>Tier</label>
+          <select
+            id="tier"
+            name="tier"
+            className={styles.input}
+            defaultValue="beta_tester"
+          >
+            <option value="beta_tester">Beta Tester</option>
+            <option value="early_access">Early Access</option>
+            <option value="pro">Pro</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
         </div>
 
         <div className={styles.field}>

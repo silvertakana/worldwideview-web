@@ -22,6 +22,12 @@ export default function RedeemForm() {
 
       if (result?.error) {
         setError(result.error)
+        return
+      }
+
+      if (result?.success) {
+        router.push('/accounts/instances')
+        return
       }
     } catch {
       setError('Something went wrong. Please try again.')

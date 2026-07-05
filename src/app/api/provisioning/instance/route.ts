@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
-import { hasInstanceEntitlement, markEntitlementUsed } from '../../../../lib/auth/entitlements'
+import { hasInstanceEntitlement, getHighestTier, markEntitlementUsed } from '../../../../lib/auth/entitlements'
 
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
   const supabase = await createClient()
@@ -49,6 +49,8 @@ export async function POST(request: Request) {
     )
   }
 
+  const tier = await getHighestTier(user.id)
+
   const res = await crossServiceFetch('/api/instance', {
     method: 'POST',
     body: {
@@ -56,6 +58,7 @@ export async function POST(request: Request) {
       name: body.name || undefined,
       userId: user.id,
       email: user.email,
+      tier,
     },
   })
 

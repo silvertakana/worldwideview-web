@@ -7,6 +7,7 @@ export interface AccessCode {
   id: string
   code: string
   grants_days: number
+  tier: string
   max_uses: number
   use_count: number
   expires_at: string | null

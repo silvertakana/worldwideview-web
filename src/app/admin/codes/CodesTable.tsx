@@ -37,6 +37,7 @@ function CodeRow({ code }: { code: AccessCode }) {
         </span>
       </td>
       <td>{code.grants_days}</td>
+      <td>{code.tier}</td>
       <td>{code.use_count}/{code.max_uses}</td>
       <td className={styles.notesCell}>{code.notes || '-'}</td>
       <td>{new Date(code.created_at).toLocaleDateString()}</td>
@@ -66,6 +67,7 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
               <th>Code</th>
               <th>Status</th>
               <th>Days</th>
+              <th>Tier</th>
               <th>Uses</th>
               <th>Notes</th>
               <th>Created</th>
@@ -75,7 +77,7 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
           <tbody>
             {codes.length === 0 ? (
               <tr>
-                <td colSpan={7} className={styles.empty}>
+                <td colSpan={8} className={styles.empty}>
                   No access codes yet.
                 </td>
               </tr>
