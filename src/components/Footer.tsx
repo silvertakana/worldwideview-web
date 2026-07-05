@@ -10,7 +10,7 @@ const PRODUCT_LINKS = [
 
 const RESOURCE_LINKS = [
   { label: 'Documentation', href: '/docs' },
-  { label: 'Marketplace', href: process.env.NEXT_PUBLIC_MARKETPLACE_URL ?? "https://marketplace.worldwideview.dev/" },
+  { label: 'Marketplace', href: process.env.NEXT_PUBLIC_MARKETPLACE_URL || "https://marketplace.worldwideview.dev/" },
   { label: 'Plugin SDK', href: '/docs/plugin-quickstart' },
   { label: 'Status', href: '/coming-soon' },
 ];

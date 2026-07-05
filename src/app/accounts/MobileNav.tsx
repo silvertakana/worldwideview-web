@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { UserCircle, CreditCard, ExternalLink, Package, Server, Ticket } from "lucide-react";
 import styles from "./sidebar.module.css";
 
-const MARKETPLACE_URL = process.env.NEXT_PUBLIC_MARKETPLACE_URL ?? "https://marketplace.worldwideview.dev";
+const MARKETPLACE_URL = process.env.NEXT_PUBLIC_MARKETPLACE_URL || "https://marketplace.worldwideview.dev";
 
 const NAV_ITEMS = [
     { label: "Overview", href: "/accounts", icon: UserCircle },

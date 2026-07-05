@@ -15,7 +15,7 @@ const NAV_LINKS = [
   { label: 'Pricing', href: '/pricing' },
   { label: 'Download', href: '/download' },
   { label: 'Docs', href: '/docs' },
-  { label: 'Marketplace', href: process.env.NEXT_PUBLIC_MARKETPLACE_URL ?? "https://marketplace.worldwideview.dev/" },
+  { label: 'Marketplace', href: process.env.NEXT_PUBLIC_MARKETPLACE_URL || "https://marketplace.worldwideview.dev/" },
 ];
 
 export default function Header({ initialUser = null }: { initialUser?: User | null }) {
