@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { crossServiceFetch } from '@/lib/cross-service/fetch'
+import { hasTier } from '@/lib/auth/entitlements'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
@@ -33,12 +33,9 @@ export async function redeemCode(code: string) {
     return { error: 'Invalid, expired, or already used code' }
   }
 
-  // Remove any existing unused entitlement for this user (allows re-redemption)
-  await admin
-    .from('user_entitlements')
-    .delete()
-    .eq('user_id', user.id)
-    .eq('used_for_instance', false)
+  if (await hasTier(user.id, accessCode.tier)) {
+    return { error: `You already have ${accessCode.tier} access` }
+  }
 
   const { error: insertError } = await admin
     .from('user_entitlements')
@@ -47,6 +44,7 @@ export async function redeemCode(code: string) {
       code_id: accessCode.id,
       source: 'access_code',
       grants_days: accessCode.grants_days,
+      tier: accessCode.tier,
     })
 
   if (insertError) return { error: 'Failed to redeem code. Please try again.' }
@@ -62,18 +60,5 @@ export async function redeemCode(code: string) {
     return { error: 'Code was just redeemed by someone else. Please try again.' }
   }
 
-  try {
-    const res = await crossServiceFetch('/api/access-code', {
-      method: 'POST',
-      body: { code: accessCode.code, userId: user.id },
-    })
-    if (!res.ok) {
-      const errorBody = await res.text()
-      console.error('Globe Account creation failed:', res.status, errorBody)
-    }
-  } catch (err) {
-    console.error('Failed to reach globe for Account creation:', err)
-  }
-
-  return { success: true }
+  return { success: true, tier: accessCode.tier }
 }
