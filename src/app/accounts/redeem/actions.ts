@@ -3,7 +3,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasTier } from '@/lib/auth/entitlements'
-import { crossServiceFetch } from '@/lib/cross-service/fetch'
 
 export async function redeemCode(code: string) {
   const supabase = await createClient()
@@ -78,31 +77,6 @@ export async function redeemCode(code: string) {
   }
 
   console.log('[redeem] use_count updated', { codeId: accessCode.id, newCount: accessCode.use_count + 1 })
-
-  console.log('[redeem] calling globe', { url: '/api/access-code', userId: user.id, email: user.email })
-
-  try {
-    const res = await crossServiceFetch('/api/access-code', {
-      method: 'POST',
-      body: { code: accessCode.code, userId: user.id, email: user.email },
-    })
-    const body = await res.text()
-    console.log('[redeem] globe response', { status: res.status, ok: res.ok, body })
-
-    if (!res.ok) {
-      console.error('[redeem] globe request failed', { status: res.status, body })
-      if (res.status === 404) {
-        return { error: 'Account provisioning failed. Please contact support.' }
-      }
-      if (res.status >= 500) {
-        return { error: 'Service temporarily unavailable. Please try again.' }
-      }
-      return { error: 'Failed to activate access on the globe. Please contact support.' }
-    }
-  } catch (err) {
-    console.error('[redeem] globe network error', { error: err instanceof Error ? err.message : String(err) })
-    return { error: 'Cannot reach the globe service. Please try again.' }
-  }
 
   console.log('[redeem] success', { userId: user.id, tier: accessCode.tier })
 
