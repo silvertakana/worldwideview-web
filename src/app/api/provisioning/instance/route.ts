@@ -59,6 +59,29 @@ export async function POST(request: Request) {
   const tier = await getHighestTier(user.id)
   console.log('[provision] entitlement ok', { userId: user.id, tier })
 
+  // Best-effort: create globe user account + setup token before creating workspace
+  let setupUrlFromProvision: string | undefined
+  try {
+    const provisionRes = await crossServiceFetch('/api/provision', {
+      method: 'POST',
+      body: {
+        email: user.email,
+        name: body.name || user.email.split('@')[0],
+        hubUserId: user.id,
+      },
+    })
+    if (provisionRes.ok) {
+      const provisionData = await provisionRes.json()
+      setupUrlFromProvision = provisionData.setupUrl
+      console.log('[provision] user provisioned', { hasSetupUrl: !!setupUrlFromProvision })
+    } else {
+      // 409 = already provisioned, non-fatal
+      console.log('[provision] provision skipped', { status: provisionRes.status })
+    }
+  } catch (err) {
+    console.warn('[provision] provision network error (non-fatal)', { error: String(err) })
+  }
+
   const globeBody = {
     subdomain: body.subdomain,
     name: body.name || undefined,
@@ -97,10 +120,15 @@ export async function POST(request: Request) {
   }
 
   if (data && data.subdomain && !data.setupUrl) {
-    const pattern = process.env.NEXT_PUBLIC_INSTANCE_URL_PATTERN
-    if (pattern) {
-      data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
-      console.log('[provision] setup url generated', { setupUrl: data.setupUrl })
+    if (setupUrlFromProvision) {
+      data.setupUrl = setupUrlFromProvision
+      console.log('[provision] setup url from provision', { setupUrl: data.setupUrl })
+    } else {
+      const pattern = process.env.NEXT_PUBLIC_INSTANCE_URL_PATTERN
+      if (pattern) {
+        data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
+        console.log('[provision] setup url generated from pattern', { setupUrl: data.setupUrl })
+      }
     }
   }
 

@@ -48,6 +48,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 RUN npm install -g pm2@latest
 
+LABEL org.opencontainers.image.title="WorldWideView Web Hub"
+LABEL org.opencontainers.image.description="Landing page, authentication, billing, and account management for the WorldWideView platform"
+LABEL org.opencontainers.image.url="https://worldwideview.dev"
+LABEL org.opencontainers.image.source="https://github.com/silvertakana/worldwideview-web"
+LABEL org.opencontainers.image.licenses="EL-2.0"
+LABEL org.opencontainers.image.vendor="WorldWideView"
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000 HOSTNAME=0.0.0.0
