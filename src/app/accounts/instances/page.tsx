@@ -59,6 +59,7 @@ export default function InstancesPage() {
   const [deleteModalError, setDeleteModalError] = useState('')
   const [error, setError] = useState('')
   const [setupStates, setSetupStates] = useState<Record<string, boolean>>({})
+  const [settingUp, setSettingUp] = useState<string | null>(null)
 
   const fetchWorkspaces = useCallback(async () => {
     try {
@@ -154,6 +155,22 @@ export default function InstancesPage() {
       fetchWorkspaces()
     } else {
       setDeleteModalError(data.error || 'Delete failed')
+    }
+  }
+
+  const handleSetup = async (workspaceId: string, subdomain: string) => {
+    setSettingUp(workspaceId)
+    const domain = process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'
+    try {
+      const res = await fetch(`/api/provisioning/workspace/${workspaceId}/setup-token?subdomain=${encodeURIComponent(subdomain)}`)
+      if (res.ok) {
+        const data = await res.json()
+        window.location.href = `https://${subdomain}.${domain}/setup?token=${data.setupToken}`
+      } else {
+        window.location.href = `https://${subdomain}.${domain}/setup`
+      }
+    } catch {
+      window.location.href = `https://${subdomain}.${domain}/setup`
     }
   }
 
@@ -327,14 +344,13 @@ export default function InstancesPage() {
                     </>
                   )}
                   {setupStates[workspace.id] === false ? (
-                    <a
-                      href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}/setup${workspace.setupToken ? `?token=${workspace.setupToken}` : ''}`}
+                    <button
+                      onClick={() => handleSetup(workspace.id, workspace.subdomain)}
                       className={styles.actionBtnSetup}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      disabled={settingUp === workspace.id}
                     >
-                      Setup
-                    </a>
+                      {settingUp === workspace.id ? 'Setting up...' : 'Setup'}
+                    </button>
                   ) : (
                     <a
                       href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}`}
