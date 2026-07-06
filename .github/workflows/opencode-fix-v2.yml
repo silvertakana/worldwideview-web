@@ -16,9 +16,6 @@ concurrency:
   group: opencode-fix-${{ github.event.issue.number || github.event.inputs.issue_number }}
   cancel-in-progress: true
 
-env:
-  GH_TOKEN: ${{ secrets.GREMLIN_PAT }}
-
 jobs:
   fix:
     if: |
