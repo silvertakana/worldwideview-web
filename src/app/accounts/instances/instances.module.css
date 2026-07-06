@@ -559,24 +559,42 @@
   margin-bottom: var(--space-sm);
 }
 
-/* ── Setup badge ── */
-.setupBadge {
+/* ── Text Action Buttons (Setup/Launch) ── */
+.actionBtnSetup,
+.actionBtnLaunch {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.75rem;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  background: var(--color-warning-bg, #fef9c3);
-  color: var(--color-warning, #ca8a04);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: 34px;
+  white-space: nowrap;
+  margin-right: 6px;
 }
 
-.setupBadgeDone {
-  background: var(--color-success-bg, #dcfce7);
-  color: var(--color-success, #16a34a);
+.actionBtnSetup {
+  border: 1px solid var(--color-warning, #d97706);
+  background: transparent;
+  color: var(--color-warning, #d97706);
+}
+
+.actionBtnSetup:hover {
+  background: var(--color-warning-bg, #fef9c3);
+}
+
+.actionBtnLaunch {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: white;
+}
+
+.actionBtnLaunch:hover {
+  background: var(--color-accent-hover);
 }
 
 /* Mobile: keep icons in a row */

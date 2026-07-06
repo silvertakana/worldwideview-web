@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { Server, Zap, Pencil, Trash2, Rocket, Key } from 'lucide-react'
+import { Server, Zap, Pencil, Trash2 } from 'lucide-react'
 import { BILLING_ENABLED } from '@/lib/billing/constants'
 import CreateInstanceForm from './CreateInstanceForm'
 import styles from './instances.module.css'
@@ -299,11 +299,6 @@ export default function InstancesPage() {
                         <span className={`${styles.statusBadge} ${statusClass(workspace.status)}`}>
                           {STATUS_LABELS[workspace.status] || workspace.status}
                         </span>
-                        {setupStates[workspace.id] === false && (
-                          <span className={`${styles.statusBadge} ${styles.setupBadge}`}>
-                            Needs setup
-                          </span>
-                        )}
                       </div>
                       <span className={styles.workspaceTier}>
                         {workspace.subdomain}.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}
@@ -334,22 +329,20 @@ export default function InstancesPage() {
                   {setupStates[workspace.id] === false ? (
                     <a
                       href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}/setup${workspace.setupToken ? `?token=${workspace.setupToken}` : ''}`}
-                      className={`${styles.iconBtn} ${styles.iconBtnSetup}`}
-                      data-tooltip="Set up"
+                      className={styles.actionBtnSetup}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      <Key size={16} />
+                      Setup
                     </a>
                   ) : (
                     <a
                       href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}`}
-                      className={`${styles.iconBtn} ${styles.iconBtnLaunch}`}
-                      data-tooltip="Launch"
+                      className={styles.actionBtnLaunch}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      <Rocket size={16} />
+                      Launch
                     </a>
                   )}
                 </div>
