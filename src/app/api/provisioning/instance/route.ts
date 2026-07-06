@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   console.log('[provision] entitlement ok', { userId: user.id, tier })
 
   // Best-effort: create globe user account + setup token before creating workspace
-  let setupUrlFromProvision: string | undefined
+  let setupTokenFromProvision: string | undefined
   try {
     const provisionRes = await crossServiceFetch('/api/provision', {
       method: 'POST',
@@ -72,8 +72,8 @@ export async function POST(request: Request) {
     })
     if (provisionRes.ok) {
       const provisionData = await provisionRes.json()
-      setupUrlFromProvision = provisionData.setupUrl
-      console.log('[provision] user provisioned', { hasSetupUrl: !!setupUrlFromProvision })
+      setupTokenFromProvision = provisionData.setupToken
+      console.log('[provision] user provisioned', { hasSetupToken: !!setupTokenFromProvision })
     } else {
       // 409 = already provisioned, non-fatal
       console.log('[provision] provision skipped', { status: provisionRes.status })
@@ -120,15 +120,16 @@ export async function POST(request: Request) {
   }
 
   if (data && data.subdomain && !data.setupUrl) {
-    if (setupUrlFromProvision) {
-      data.setupUrl = setupUrlFromProvision
-      console.log('[provision] setup url from provision', { setupUrl: data.setupUrl })
+    const pattern = process.env.NEXT_PUBLIC_INSTANCE_URL_PATTERN
+    if (pattern && setupTokenFromProvision) {
+      const instanceUrl = pattern.replace('{subdomain}', data.subdomain)
+      data.setupUrl = `${instanceUrl}/setup?token=${setupTokenFromProvision}`
+      console.log('[provision] setup url from pattern + token', { setupUrl: data.setupUrl })
+    } else if (pattern) {
+      data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
+      console.log('[provision] setup url generated from pattern (no token)', { setupUrl: data.setupUrl })
     } else {
-      const pattern = process.env.NEXT_PUBLIC_INSTANCE_URL_PATTERN
-      if (pattern) {
-        data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
-        console.log('[provision] setup url generated from pattern', { setupUrl: data.setupUrl })
-      }
+      console.warn('[provision] no instance URL pattern set — setup URL not returned')
     }
   }
 
