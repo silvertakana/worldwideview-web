@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { Server, Zap } from 'lucide-react'
+import { Server, Zap, Pencil, Trash2, Rocket, Key } from 'lucide-react'
 import { BILLING_ENABLED } from '@/lib/billing/constants'
 import CreateInstanceForm from './CreateInstanceForm'
 import styles from './instances.module.css'
@@ -13,6 +13,8 @@ interface Workspace {
   subdomain: string
   status: string
   createdAt?: string
+  setupCompleted?: boolean
+  setupToken?: string
 }
 
 interface AccountInfo {
@@ -52,8 +54,11 @@ export default function InstancesPage() {
   const [showForm, setShowForm] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleteModal, setDeleteModal] = useState<Workspace | null>(null)
+  const [deleteDeleting, setDeleteDeleting] = useState(false)
+  const [deleteModalError, setDeleteModalError] = useState('')
   const [error, setError] = useState('')
+  const [setupStates, setSetupStates] = useState<Record<string, boolean>>({})
 
   const fetchWorkspaces = useCallback(async () => {
     try {
@@ -62,12 +67,37 @@ export default function InstancesPage() {
         fetch('/api/auth/entitlement'),
       ])
       const wsData = await wsRes.json()
-      if (wsData.workspaces) setWorkspaces(wsData.workspaces)
+      const workspaces: Workspace[] = wsData.workspaces || []
+      if (workspaces) setWorkspaces(workspaces)
       if (wsData.account) setAccount(wsData.account)
       if (entRes.ok) {
         const entData = await entRes.json()
         setEntitlement(entData)
       }
+
+      // Fetch setup status for each workspace from the globe's status endpoint.
+      // TODO: replace with batch endpoint when available. Falls back to Launch
+      // if the per-instance /api/instance/{id}/status endpoint does not exist yet.
+      const states: Record<string, boolean> = {}
+      await Promise.allSettled(
+        workspaces.map(async (ws: Workspace) => {
+          try {
+            const res = await fetch(`/api/provisioning/workspace/${ws.id}/status`)
+            if (res.ok) {
+              const data = await res.json()
+              states[ws.id] = data.setupCompleted === true
+            } else if (res.status === 404) {
+              // status endpoint not implemented yet -- default to completed
+              states[ws.id] = true
+            } else {
+              states[ws.id] = true
+            }
+          } catch {
+            states[ws.id] = true
+          }
+        }),
+      )
+      setSetupStates(states)
     } catch {
       // network error -- keep current list
     }
@@ -110,18 +140,20 @@ export default function InstancesPage() {
   }
 
   const handleDelete = async (id: string) => {
-    setError('')
+    setDeleteModalError('')
+    setDeleteDeleting(true)
 
     const res = await fetch(`/api/provisioning/workspace/${id}`, {
       method: 'DELETE',
     })
 
     const data = await res.json()
+    setDeleteDeleting(false)
     if (res.ok) {
-      setDeleteConfirm(null)
+      setDeleteModal(null)
       fetchWorkspaces()
     } else {
-      setError(data.error || 'Delete failed')
+      setDeleteModalError(data.error || 'Delete failed')
     }
   }
 
@@ -267,6 +299,11 @@ export default function InstancesPage() {
                         <span className={`${styles.statusBadge} ${statusClass(workspace.status)}`}>
                           {STATUS_LABELS[workspace.status] || workspace.status}
                         </span>
+                        {setupStates[workspace.id] === false && (
+                          <span className={`${styles.statusBadge} ${styles.setupBadge}`}>
+                            Needs setup
+                          </span>
+                        )}
                       </div>
                       <span className={styles.workspaceTier}>
                         {workspace.subdomain}.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}
@@ -276,39 +313,44 @@ export default function InstancesPage() {
                 </div>
 
                 <div className={styles.actions}>
-                  <a
-                    href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}`}
-                    className={styles.launchButton}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Launch
-                  </a>
                   {renamingId !== workspace.id && (
                     <>
                       <button
                         onClick={() => { setRenamingId(workspace.id); setRenameValue(workspace.name) }}
-                        className={styles.actionBtn}
-                        title="Rename"
+                        className={`${styles.iconBtn} ${styles.iconBtnRename}`}
+                        data-tooltip="Rename"
                       >
-                        Rename
+                        <Pencil size={16} />
                       </button>
-                      {deleteConfirm === workspace.id ? (
-                        <div className={styles.confirmRow}>
-                          <span className={styles.confirmText}>Delete?</span>
-                          <button onClick={() => handleDelete(workspace.id)} className={styles.confirmYes}>Yes</button>
-                          <button onClick={() => setDeleteConfirm(null)} className={styles.confirmNo}>No</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirm(workspace.id)}
-                          className={`${styles.actionBtn} ${styles.deleteBtn}`}
-                          title="Delete"
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setDeleteModal(workspace)}
+                        className={`${styles.iconBtn} ${styles.iconBtnDelete}`}
+                        data-tooltip="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </>
+                  )}
+                  {setupStates[workspace.id] === false ? (
+                    <a
+                      href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}/setup${workspace.setupToken ? `?token=${workspace.setupToken}` : ''}`}
+                      className={`${styles.iconBtn} ${styles.iconBtnSetup}`}
+                      data-tooltip="Set up"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Key size={16} />
+                    </a>
+                  ) : (
+                    <a
+                      href={`https://${workspace.subdomain}.${process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}`}
+                      className={`${styles.iconBtn} ${styles.iconBtnLaunch}`}
+                      data-tooltip="Launch"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Rocket size={16} />
+                    </a>
                   )}
                 </div>
               </li>
@@ -321,6 +363,35 @@ export default function InstancesPage() {
       )}
 
       {error && <p className={styles.errorBox}>{error}</p>}
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal && (
+        <div className={styles.modalOverlay} onClick={() => !deleteDeleting && setDeleteModal(null)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <h3 className={styles.modalTitle}>Delete &ldquo;{deleteModal.name}&rdquo;?</h3>
+            <p className={styles.modalBody}>
+              This will permanently delete this instance and all its data.
+            </p>
+            {deleteModalError && <p className={styles.modalError}>{deleteModalError}</p>}
+            <div className={styles.modalButtons}>
+              <button
+                className={styles.modalDeleteBtn}
+                onClick={() => handleDelete(deleteModal.id)}
+                disabled={deleteDeleting}
+              >
+                {deleteDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+              <button
+                className={styles.modalCancelBtn}
+                onClick={() => setDeleteModal(null)}
+                disabled={deleteDeleting}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {needsEntitlement && workspaces.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
