@@ -10,6 +10,12 @@ export default defineConfig({
     globals: true,
     alias: {
       '@': path.resolve(__dirname, './src')
+    },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.*', 'src/**/*.spec.*']
     }
   }
 })
