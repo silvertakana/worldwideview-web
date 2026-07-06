@@ -268,9 +268,6 @@
   .links { 
     display: none; 
   }
-  .signIn { 
-    display: none; 
-  }
   .menuBtn { 
     display: block; 
     padding: 0.25rem;
@@ -290,10 +287,5 @@
   /* Shrink actions gap to fit on small devices like iPhone SE */
   .actions {
     gap: 0.5rem;
-  }
-
-  /* Hide the waitlist button in the main header on mobile (it's in the drawer) */
-  .headerWaitlist {
-    display: none;
   }
 }

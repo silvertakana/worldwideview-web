@@ -146,17 +146,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
               Sign In
             </Link>
           )}
-          {!user && (
-            <a
-              href="/waitlist"
-              className={`${styles.waitlistBtn} ${styles.headerWaitlist}`}
-              onClick={() =>
-                trackEvent('cta_click', { label: 'Join Waitlist' })
-              }
-            >
-              Join Waitlist
-            </a>
-          )}
+          
           <button
             className={styles.menuBtn}
             onClick={() => setMenuOpen((v) => !v)}
@@ -227,16 +217,12 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
         )}
         {!user && (
           <div className={styles.mobileCta}>
-            <a
-              href="/waitlist"
-              className={styles.waitlistBtn}
-              onClick={() => {
-                setMenuOpen(false);
-                trackEvent('cta_click', { label: 'Join Waitlist' });
-              }}
+            <Link
+              href="/login"
+              className={styles.signIn}
             >
-              Join Waitlist
-            </a>
+              Sign In
+            </Link>
           </div>
         )}
       </div>
