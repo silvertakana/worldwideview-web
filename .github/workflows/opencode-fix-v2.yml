@@ -87,7 +87,7 @@ jobs:
                 parts.push(
                   '',
                   'You have full access to the codebase. Use shell commands and read files as needed.',
-                  'Run pnpm install, pnpm typecheck, pnpm lint, pnpm test, and pnpm build to verify any changes.',
+                  'Run pnpm install, tsc --noEmit, pnpm lint, pnpm test, and pnpm build to verify any changes.',
                   'If changes are needed, commit and push to a new branch named fix/agent-issue-' + issueNumber + ' and create a pull request.'
                 );
               }
@@ -99,7 +99,7 @@ jobs:
                 '- Include "Fixes #' + issueNumber + '" in the description\n' +
                 '- Never modify or delete tests to make them pass\n' +
                 '- Only modify files necessary for the task\n' +
-                '- Run pnpm install, pnpm typecheck, pnpm lint, pnpm test, and pnpm build to verify\n' +
+                '- Run pnpm install, tsc --noEmit, pnpm lint, pnpm test, and pnpm build to verify\n' +
                 '- Max 3 retries per verification step, then restore and report failure';
             } else {
               prompt = 'Fix this issue in the repository.\n\n' +
@@ -115,7 +115,7 @@ jobs:
                 '- NEVER modify or delete tests to make them pass. If a test fails, fix your implementation.\n' +
                 '- Only modify files necessary to fix the issue. No refactoring unrelated code.\n' +
                 '- If you cannot reproduce the issue, report that in the PR description and STOP.\n' +
-                '- Run pnpm install, pnpm typecheck, pnpm lint, pnpm test, and pnpm build after changes. Max 3 retries per step.\n' +
+                '- Run pnpm install, tsc --noEmit, pnpm lint, pnpm test, and pnpm build after changes. Max 3 retries per step.\n' +
                 '- After 3 failed retries, git restore all changes and abort.\n' +
                 '- Before committing, run git diff and check for debug code or accidental changes.\n\n' +
                 '## PR Requirements\n' +
