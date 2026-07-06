@@ -313,9 +313,15 @@ export default function InstancesPage() {
                     <>
                       <div className={styles.nameRow}>
                         <span className={styles.workspaceName}>{workspace.name}</span>
+                        {setupStates[workspace.id] === false ? (
+                        <span className={`${styles.statusBadge} ${styles.statusPendingSetup}`}>
+                          Pending Setup
+                        </span>
+                      ) : (
                         <span className={`${styles.statusBadge} ${statusClass(workspace.status)}`}>
                           {STATUS_LABELS[workspace.status] || workspace.status}
                         </span>
+                      )}
                       </div>
                       <span className={styles.workspaceTier}>
                         {workspace.subdomain}.{process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev'}

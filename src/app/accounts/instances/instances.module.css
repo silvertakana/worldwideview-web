@@ -172,6 +172,11 @@
   color: var(--color-danger, #dc2626);
 }
 
+.statusPendingSetup {
+  background: var(--color-warning-bg, #fef9c3);
+  color: var(--color-warning, #d97706);
+}
+
 .nameRow {
   display: flex;
   align-items: center;
@@ -579,12 +584,12 @@
 
 .actionBtnSetup {
   border: 1px solid var(--color-warning, #d97706);
-  background: transparent;
-  color: var(--color-warning, #d97706);
+  background: var(--color-warning, #d97706);
+  color: white;
 }
 
 .actionBtnSetup:hover {
-  background: var(--color-warning-bg, #fef9c3);
+  background: #b45309;
 }
 
 .actionBtnLaunch {
