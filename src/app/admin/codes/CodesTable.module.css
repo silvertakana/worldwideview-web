@@ -12,6 +12,98 @@
   margin: 0 0 var(--space-md);
 }
 
+.filterRow {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  align-items: center;
+}
+
+.searchInput {
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.searchInput:focus {
+  border-color: var(--color-accent);
+}
+
+.filterSelect {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.filterSelect:focus {
+  border-color: var(--color-accent);
+}
+
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-md);
+}
+
+.bulkBarText {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-right: var(--space-sm);
+}
+
+.bulkActionButton {
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.bulkActionButton:hover {
+  background: var(--color-accent-glow);
+}
+
+.bulkActionButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.clearSelection {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: auto;
+}
+
+.clearSelection:hover {
+  color: var(--color-text-primary);
+}
+
 .tableWrap {
   overflow-x: auto;
 }
@@ -37,6 +129,37 @@
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.checkboxCell {
+  width: 40px;
+  text-align: center;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: var(--color-text-primary);
+}
+
+.sortActive {
+  color: var(--color-accent);
+}
+
+.sortIcon {
+  font-size: 0.65rem;
+  margin-left: 2px;
 }
 
 .codeCell code {
@@ -51,6 +174,118 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-secondary);
+}
+
+.editable {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.editable:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.editingRow {
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.editInput {
+  width: 100%;
+  padding: 2px 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.editInput:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-glow);
+}
+
+.editSelect {
+  width: 100%;
+  padding: 2px 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.editSelect:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-glow);
+}
+
+.editActions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.saveButton {
+  background: var(--color-success);
+  border: none;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+  white-space: nowrap;
+}
+
+.saveButton:hover {
+  opacity: 0.85;
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancelButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.cancelButton:hover {
+  background: var(--color-border);
+}
+
+.cancelButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.editError {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  margin-left: var(--space-xs);
+}
+
+.actionButtons {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
 }
 
 .status {
@@ -87,10 +322,11 @@
   color: var(--color-accent);
   border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-sm);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition-fast);
+  white-space: nowrap;
 }
 
 .revokeButton:hover {
@@ -98,6 +334,46 @@
 }
 
 .revokeButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.unrevokeButton {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.unrevokeButton:hover {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+}
+
+.deleteButton {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.deleteButton:hover {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+
+.editButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.editButton:hover {
+  background: var(--color-border);
+}
+
+.editButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
