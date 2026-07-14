@@ -112,7 +112,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                 title={user.email ?? ''}
               >
                 <img
-                  src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
+                  src={user.user_metadata?.avatar_url || diceBearUrl(user.user_metadata?.display_name || user.email)}
                   alt=""
                   className={styles.avatarImg}
                 />
@@ -226,18 +226,27 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
           </>
         )}
         {!user && (
-          <div className={styles.mobileCta}>
-            <a
-              href="/waitlist"
-              className={styles.waitlistBtn}
-              onClick={() => {
-                setMenuOpen(false);
-                trackEvent('cta_click', { label: 'Join Waitlist' });
-              }}
+          <>
+            <Link
+              href="/login"
+              className={styles.mobileLink}
+              onClick={() => setMenuOpen(false)}
             >
-              Join Waitlist
-            </a>
-          </div>
+              Sign In
+            </Link>
+            <div className={styles.mobileCta}>
+              <a
+                href="/waitlist"
+                className={styles.waitlistBtn}
+                onClick={() => {
+                  setMenuOpen(false);
+                  trackEvent('cta_click', { label: 'Join Waitlist' });
+                }}
+              >
+                Join Waitlist
+              </a>
+            </div>
+          </>
         )}
       </div>
     </header>
