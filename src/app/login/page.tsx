@@ -1,10 +1,18 @@
-import { signInWithPassword } from './actions'
-import { OAuthButtons } from './oauth-buttons'
+import LoginForm from './login-form'
 import { safeNext } from '../../lib/safeNext'
-import styles from '../hub/hub.module.css'
 
 export const metadata = { title: 'Sign In' }
 
+/**
+ * Server component wrapper.
+ *
+ * Reads search params and delegates to the client-side LoginForm, which
+ * performs `signInWithPassword` via the browser Supabase client so session
+ * cookies are committed to `document.cookie` before navigation.
+ *
+ * This eliminates the race between `redirect()` and cookie flush that left
+ * the navbar stale after sign-in.
+ */
 export default async function LoginPage({
   searchParams,
 }: {
@@ -13,127 +21,5 @@ export default async function LoginPage({
   const params = await searchParams
   const next = safeNext(params.next)
 
-  return (
-    <div className={styles.hubContainer}>
-      <div className={styles.glassCard} style={{ maxWidth: '400px', marginTop: '6vh' }}>
-        <h1 className={styles.title}>Welcome Back</h1>
-        <p
-          style={{
-            textAlign: 'center',
-            marginBottom: 'var(--space-lg)',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          Sign in to your WorldWideView account
-        </p>
-
-        {params.message && (
-          <p
-            style={{
-              marginBottom: 'var(--space-md)',
-              textAlign: 'center',
-              fontSize: '0.9rem',
-              color: 'var(--color-success)',
-            }}
-          >
-            {params.message}
-          </p>
-        )}
-
-        <form action={signInWithPassword}>
-          <input type="hidden" name="next" value={next} />
-          <input
-            className={styles.inputField}
-            type="email"
-            name="email"
-            placeholder="Email address"
-            autoComplete="email"
-            required
-          />
-          <input
-            className={styles.inputField}
-            type="password"
-            name="password"
-            placeholder="Password"
-            autoComplete="current-password"
-            required
-          />
-          <p
-            style={{
-              textAlign: 'right',
-              fontSize: '0.9rem',
-              marginBottom: 'var(--space-md)',
-              marginTop: 'calc(var(--space-sm) * -1)',
-            }}
-          >
-            <a href="/auth/reset-password" style={{ color: 'var(--color-accent)', fontWeight: 500 }}>
-              Forgot password?
-            </a>
-          </p>
-          <button className={styles.submitButton} type="submit">
-            Sign In
-          </button>
-        </form>
-
-        <div
-          style={{
-            textAlign: 'center',
-            margin: 'var(--space-md) 0',
-            color: 'var(--color-text-muted)',
-            fontSize: '0.85rem',
-          }}
-        >
-          or
-        </div>
-
-        <OAuthButtons next={next} />
-
-        {params.error && (
-          <div style={{ marginTop: 'var(--space-md)' }}>
-            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: 'var(--color-accent)' }}>
-              {params.error}
-            </p>
-            {(params.error.toLowerCase().includes('invalid') ||
-              params.error.toLowerCase().includes('credential')) && (
-              <p
-                style={{
-                  textAlign: 'center',
-                  fontSize: '0.875rem',
-                  marginTop: 'var(--space-sm)',
-                  color: 'var(--color-text-secondary)',
-                }}
-              >
-                No account yet?{' '}
-                <a
-                  href={`/signup?next=${encodeURIComponent(next)}`}
-                  style={{ color: 'var(--color-accent)', fontWeight: 600 }}
-                >
-                  Create one free
-                </a>
-              </p>
-            )}
-          </div>
-        )}
-
-        {!params.error && (
-          <p
-            style={{
-              marginTop: 'var(--space-lg)',
-              textAlign: 'center',
-              fontSize: '0.9rem',
-              color: 'var(--color-text-secondary)',
-            }}
-          >
-            No account?{' '}
-            <a
-              href={`/signup?next=${encodeURIComponent(next)}`}
-              style={{ color: 'var(--color-accent)', fontWeight: 500 }}
-            >
-              Create one
-            </a>
-          </p>
-        )}
-      </div>
-    </div>
-  )
+  return <LoginForm next={next} error={params.error} message={params.message} />
 }
