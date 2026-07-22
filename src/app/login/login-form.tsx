@@ -66,7 +66,8 @@ export default function LoginForm({
       } else {
         router.push('/pricing')
       }
-    } catch {
+    } catch (err) {
+      console.error('Failed to check instances after sign-in:', err)
       router.push('/pricing')
     }
   }
