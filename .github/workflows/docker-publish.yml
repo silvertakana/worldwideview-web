@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build:
-    uses: silvertakana/worldwideview/.github/workflows/shared-docker.yml@ci/infra-overhaul
+    uses: silvertakana/worldwideview/.github/workflows/shared-docker.yml@main
     with:
       tags: |
         type=sha,prefix=sha-
