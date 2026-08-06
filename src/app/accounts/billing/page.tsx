@@ -93,7 +93,9 @@ export default async function BillingPage() {
                 {isLocal
                     ? "You are on the Free plan."
                     : status === "trialing"
-                        ? `You are on the Pro plan (trial).`
+                        ? trialEndsAt
+                            ? `Your ${plan === "enterprise" ? "Enterprise" : "Pro"} trial continues until ${new Date(trialEndsAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" })}.`
+                            : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan (trial).`
                         : status === "suspended"
                             ? "Your account has been suspended."
                             : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan.`
