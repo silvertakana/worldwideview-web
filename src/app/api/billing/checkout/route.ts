@@ -4,6 +4,19 @@ import { getStripe } from "@/lib/stripe/client";
 import { getPriceId } from "@/lib/billing/constants";
 import type { PlanOption, IntervalOption } from "@/lib/billing/constants";
 
+// Accepted plan ids -> canonical (plan, interval) pair.
+// The pricing page emits interval-encoded ids ("pro-monthly" / "pro-annual");
+// the legacy ids ("pro" / "team") are kept for back-compat and take the
+// optional `interval` body param (default "month").
+const PLAN_ID_MAP: Record<string, { plan: PlanOption; interval: IntervalOption }> = {
+  "pro": { plan: "pro", interval: "month" },
+  "team": { plan: "team", interval: "month" },
+  "pro-monthly": { plan: "pro", interval: "month" },
+  "pro-annual": { plan: "pro", interval: "year" },
+  "team-monthly": { plan: "team", interval: "month" },
+  "team-annual": { plan: "team", interval: "year" },
+};
+
 export async function POST(req: Request) {
   const stripe = getStripe();
   const supabase = await createClient();
@@ -14,19 +27,42 @@ export async function POST(req: Request) {
 
   let body: { plan?: string; interval?: string };
   try {
-    body = await req.json();
+    const parsed: unknown = await req.json();
+    // A bare POST (no body) from the UI must never 400/hang: default to Pro
+    // (monthly). The shape guard also covers null/array/primitive JSON so a
+    // malformed client cannot trigger a TypeError below. Explicit invalid
+    // plans still 400 via the PLAN_ID_MAP check further down.
+    body =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as { plan?: string; interval?: string })
+        : { plan: "pro" };
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    // Empty or unparseable body -> default to Pro (monthly).
+    body = { plan: "pro" };
   }
 
-  const plan = (body.plan || "pro") as PlanOption;
-  if (plan !== "pro" && plan !== "team") {
-    return NextResponse.json({ error: "Invalid plan. Must be 'pro' or 'team'" }, { status: 400 });
+  const rawPlan = body.plan || "pro";
+  const mappedPlan = PLAN_ID_MAP[rawPlan];
+  if (!mappedPlan) {
+    return NextResponse.json(
+      {
+        error:
+          "Invalid plan. Must be one of: 'pro', 'team', 'pro-monthly', 'pro-annual', 'team-monthly', 'team-annual'",
+      },
+      { status: 400 },
+    );
   }
 
-  const interval = (body.interval || "month") as IntervalOption;
-  if (interval !== "month" && interval !== "year") {
-    return NextResponse.json({ error: "Invalid interval. Must be 'month' or 'year'" }, { status: 400 });
+  const plan = mappedPlan.plan;
+  // Interval-encoded ids ("pro-monthly" etc.) win; legacy ids honor the
+  // explicit `interval` body param (default "month").
+  let interval = mappedPlan.interval;
+  if (rawPlan === "pro" || rawPlan === "team") {
+    const requested = (body.interval || "month") as IntervalOption;
+    if (requested !== "month" && requested !== "year") {
+      return NextResponse.json({ error: "Invalid interval. Must be 'month' or 'year'" }, { status: 400 });
+    }
+    interval = requested;
   }
 
   let priceId: string;
