@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
+import { provisionWorkspace } from "@/lib/billing/provision";
 
 const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   active: "active",
@@ -93,6 +94,32 @@ export async function POST(req: Request) {
 
         const sync = await syncTierToGlobe(email, plan, "trialing", trialEndsAt);
         logTierSync(email, `${plan}/trialing`, sync);
+
+        // PMT-001: provision the user's globe workspace after payment. This is
+        // best-effort — the user has paid and their tier is synced, so a
+        // provisioning failure must never fail the webhook (Stripe would retry,
+        // but the tier is already correct). The globe endpoint is idempotent,
+        // so duplicate checkout deliveries are safe.
+        const hubUserId = session.metadata?.userId || session.client_reference_id || "";
+        if (!hubUserId) {
+          console.warn(
+            `[webhook] checkout.session.completed: no hubUserId for ${email}; skipping workspace provisioning`,
+          );
+        } else {
+          const provision = await provisionWorkspace({
+            email,
+            hubUserId,
+            name: session.customer_details?.name || undefined,
+            subdomain: session.metadata?.subdomain || undefined,
+          });
+          if (provision.ok) {
+            console.log(`[webhook] Workspace provisioned for ${email}`);
+          } else {
+            console.error(
+              `[webhook] Workspace provisioning FAILED for ${email} - globe returned ${provision.status ?? "transport error"}${provision.detail ? ` (${provision.detail})` : ""}`,
+            );
+          }
+        }
         break;
       }
 
@@ -140,8 +167,25 @@ export async function POST(req: Request) {
         const email = !cust.deleted ? (cust as any).email : null;
 
         if (email) {
-          const sync = await syncTierToGlobe(email, "", "past_due");
-          logTierSync(email, "past_due", sync);
+          // PMT-002: resolve the tier from the subscription's price ID instead
+          // of sending an empty string — the globe's tier-sync rejects an
+          // empty tier with 400. Fall back to "pro": a failed payment is by
+          // definition an attempt at a Pro subscription today.
+          let plan = "pro";
+          try {
+            const sub = (await stripe.subscriptions.retrieve(failedInvoice.subscription, {
+              expand: ["items.data.price"],
+            })) as unknown as { items?: { data?: Array<{ price: { id: string } }> } };
+            const priceId = sub.items?.data?.[0]?.price?.id;
+            const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
+            plan = resolved?.plan ?? "pro";
+          } catch (err) {
+            console.warn(
+              `[webhook] invoice.payment_failed could not resolve plan for ${email}; defaulting to pro: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          const sync = await syncTierToGlobe(email, plan, "past_due");
+          logTierSync(email, `${plan}/past_due`, sync);
         }
         break;
       }
