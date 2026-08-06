@@ -14,15 +14,36 @@ const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   paused: "suspended",
 };
 
-async function syncTierToGlobe(email: string, tier: string, status: string, trialEndsAt?: number | null) {
-  try {
-    await crossServiceFetch("/api/service/tier-sync", {
-      method: "POST",
-      body: { email, tier, status, trialEndsAt: trialEndsAt ? new Date(trialEndsAt * 1000).toISOString() : null },
-    });
-  } catch (err) {
-    console.error("[webhook] Failed to sync tier to globe:", err);
-  }
+interface TierSyncResult {
+    ok: boolean;
+    status?: number;
+    detail?: string;
+}
+
+async function syncTierToGlobe(email: string, tier: string, status: string, trialEndsAt?: number | null): Promise<TierSyncResult> {
+    try {
+        const res = await crossServiceFetch("/api/service/tier-sync", {
+            method: "POST",
+            body: { email, tier, status, trialEndsAt: trialEndsAt ? new Date(trialEndsAt * 1000).toISOString() : null },
+        });
+        if (!res.ok) {
+            const detail = (await res.text().catch(() => "")).slice(0, 160);
+            return { ok: false, status: res.status, detail };
+        }
+        return { ok: true, status: res.status };
+    } catch (err) {
+        return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+}
+
+function logTierSync(email: string, label: string, result: TierSyncResult): void {
+    if (result.ok) {
+        console.log(`[webhook] Tier synced for ${email}: ${label}`);
+    } else {
+        console.error(
+            `[webhook] Tier sync FAILED for ${email}: ${label} - globe returned ${result.status ?? "transport error"}${result.detail ? ` (${result.detail})` : ""}`,
+        );
+    }
 }
 
 export async function POST(req: Request) {
@@ -44,9 +65,14 @@ export async function POST(req: Request) {
   try {
     switch (event.type) {
       case "checkout.session.completed": {
+        // Expand the subscription object and its line-item prices so the
+        // plan can be resolved from `items.data[0].price.id` below.
+        // ("subscription.data.default_price" was an invalid expand path:
+        // `subscription` is an object, not a list, and Subscription has no
+        // `default_price` field.)
         const session = await stripe.checkout.sessions.retrieve(
           (event.data.object as { id: string }).id,
-          { expand: ["subscription", "subscription.data.default_price"] },
+          { expand: ["subscription", "subscription.items.data.price"] },
         );
 
         const email = session.customer_details?.email || session.metadata?.email;
@@ -65,8 +91,8 @@ export async function POST(req: Request) {
         const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
         const plan = resolved?.plan ?? "pro";
 
-        await syncTierToGlobe(email, plan, "trialing", trialEndsAt);
-        console.log(`[webhook] Tier synced for ${email}: ${plan}/trialing`);
+        const sync = await syncTierToGlobe(email, plan, "trialing", trialEndsAt);
+        logTierSync(email, `${plan}/trialing`, sync);
         break;
       }
 
@@ -89,8 +115,8 @@ export async function POST(req: Request) {
         const email = !customer.deleted ? (customer as any).email : null;
 
         if (email) {
-          await syncTierToGlobe(email, plan, status);
-          console.log(`[webhook] Tier synced for ${email}: ${plan}/${status}`);
+          const sync = await syncTierToGlobe(email, plan, status);
+          logTierSync(email, `${plan}/${status}`, sync);
         }
         break;
       }
@@ -102,8 +128,8 @@ export async function POST(req: Request) {
         const email = !customer.deleted ? (customer as any).email : null;
 
         if (email) {
-          await syncTierToGlobe(email, "free", "canceled");
-          console.log(`[webhook] Tier synced for ${email}: free/canceled`);
+          const sync = await syncTierToGlobe(email, "free", "canceled");
+          logTierSync(email, "free/canceled", sync);
         }
         break;
       }
@@ -114,8 +140,8 @@ export async function POST(req: Request) {
         const email = !cust.deleted ? (cust as any).email : null;
 
         if (email) {
-          await syncTierToGlobe(email, "", "past_due");
-          console.log(`[webhook] Tier synced for ${email}: past_due`);
+          const sync = await syncTierToGlobe(email, "", "past_due");
+          logTierSync(email, "past_due", sync);
         }
         break;
       }
