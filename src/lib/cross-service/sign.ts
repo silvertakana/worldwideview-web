@@ -30,7 +30,11 @@ export function signCrossServiceRequest(opts: {
 
     const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : "";
     const bodyHash = sha256Hex(bodyStr);
-    const canon = `${opts.method}\n${opts.path}\n${timestamp}\n${bodyHash}`;
+    // The globe verifier builds its canonical string from
+    // `new URL(request.url).pathname` (no query string). Sign the same shape so
+    // paths like "/api/service/tier?email=..." verify instead of returning 401.
+    const signedPath = opts.path.split("?")[0];
+    const canon = `${opts.method}\n${signedPath}\n${timestamp}\n${bodyHash}`;
 
     const sig = crypto.createHmac("sha256", secret).update(canon, "utf8").digest("hex");
 
