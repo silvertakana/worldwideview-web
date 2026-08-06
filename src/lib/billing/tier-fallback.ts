@@ -1,5 +1,6 @@
 import { getStripe } from "@/lib/stripe/client";
 import { getHighestTier } from "@/lib/auth/entitlements";
+import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 
 export interface HubTierFallback {
   plan: string;
@@ -41,10 +42,21 @@ export async function getHubTierFallback(userId: string, email: string): Promise
     }
     if (customer && !customer.deleted) {
       const subs = await stripe.subscriptions.list({ customer: customer.id, limit: 10 });
-      const live = subs.data.find((s) => ["active", "trialing", "past_due"].includes(s.status));
+      // Newest subscription wins when a customer has multiple live
+      // subscriptions (PMT-010): sort by created desc before selecting the
+      // first live-status one, so an older orphaned subscription cannot mask
+      // the customer's most recent plan.
+      const live = [...subs.data]
+        .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+        .find((s) => ["active", "trialing", "past_due"].includes(s.status));
       if (live) {
+        // Resolve the plan from the subscription's price ID (PMT-005) instead
+        // of hardcoding "pro". Fall back to "pro" only when the price cannot
+        // be resolved — correct today since Pro is the only sellable plan.
+        const priceId = live.items?.data?.[0]?.price?.id ?? null;
+        const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
         return {
-          plan: "pro",
+          plan: resolved?.plan ?? "pro",
           status: STRIPE_STATUS_TO_HUB_STATUS[live.status] ?? live.status,
           trialEndsAt: live.trial_end ? new Date(live.trial_end * 1000).toISOString() : null,
           isTrialing: live.status === "trialing",
