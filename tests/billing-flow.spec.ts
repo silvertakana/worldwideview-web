@@ -1,8 +1,9 @@
 /* eslint-disable no-console */
 import { test, expect, type Page } from '@playwright/test';
-import { GlobeDb } from './lib/globe-db';
+import { GlobeDb, DEFAULT_GLOBE_DB_URL } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
 import crypto from 'node:crypto';
+import { Pool } from 'pg';
 
 /**
  * Full billing E2E flow against the RUNNING local stack:
@@ -15,6 +16,11 @@ import crypto from 'node:crypto';
  *   Test 3 — cancel → lock: subscription cancel fires customer.subscription.deleted,
  *            org_tier reverts to free/canceled and the workspace locks
  *            (regression for the canceled-status 400 + the lock cascade).
+ *   Test 4 — cancel at PERIOD END (subscription update with
+ *            cancel_at_period_end=true, the customer-friendly path): tier
+ *            STAYS pro/trialing and the workspace STAYS unlocked until the
+ *            period ends (regression guard: the webhook must NOT downgrade on
+ *            cancel_at_period_end — it only downgrades on status "canceled").
  *
  * MOVED from the globe repo (worldwideview.fix-billing-tier) — the hub now owns
  * billing (ADR-0009). The suite still depends on GLOBE-SPECIFIC services:
@@ -84,6 +90,28 @@ async function cancelSubscription(subId: string): Promise<void> {
   expect(res.ok, `stripe cancel failed: ${JSON.stringify(body).slice(0, 120)}`).toBeTruthy();
 }
 
+/**
+ * Cancel a subscription at PERIOD END via the Stripe update endpoint —
+ * POST (NOT DELETE, NOT the portal UI). Stripe has NO PATCH method: a PATCH
+ * request is rejected with an nginx 403 HTML page by the Stripe edge. The
+ * update keeps the subscription trialing/active and fires
+ * `customer.subscription.updated` with `cancel_at_period_end: true`; the
+ * actual cancellation happens at the end of the current period.
+ */
+async function cancelAtPeriodEnd(subId: string): Promise<{ status: string; cancelAtPeriodEnd: boolean }> {
+  const res = await fetch(`${STRIPE_BASE}/subscriptions/${subId}`, {
+    method: 'POST',
+    headers: stripeHeaders(),
+    body: new URLSearchParams({ cancel_at_period_end: 'true' }).toString(),
+  });
+  const body = await res.json();
+  console.log(
+    `[billing] cancel-at-period-end ${subId} -> ${res.status}, status=${body.status}, cancel_at_period_end=${body.cancel_at_period_end}`,
+  );
+  expect(res.ok, `stripe update cancel_at_period_end failed: ${JSON.stringify(body).slice(0, 120)}`).toBeTruthy();
+  return { status: body.status, cancelAtPeriodEnd: body.cancel_at_period_end };
+}
+
 function signRequest(method: string, pathName: string, body?: Record<string, unknown>): string {
   const timestamp = Math.floor(Date.now() / 1000);
   const nonce = crypto.randomUUID();
@@ -118,6 +146,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (globeDb) await globeDb.close();
+  if (updatedAtPool) await updatedAtPool.end();
 });
 
 // ---------------------------------------------------------------------------
@@ -175,6 +204,25 @@ async function directTierSync(tier: string, status: string): Promise<void> {
   const text = await res.text();
   console.log(`[billing] direct tier-sync ${tier}/${status} -> ${res.status} ${text.slice(0, 80)}`);
   expect(res.status, `tier-sync ${tier}/${status} failed: ${text}`).toBe(200);
+}
+
+// Raw `org_tiers.updatedAt` reader. GlobeDb.getOrgTier() does not expose the
+// timestamp, and a period-end cancel has NO tier delta to poll (that is the
+// point of Test 4), so the bumped Prisma @updatedAt is the only observable
+// signal that the customer.subscription.updated webhook actually ran its tier
+// sync (Prisma moves @updatedAt on every upsert, same values included).
+let updatedAtPool: Pool | null = null;
+async function getOrgTierUpdatedAt(orgId: string): Promise<Date | null> {
+  if (!updatedAtPool) {
+    updatedAtPool = new Pool({
+      connectionString: process.env.DATABASE_URL || DEFAULT_GLOBE_DB_URL,
+    });
+  }
+  const res = await updatedAtPool.query<{ updatedAt: Date }>(
+    'SELECT "updatedAt" FROM "org_tiers" WHERE "organizationId" = $1 LIMIT 1',
+    [orgId],
+  );
+  return res.rows[0]?.updatedAt ? new Date(res.rows[0].updatedAt) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,4 +368,120 @@ test('cancel subscription → tier reverts to free/canceled and workspace locks'
   expect(ws!.lockedReason).toContain('Tier downgraded');
   expect(ws!.lockedAt).not.toBeNull();
   console.log('[billing] org_tier = free/canceled, workspace locked (cancel → lock cascade ok)');
+});
+
+// ---------------------------------------------------------------------------
+// Test 4 — cancel at PERIOD END → access preserved until the period ends
+// ---------------------------------------------------------------------------
+const PERIOD_END_SETTLE_MS = 3000;
+
+test('cancel at period end → tier stays pro/trialing and workspace stays unlocked', async ({ page }) => {
+  // This test is longer than the 120s config default (a second full checkout
+  // flow + the Stripe PATCH + webhook polls), so give it the same 4-minute
+  // headroom the sibling provision spec configures for its suite.
+  test.setTimeout(240000);
+
+  // Test 3 deleted the shared user's subscription (immediate cancel → tier
+  // free/canceled + workspace locked). Re-subscribe the SAME user so the tier
+  // returns to pro/trialing AND the workspace unlocks (setOrgTier upgrade
+  // path), giving us a live subscription to cancel at PERIOD END.
+  await page.goto('/pricing');
+  const manageBilling = page.getByRole('link', { name: /manage billing/i });
+  await expect(manageBilling).toBeVisible({ timeout: 20000 });
+  await manageBilling.click();
+  await page.waitForURL(/\/accounts\/billing/);
+
+  const upgradeBtn = page.getByRole('button', { name: /upgrade to pro/i });
+  await expect(upgradeBtn).toBeVisible({ timeout: 20000 });
+
+  const checkoutRespP = page.waitForResponse(
+    (r) => r.url().includes('/api/billing/checkout') && r.request().method() === 'POST',
+    { timeout: 20000 },
+  );
+  await upgradeBtn.click();
+  const resp = await checkoutRespP;
+  expect(resp.status(), 're-subscribe "Upgrade to Pro" click must reach Stripe (200)').toBe(200);
+  await page.waitForURL(/checkout\.stripe\.com/, { timeout: 30000 });
+  await withTimeout(fillStripeCard(page), CARD_ENTRY_TIMEOUT_MS, 'fillStripeCard-re-subscribe');
+  await page.waitForURL(/status=success|accounts\/billing/, { timeout: 45000 });
+  console.log('[billing] re-subscribed after immediate cancel (4242)');
+
+  // Webhook chain: checkout.session.completed → tier sync → pro/trialing +
+  // workspace unlock. Assert the RESTORED state before the period-end cancel.
+  await expect
+    .poll(
+      async () => {
+        const row = await globeDb.getOrgTier(testOrgId);
+        return row ? `${row.tier}/${row.status}` : null;
+      },
+      { timeout: 45000, intervals: [1500] },
+    )
+    .toBe('pro/trialing');
+
+  const wsAfterResub = await globeDb.findWorkspaceByOwner(testUserId);
+  expect(wsAfterResub, 'seeded workspace missing after re-subscribe').toBeTruthy();
+  expect(wsAfterResub!.locked, 're-subscribe must unlock the workspace').toBe(false);
+  expect(wsAfterResub!.lockedAt).toBeNull();
+  console.log('[billing] re-subscribe restored pro/trialing + unlocked workspace');
+
+  const liveSub = await findActiveSubscription();
+  expect(liveSub, 'no live subscription after re-subscribe — period-end cancel needs one').toBeTruthy();
+
+  // Let any trailing checkout/subscription webhooks settle so the updatedAt
+  // marker below can only move for the period-end PATCH's own webhook.
+  await page.waitForTimeout(PERIOD_END_SETTLE_MS);
+  const updatedAtBefore = await getOrgTierUpdatedAt(testOrgId);
+  expect(updatedAtBefore, 'org_tiers row missing before period-end cancel').toBeTruthy();
+
+  // Cancel at PERIOD END — POST the subscription update (Stripe has no PATCH
+  // method; the brief's "PATCH" gets a 403 HTML page from the Stripe edge).
+  // Stripe keeps the subscription trialing and fires
+  // customer.subscription.updated with cancel_at_period_end=true. The hub
+  // webhook handler derives status from SUBSCRIPTION_STATUS_MAP (trialing →
+  // "trialing") and only downgrades on status "canceled", so the tier/workspace
+  // must stay untouched.
+  const cancelled = await cancelAtPeriodEnd(liveSub!.id);
+  expect(cancelled.status, 'period-end cancel must not change subscription status').toBe('trialing');
+  expect(cancelled.cancelAtPeriodEnd, 'Stripe must accept cancel_at_period_end=true').toBe(true);
+
+  // The webhook has no tier delta to assert, so prove it RAN via the bumped
+  // org_tiers.updatedAt (Prisma @updatedAt moves on every sync, same values
+  // included).
+  await expect
+    .poll(
+      async () => {
+        const updatedAt = await getOrgTierUpdatedAt(testOrgId);
+        return updatedAt && updatedAt.getTime() > updatedAtBefore!.getTime() ? 'bumped' : null;
+      },
+      { timeout: 45000, intervals: [1500] },
+    )
+    .toBe('bumped');
+
+  // The customer-friendly contract: cancel-at-period-end KEEPS access. Tier
+  // must remain pro/trialing and the workspace must remain unlocked.
+  await expect
+    .poll(
+      async () => {
+        const row = await globeDb.getOrgTier(testOrgId);
+        return row ? `${row.tier}/${row.status}` : null;
+      },
+      { timeout: 15000, intervals: [1000] },
+    )
+    .toBe('pro/trialing');
+
+  const wsFinal = await globeDb.findWorkspaceByOwner(testUserId);
+  expect(wsFinal, 'seeded workspace missing after period-end cancel').toBeTruthy();
+  expect(wsFinal!.locked, 'workspace must stay unlocked until the period ends').toBe(false);
+  expect(wsFinal!.lockedAt).toBeNull();
+  console.log('[billing] period-end cancel: org_tier = pro/trialing, workspace stays unlocked');
+
+  // Leave the Stripe account tidy for the next run: delete the period-end
+  // subscription so the shared user's end state matches Test 3's baseline
+  // (no live subscription). Best-effort — must never fail the test.
+  try {
+    await cancelSubscription(liveSub!.id);
+    console.log('[billing] cleanup: deleted period-end subscription', liveSub!.id);
+  } catch (err) {
+    console.warn('[billing] cleanup delete failed (leaving period-end sub active):', String(err).slice(0, 120));
+  }
 });
