@@ -1,0 +1,37 @@
+{
+  "id": "evt_test_customer_subscription_created",
+  "object": "event",
+  "api_version": "2026-05-27.dahlia",
+  "created": 1786000000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": "req_test_sub_created", "idempotency_key": "customer-subscription-created-test" },
+  "type": "customer.subscription.created",
+  "data": {
+    "object": {
+      "id": "sub_test_simulator",
+      "object": "subscription",
+      "status": "active",
+      "customer": "cus_test_simulator",
+      "current_period_end": 1788592000,
+      "current_period_start": 1785913600,
+      "cancel_at_period_end": false,
+      "items": {
+        "data": [
+          {
+            "id": "si_test_simulator",
+            "price": {
+              "id": "price_1TiVzJCnLxBZfLqIEC3gKEOi",
+              "object": "price",
+              "type": "recurring",
+              "unit_amount": 2000,
+              "currency": "usd",
+              "recurring": { "interval": "month" }
+            }
+          }
+        ]
+      },
+      "metadata": { "email": "simulated-user@example.com" }
+    }
+  }
+}

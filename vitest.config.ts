@@ -10,6 +10,15 @@ export default defineConfig({
     globals: true,
     alias: {
       '@': path.resolve(__dirname, './src')
-    }
+    },
+    // Keep the Playwright billing E2E specs (tests/billing-*.spec.ts) out of
+    // the Vitest run — they are run via `pnpm test:e2e` instead.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.next/**',
+      '**/.git/**',
+      'tests/billing-*.spec.ts'
+    ]
   }
 })
