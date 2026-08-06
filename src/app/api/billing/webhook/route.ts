@@ -184,13 +184,16 @@ export async function POST(req: Request) {
         const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
         const plan = resolved?.plan ?? "pro";
 
-        await syncTierWithRetry(email, plan, "trialing", event.type, trialEndsAt);
-
-        // PMT-001: provision the user's globe workspace after payment. This is
-        // best-effort — the user has paid and their tier is synced, so a
-        // provisioning failure must never fail the webhook (Stripe would retry,
-        // but the tier is already correct). The globe endpoint is idempotent,
-        // so duplicate checkout deliveries are safe.
+        // PMT-001: provision the user's globe workspace BEFORE syncing the
+        // tier. A newly paying user has no globe org yet, so a tier sync first
+        // would 404 ("Organization not found") and leave the org, once
+        // provisioned, at free tier — the user would see "Free / Upgrade to
+        // Pro" despite an active subscription. Provisioning first guarantees
+        // the tier sync finds the org. Best-effort: a provisioning failure
+        // must never fail the webhook (Stripe would retry); the tier sync is
+        // still attempted so the honest-failure path (404 without an org)
+        // logs as today. The globe endpoint is idempotent, so duplicate
+        // checkout deliveries are safe ("already exists" returns ok).
         const hubUserId = session.metadata?.userId || session.client_reference_id || "";
         if (!hubUserId) {
           console.warn(
@@ -211,6 +214,8 @@ export async function POST(req: Request) {
             );
           }
         }
+
+        await syncTierWithRetry(email, plan, "trialing", event.type, trialEndsAt);
         break;
       }
 
