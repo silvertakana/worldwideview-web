@@ -156,11 +156,14 @@ jobs:
           # supabase start generates a fresh JWT secret per instance (config.toml
           # has no [auth] jwt_secret), so the well-known demo anon/service_role
           # keys are rejected. Export the REAL keys from the running instance.
+          # NOTE: `supabase status -o env` emits UNPREFIXED names
+          # (API_URL, ANON_KEY, SERVICE_ROLE_KEY, DB_URL); we re-export them as
+          # SUPABASE_* for the compose/Playwright steps.
           supabase status -o env > /tmp/supabase-env
-          echo "SUPABASE_URL=$(grep '^SUPABASE_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
-          echo "SUPABASE_ANON_KEY=$(grep '^SUPABASE_ANON_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
-          echo "SUPABASE_SERVICE_ROLE_KEY=$(grep '^SUPABASE_SERVICE_ROLE_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
-          echo "SUPABASE_DB_URL=$(grep '^SUPABASE_DB_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_URL=$(grep '^API_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_ANON_KEY=$(grep '^ANON_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(grep '^SERVICE_ROLE_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_DB_URL=$(grep '^DB_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::error::supabase status did not report a SERVICE_ROLE_KEY; cannot run billing e2e"
             exit 1
