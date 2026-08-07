@@ -173,6 +173,32 @@ async function loginToHubAndSaveStorage(baseURL: string, storageState: string) {
 
     await page.waitForTimeout(1500); // let the session cookie settle
     console.log(`[billing-setup] UI login ok, landed at ${new URL(page.url()).pathname}`);
+
+    // PRE-WARM /accounts/billing AS THE AUTHENTICATED USER. The CI readiness
+    // loop warms the route with an anonymous curl (302 -> /login), which does
+    // NOT compile the authed page. billing-flow test 1 is the first suite test
+    // to hit /accounts/billing, and under a cold runner its SSR first-compile
+    // can exceed the 120s navigation timeout (observed in CI run 31159531231;
+    // the same route compiled fine ~2 min later once warm). Visiting it here
+    // forces the authed page to compile so the test's own waitForURL succeeds.
+    // Best-effort: log a warning on failure and continue — the warm-up is not
+    // the assertion, the test's waitForURL is.
+    try {
+      await page.goto(`${baseURL}/accounts/billing`, { timeout: 90000 });
+      await page.waitForLoadState('domcontentloaded');
+      console.log(`[billing-setup] Pre-warmed /accounts/billing (authed), landed at ${new URL(page.url()).pathname}`);
+    } catch (e) {
+      console.log(`[billing-setup] /accounts/billing pre-warm failed (best-effort, continuing): ${String(e).slice(0, 200)}`);
+    }
+    // Return to the suite's expected starting page (/pricing is what test 1
+    // navigates from; keep the snapshot cookie state identical to a plain login).
+    try {
+      await page.goto(`${baseURL}/pricing`, { timeout: 60000 });
+      await page.waitForLoadState('domcontentloaded');
+      console.log(`[billing-setup] Returned to /pricing after pre-warm`);
+    } catch (e) {
+      console.log(`[billing-setup] return to /pricing after pre-warm failed (best-effort): ${String(e).slice(0, 200)}`);
+    }
   } finally {
     const dir = path.dirname(storageState);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
