@@ -4,10 +4,16 @@ import 'server-only'
 import { createClient } from '@supabase/supabase-js'
 
 export function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  // Server-to-server: prefer SUPABASE_INTERNAL_URL (e.g. host.docker.internal
+  // inside Docker) over the browser-facing NEXT_PUBLIC_SUPABASE_URL (loopback,
+  // inlined into client bundles). Local dev leaves SUPABASE_INTERNAL_URL unset.
+  const url =
+    process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url) {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set. Check worldwideview-web/.env.local.')
+    throw new Error(
+      'Supabase URL is not set. Set SUPABASE_INTERNAL_URL or NEXT_PUBLIC_SUPABASE_URL. Check worldwideview-web/.env.local.',
+    )
   }
   if (!serviceRoleKey) {
     throw new Error(

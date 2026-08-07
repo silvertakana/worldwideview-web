@@ -166,7 +166,6 @@ jobs:
             echo "::error::supabase status did not report a SERVICE_ROLE_KEY; cannot run billing e2e"
             exit 1
           fi
-          echo "SUPABASE_URL=$(grep '^API_URL=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')" >> "$GITHUB_ENV"
           echo "SUPABASE_ANON_KEY=$(grep '^ANON_KEY=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
           echo "SUPABASE_DB_URL=$(grep '^DB_URL=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')" >> "$GITHUB_ENV"
@@ -240,11 +239,18 @@ jobs:
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          # hub container uses host.docker.internal to reach the host's local
-          # Supabase (NOT 127.0.0.1 — that resolves to the container itself).
-          # The compose fallback is correct; we set it explicitly to avoid
-          # ambiguity with the `supabase status`-captured 127.0.0.1 address.
-          SUPABASE_URL: http://host.docker.internal:54321
+          # The hub container needs TWO Supabase URLs:
+          #   - NEXT_PUBLIC_SUPABASE_URL (browser-facing, inlined into the client
+          #     bundle): MUST be loopback. The browser runs on the runner host and
+          #     Chromium blocks https://hub.wwv.local -> http://host.docker.internal
+          #     as mixed content (non-loopback hostname), which left login stuck on
+          #     /login. 127.0.0.1 is mixed-content exempt AND reaches the runner's
+          #     local Supabase.
+          #   - SUPABASE_INTERNAL_URL (server-to-server, used by server.ts /
+          #     admin.ts / proxy.ts): host.docker.internal — inside the container,
+          #     127.0.0.1 would be the container itself, not the host.
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_INTERNAL_URL: http://host.docker.internal:54321
           SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
         run: docker compose -f docker-compose.test.yml up -d --build
@@ -278,8 +284,10 @@ jobs:
         env:
           CI: "1"
           # Runner-side view of the local supabase instance (supabase start,
-          # api port from supabase/config.toml). Same host:port as
-          # SUPABASE_URL; the hub container uses host.docker.internal instead.
+          # api port from supabase/config.toml). Loopback: the tests run on the
+          # runner host. The hub container's server side reaches Supabase via
+          # host.docker.internal (SUPABASE_INTERNAL_URL); its browser bundle
+          # uses 127.0.0.1 (NEXT_PUBLIC_SUPABASE_URL) to stay mixed-content safe.
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
           SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}

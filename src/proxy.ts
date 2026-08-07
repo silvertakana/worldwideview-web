@@ -6,7 +6,10 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    // Server-to-server: prefer SUPABASE_INTERNAL_URL (host.docker.internal
+    // inside Docker) over the browser-facing NEXT_PUBLIC_SUPABASE_URL (loopback,
+    // inlined into client bundles). Local dev leaves SUPABASE_INTERNAL_URL unset.
+    process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookieOptions: buildCookieOptions(),

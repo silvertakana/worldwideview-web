@@ -175,7 +175,16 @@ services:
     environment:
       # --- TEST-SPECIFIC OVERRIDES (compose `environment` wins over env_file) ---
       # Local Supabase (external CLI stack on the host; api port from supabase/config.toml)
-      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
+      # Browser-facing URL MUST be loopback: NEXT_PUBLIC_* vars are inlined into
+      # the client bundle, and Chromium blocks insecure fetches from an https
+      # page to non-loopback hostnames (host.docker.internal = mixed content).
+      # The browser runs on the host/runner, so 127.0.0.1 reaches local Supabase
+      # AND is mixed-content exempt.
+      NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}"
+      # Server-to-server URL for server.ts / admin.ts / proxy.ts (preferred over
+      # NEXT_PUBLIC_SUPABASE_URL): inside the container 127.0.0.1 is the
+      # container itself, so the host's local Supabase needs host.docker.internal.
+      SUPABASE_INTERNAL_URL: "${SUPABASE_INTERNAL_URL:-http://host.docker.internal:54321}"
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
       # Cross-subdomain session cookie: the server-side getUser() in
@@ -338,8 +347,11 @@ services:
       - ${HUB_DIR:-.}/node_modules:/app/node_modules
       - wwv-test-playwright-output:/app/playwright
     environment:
-      # Supabase admin API (local CLI stack on the host; matches hub overrides)
-      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
+      # Supabase admin API (local CLI stack on the host; matches hub overrides).
+      # Loopback like the hub's browser-facing URL — the runner is unused in CI
+      # (the workflow runs Playwright on the runner host), and loopback keeps
+      # runner↔hub agreement on the client-side Supabase contract.
+      NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}"
       # Same cookie-domain contract as the hub service (cookieOptions.ts reads
       # NEXT_PUBLIC_WWV_COOKIE_DOMAIN); keep runner and hub in agreement.
       NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
