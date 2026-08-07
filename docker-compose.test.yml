@@ -165,7 +165,12 @@ services:
     command:
       - sh
       - -c
-      - "cd /app && npx prisma db push && npx next dev --port ${GLOBE_PORT:-3000} --hostname 0.0.0.0"
+      # The bind mount below shadows /app with the host checkout, which never
+      # contains src/generated (gitignored in the globe repo). The image's
+      # Dockerfile.dev generates the Prisma client at build, but the mount
+      # hides it, so re-generate at startup (generate needs no DB; db push
+      # still waits on the db healthcheck via depends_on).
+      - "cd /app && npx prisma generate && npx prisma db push && npx next dev --port ${GLOBE_PORT:-3000} --hostname 0.0.0.0"
     depends_on:
       db:
         condition: service_healthy
