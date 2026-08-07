@@ -151,6 +151,21 @@ jobs:
       - name: Apply migrations
         run: supabase db push --local
 
+      - name: Capture local Supabase credentials
+        run: |
+          # supabase start generates a fresh JWT secret per instance (config.toml
+          # has no [auth] jwt_secret), so the well-known demo anon/service_role
+          # keys are rejected. Export the REAL keys from the running instance.
+          supabase status -o env > /tmp/supabase-env
+          echo "SUPABASE_URL=$(grep '^SUPABASE_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_ANON_KEY=$(grep '^SUPABASE_ANON_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(grep '^SUPABASE_SERVICE_ROLE_KEY=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "SUPABASE_DB_URL=$(grep '^SUPABASE_DB_URL=' /tmp/supabase-env | cut -d= -f2)" >> "$GITHUB_ENV"
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::supabase status did not report a SERVICE_ROLE_KEY; cannot run billing e2e"
+            exit 1
+          fi
+
       - name: Provision Caddyfile and TLS certs
         run: |
           mkdir -p certs
@@ -214,6 +229,13 @@ jobs:
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # Captured from the local supabase instance. Inert until
+          # docker-compose.test.yml parameterizes its hub env with ${VAR:-...}
+          # interpolation (see compose header KNOWN GAPS); wired here so the
+          # contract is CI-ready the moment it is.
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
         run: docker compose -f docker-compose.test.yml up -d --build
 
       - name: Wait for stack readiness
@@ -236,8 +258,12 @@ jobs:
       - name: Run billing E2E suite
         env:
           CI: "1"
+          # Runner-side view of the local supabase instance (supabase start,
+          # api port from supabase/config.toml). Same host:port as
+          # SUPABASE_URL; the hub container uses host.docker.internal instead.
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-          SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+          SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_BASE_URL: http://localhost:12111/v1
