@@ -277,6 +277,19 @@ jobs:
           docker compose -f docker-compose.test.yml ps
           exit 1
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          # ~/.cache/ms-playwright holds the downloaded Chromium (~150MB).
+          # Keyed on the lockfile so the cache invalidates when Playwright's
+          # pinned version changes; restore-keys keeps the last cache warm
+          # across minor bumps. The `--with-deps` install below still runs
+          # apt-get for the browser's OS deps on a miss.
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pw-
+
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
@@ -310,5 +323,13 @@ jobs:
       - name: Teardown test stack
         if: always()
         run: |
-          docker compose -f docker-compose.test.yml down -v
+          # CI: wipe volumes (isolated runner; nothing to persist between runs).
+          # Local act: the billing-e2e-local.sh wrapper sets
+          # ACT_KEEP_TEST_VOLUMES=1 so wwv-dev-* named volumes (.next output,
+          # node_modules) survive across runs — see that script's header.
+          if [ "${ACT_KEEP_TEST_VOLUMES:-}" = "1" ]; then
+            docker compose -f docker-compose.test.yml down
+          else
+            docker compose -f docker-compose.test.yml down -v
+          fi
           supabase stop || true

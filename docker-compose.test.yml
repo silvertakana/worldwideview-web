@@ -125,6 +125,11 @@ services:
     build:
       context: ${GLOBE_DIR:-../worldwideview.fix-billing-tier}
       dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: wwv-dev-globe
     ports:
       - "${GLOBE_PORT:-3000}:3000"
@@ -160,6 +165,11 @@ services:
     build:
       context: ${HUB_DIR:-.}
       dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: wwv-dev-hub
     ports:
       - "${HUB_PORT:-3001}:3001"
@@ -230,6 +240,11 @@ services:
     build:
       context: ${MARKETPLACE_DIR:-../worldwideview-marketplace}
       dockerfile: Dockerfile.dev-marketplace
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: wwv-dev-marketplace
     ports:
       - "${MARKETPLACE_PORT:-3002}:3002"
@@ -256,6 +271,11 @@ services:
     build:
       context: ${ENGINE_DIR:-../wwv-data-engine}
       dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: wwv-dev-engine
     ports:
       - "${ENGINE_PORT:-5000}:5000"
