@@ -110,28 +110,67 @@ async function loginToHubAndSaveStorage(baseURL: string, storageState: string) {
     // readiness step now pre-warms /login + /accounts/billing, but keep the
     // generous timeout as a safety net for slower compile bursts.
     await page.goto(`${baseURL}/login`, { timeout: 90000 });
+
+    // Hydration race guard. Before React hydrates, the login <form> carries no
+    // onSubmit handler (login-form.tsx relies on preventDefault() to stop the
+    // native submit). Clicking the submit button early therefore triggers a
+    // native GET submit that reloads /login with email/password as query params
+    // — the observed CI failure (Final URL /login?next=%2Faccounts&email=...&password=...).
+    // React 19's DOM client attaches a __reactProps$* own-property to every
+    // element it hydrates with props; once the form carries it, onSubmit is
+    // registered and clicks route through handleSubmit().
+    await page.waitForFunction(
+      () => {
+        const form = document.querySelector('form');
+        return !!form && Object.keys(form).some((key) => key.startsWith('__reactProps$'));
+      },
+      undefined,
+      { timeout: 60000 },
+    );
+
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', TEST_PASSWORD);
-    await page.click('button[type="submit"]');
-    try {
-      // Pathname-based check — a regex on the full URL would falsely match
-      // "//hub" inside the host "hub.wwv.local" and resolve before the
-      // session cookie is committed.
-      await page.waitForURL(
-        (url) =>
-          url.pathname.startsWith('/pricing') ||
-          url.pathname.startsWith('/accounts') ||
-          url.pathname.startsWith('/hub'),
-        { timeout: 25000 },
-      );
-      await page.waitForTimeout(1500); // let the session cookie settle
-    } catch {
+
+    const submitAndWaitForNavigation = async (): Promise<boolean> => {
+      await page.click('button[type="submit"]');
+      try {
+        // Pathname-based check — a regex on the full URL would falsely match
+        // "//hub" inside the host "hub.wwv.local" and resolve before the
+        // session cookie is committed.
+        await page.waitForURL(
+          (url) =>
+            url.pathname.startsWith('/pricing') ||
+            url.pathname.startsWith('/accounts') ||
+            url.pathname.startsWith('/hub'),
+          { timeout: 25000 },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    let loggedIn = await submitAndWaitForNavigation();
+    if (!loggedIn) {
+      // Belt and suspenders: if the first click still hit a pre-hydration
+      // native GET (URL back at /login with email=/password= query params),
+      // refill and click once more — hydration is guaranteed by now.
+      console.log(`[billing-setup] First login click did not navigate (${new URL(page.url()).pathname}); retrying once`);
+      await page.waitForLoadState('domcontentloaded');
+      await page.fill('input[name="email"]', TEST_EMAIL);
+      await page.fill('input[name="password"]', TEST_PASSWORD);
+      loggedIn = await submitAndWaitForNavigation();
+    }
+
+    if (!loggedIn) {
       const url = page.url();
       const errorText = await page.getByText(/invalid|credential|error/i).first().textContent().catch(() => '');
       throw new Error(
         `[billing-setup] UI login failed. Final URL: ${url}${errorText ? ` | page error: ${errorText}` : ''}`,
       );
     }
+
+    await page.waitForTimeout(1500); // let the session cookie settle
     console.log(`[billing-setup] UI login ok, landed at ${new URL(page.url()).pathname}`);
   } finally {
     const dir = path.dirname(storageState);
