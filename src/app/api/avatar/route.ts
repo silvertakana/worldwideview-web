@@ -9,7 +9,7 @@ import { DICEBEAR_BASE } from '@/lib/diceBear'
  * PII (email, display name) is never forwarded to api.dicebear.com.
  *
  * The UI renders DiceBear avatars directly in the browser (see
- * src/lib/diceBear.ts), so this route is a compatibility/fallback endpoint:
+ * src/lib/useDiceBearUrl.ts), so this route is a compatibility/fallback endpoint:
  * it works wherever the server can reach api.dicebear.com.
  *
  * - seed: URL-encoded seed string (required)

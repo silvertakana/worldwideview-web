@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { updateAvatar } from './actions'
-import { useDiceBearUrl } from '@/lib/diceBear'
+import { useDiceBearUrl } from '@/lib/useDiceBearUrl'
 import { avatarFallbackDataUrl } from '@/lib/avatarFallback'
 import styles from './AvatarUpload.module.css'
 

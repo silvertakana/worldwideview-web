@@ -7,7 +7,7 @@ import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
-import { useDiceBearUrl } from '@/lib/diceBear';
+import { useDiceBearUrl } from '@/lib/useDiceBearUrl';
 import { avatarFallbackDataUrl } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 

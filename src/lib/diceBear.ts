@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-
 /**
  * DiceBear adventurer-neutral base URL (v9 API).
  *
- * Shared by the client-side avatar renderer (this module) and the server-side
- * /api/avatar proxy so both produce identical avatars for the same seed.
+ * Shared by the client-side avatar hook (src/lib/useDiceBearUrl.ts) and the
+ * server-side /api/avatar proxy so both produce identical avatars for the same
+ * seed. This module must stay free of React imports: it is imported by the
+ * server route, so any `useState`/`useEffect` here would break the RSC
+ * boundary. The client hook lives in useDiceBearUrl.ts ("use client").
  */
 export const DICEBEAR_BASE =
   'https://api.dicebear.com/9.x/adventurer-neutral/svg' +
@@ -36,32 +37,4 @@ export async function diceBearUrl(seed: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
   return `${DICEBEAR_BASE}&seed=${hashedSeed}`
-}
-
-/**
- * Resolves a DiceBear avatar URL for the given seed.
- *
- * Returns null until the async hash + URL build completes, so callers can
- * render a placeholder instead of a broken image.
- *
- * @param seed - Stable identity string, or null to clear the avatar URL.
- */
-export function useDiceBearUrl(seed: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!seed) {
-      setUrl(null)
-      return
-    }
-    let cancelled = false
-    diceBearUrl(seed).then((u) => {
-      if (!cancelled) setUrl(u)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [seed])
-
-  return url
 }
