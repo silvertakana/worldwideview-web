@@ -178,6 +178,13 @@ services:
       NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
+      # Cross-subdomain session cookie: the server-side getUser() in
+      # src/lib/supabase/cookieOptions.ts reads NEXT_PUBLIC_WWV_COOKIE_DOMAIN
+      # to emit the cookie Domain attribute. Without it the cookie is
+      # host-only and the server session lookup fails over Caddy TLS at
+      # hub.wwv.local. Default .wwv.local matches local dev (.env.local);
+      # CI can override via the compose step env if it ever differs.
+      NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
       # Billing UI + tier-sync enabled in the test stack
       NEXT_PUBLIC_BILLING_ENABLED: "true"
       # Globe tier-sync endpoint: compose network service name + internal port
@@ -333,6 +340,9 @@ services:
     environment:
       # Supabase admin API (local CLI stack on the host; matches hub overrides)
       NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
+      # Same cookie-domain contract as the hub service (cookieOptions.ts reads
+      # NEXT_PUBLIC_WWV_COOKIE_DOMAIN); keep runner and hub in agreement.
+      NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
       # Stripe REST helpers + webhook signing (TEST ONLY)
       STRIPE_SECRET_KEY: "sk_test_local_stripe_mock_fake_key"
