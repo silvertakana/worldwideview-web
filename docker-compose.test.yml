@@ -66,22 +66,20 @@
 #   SUPABASE keys           default `supabase start` local keys  (anon + service_role, see hub env)
 #
 # KNOWN GAPS (outside this file's scope, flagged for follow-up)
-#   - Hub Stripe routing: stripe-node v22.2.1 supports the host/port/protocol
-#     constructor options, but src/lib/stripe/client.ts does not pass them
-#     yet. The STRIPE_HOST/STRIPE_PORT/STRIPE_PROTOCOL vars below are
-#     parameterized: local runs default to stripe-mock; CI sets a real
-#     STRIPE_SECRET_KEY and omits them so the SDK keeps its real-API defaults.
-#     Until client.ts reads them (recommended: new Stripe(key, { apiVersion,
-#     host: process.env.STRIPE_HOST, port: Number(process.env.STRIPE_PORT),
-#     protocol: process.env.STRIPE_PROTOCOL })) they stay inert, so LOCAL runs
-#     hit the real API with the fake key and fail 401 on outbound Stripe calls
-#     (customers.retrieve, checkout.sessions.retrieve, checkout.session.create;
-#     the webhook handler logs the failure, so side-effect assertions still
-#     catch it). CI runs with real keys, so it works today without that change.
-#   - Spec-side Stripe REST: billing-*.spec.ts hardcode
-#     STRIPE_BASE = 'https://api.stripe.com/v1'. Making it read
-#     process.env.STRIPE_API_BASE_URL (defaulting to the real API) is needed
-#     for the specs' direct Stripe helpers to hit stripe-mock.
+#   - Hub Stripe routing: src/lib/stripe/client.ts reads
+#     STRIPE_HOST/STRIPE_PORT/STRIPE_PROTOCOL and spreads them into the
+#     stripe-node constructor ONLY when truthy. Local runs default to
+#     stripe-mock (vars below); CI (billing-e2e.yml) sets them explicitly
+#     EMPTY so the SDK keeps its real-API defaults and the hub talks to real
+#     Stripe test mode. The `${VAR-default}` form propagates the CI empty
+#     string; `${VAR:-default}` would fall back to stripe-mock, which is why
+#     the host/port/protocol entries below use `-` not `:-`.
+#   - Spec-side Stripe REST: billing-*.spec.ts default STRIPE_BASE to the real
+#     API (https://api.stripe.com/v1) unless STRIPE_BASE_URL is set. CI no
+#     longer sets STRIPE_BASE_URL, so the specs' direct Stripe helpers hit the
+#     same real test account as the hub. The on-demand playwright-runner
+#     service (local offline use only) still pins STRIPE_BASE_URL to
+#     stripe-mock; it is unused by the CI workflow.
 #   - The runner mounts ONLY tests/test/node_modules from HUB_DIR (deliberately
 #     NOT the whole tree): tests/lib/env.ts's loadHubEnv() overwrites
 #     process.env unconditionally, so exposing the hub .env files would
@@ -212,16 +210,20 @@ services:
       PROVISIONING_API_URL: "http://globe:3000"
       # Stripe routing: ${VAR:-default} lets CI inject real test-mode
       # credentials (billing-e2e.yml); defaults point at stripe-mock for local
-      # runs. When CI sets a real STRIPE_SECRET_KEY it omits
-      # STRIPE_HOST/PORT/PROTOCOL so the SDK uses its real-API defaults.
+      # runs. STRIPE_HOST/PORT/PROTOCOL use the `${VAR-default}` (not
+      # `${VAR:-default}`) form: billing-e2e.yml sets them EXPLICITLY EMPTY so
+      # the interpolation keeps the empty value instead of falling back to
+      # stripe-mock, and src/lib/stripe/client.ts (which only spreads them when
+      # truthy) then keeps Stripe's real-API defaults. Unset -> stripe-mock.
       STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_local_stripe_mock_fake_key}"
       STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_test_simulator_secret}"
       # Cross-service HMAC shared with the globe (TEST ONLY)
       CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"
-      # Inert until src/lib/stripe/client.ts reads them (see header KNOWN GAPS)
-      STRIPE_HOST: "${STRIPE_HOST:-stripe-mock}"
-      STRIPE_PORT: "${STRIPE_PORT:-12111}"
-      STRIPE_PROTOCOL: "${STRIPE_PROTOCOL:-http}"
+      # client.ts spreads these only when truthy; CI sets them empty for
+      # real-API defaults, local runs leave them unset -> stripe-mock.
+      STRIPE_HOST: "${STRIPE_HOST-stripe-mock}"
+      STRIPE_PORT: "${STRIPE_PORT-12111}"
+      STRIPE_PROTOCOL: "${STRIPE_PROTOCOL-http}"
       # --- unchanged dev-compose settings ---
       WATCHPACK_POLLING: "true"
       NEXT_TELEMETRY_DISABLED: "1"

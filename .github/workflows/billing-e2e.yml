@@ -11,12 +11,13 @@
 #   STRIPE_SECRET_KEY      Stripe test-mode secret key (sk_test_...)
 #   STRIPE_WEBHOOK_SECRET  Stripe test-mode webhook signing secret (whsec_...)
 #   Both are exported to the compose process env AND to the Playwright step.
-#   NOTE: docker-compose.test.yml hardcodes TEST-ONLY mock values in its
-#   `environment:` blocks (stripe-mock accepts any key), so containers still
-#   run against stripe-mock until that file parameterizes them with
-#   ${VAR:-...} interpolation. The secrets are wired here so the contract is
-#   CI-ready the moment real test-mode Stripe calls are enabled (see the
-#   compose header KNOWN GAPS).
+#   docker-compose.test.yml defaults STRIPE_HOST/PORT/PROTOCOL to stripe-mock
+#   for offline local runs; this workflow overrides them to EMPTY (see the
+#   "Bring up billing test stack" step) so the hub's Stripe SDK (client.ts
+#   spreads those options only when truthy) keeps its real-API defaults and
+#   CI talks to REAL Stripe test mode. The Playwright step does NOT set
+#   STRIPE_BASE_URL so the specs' direct Stripe helpers also hit the real
+#   test account.
 #
 # PATH GATES
 #   Runs only when the diff touches billing code or the test stack:
@@ -239,6 +240,16 @@ jobs:
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # CRITICAL: route the hub's Stripe SDK at the REAL Stripe API in CI.
+          # docker-compose.test.yml defaults STRIPE_HOST/PORT/PROTOCOL to
+          # stripe-mock; client.ts spreads those options only when truthy, so
+          # setting them to EMPTY keeps Stripe's real-API defaults. The compose
+          # entries use ${VAR-default} (NOT :-) so this empty value propagates
+          # instead of falling back to stripe-mock. Local/act runs leave these
+          # unset -> stripe-mock default preserved.
+          STRIPE_HOST: ""
+          STRIPE_PORT: ""
+          STRIPE_PROTOCOL: ""
           # The hub container needs TWO Supabase URLs:
           #   - NEXT_PUBLIC_SUPABASE_URL (browser-facing, inlined into the client
           #     bundle): MUST be loopback. The browser runs on the runner host and
@@ -306,10 +317,29 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          STRIPE_BASE_URL: http://localhost:12111/v1
+          # NOTE: do NOT set STRIPE_BASE_URL here. The specs' direct Stripe
+          # helpers (findActiveSubscription/cancelSubscription/cancelAtPeriodEnd
+          # in billing-flow.spec.ts and tests/lib/stripe.ts) default to the real
+          # Stripe API when STRIPE_BASE_URL is absent; pointing them at
+          # stripe-mock made the suite query a different store than the hub
+          # (which talks to real Stripe) and the checkout-created subscription
+          # was never found.
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/worldwideview?schema=public
           CROSS_SERVICE_SECRET: wwv-test-hmac-secret-2026
         run: pnpm exec playwright test --config=tests/playwright.billing.config.ts
+
+      - name: Capture stack logs on failure
+        if: failure()
+        run: |
+          # Container logs are the only window into SSR-side failures (tier
+          # sync fetches, webhook handler errors) that the Playwright trace
+          # cannot capture; the teardown step below wipes the stack, so capture
+          # before it runs.
+          docker compose -f docker-compose.test.yml ps
+          echo "================ HUB LOGS (tail 200) ================"
+          docker compose -f docker-compose.test.yml logs hub --tail 200
+          echo "================ GLOBE LOGS (tail 100) ================"
+          docker compose -f docker-compose.test.yml logs globe --tail 100
 
       - name: Upload Playwright artifacts
         if: failure()
