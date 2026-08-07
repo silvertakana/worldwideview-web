@@ -25,18 +25,24 @@ export function stripeHeaders(): Record<string, string> {
  */
 export async function cancelStaleSubscriptions(email: string): Promise<void> {
   try {
-    const customersRes = await fetch(`${STRIPE_BASE}/customers?email=${encodeURIComponent(email)}&limit=10`, {
+    // Always hit the real Stripe API for cleanup, NOT stripe-mock.
+    // STRIPE_BASE_URL may route test Stripe REST calls to stripe-mock,
+    // but subscription cancellation MUST happen against the live Stripe
+    // account or stale subs from prior CI runs will never actually be
+    // cancelled, causing the billing page to show Pro for free users.
+    const base = 'https://api.stripe.com/v1';
+    const customersRes = await fetch(`${base}/customers?email=${encodeURIComponent(email)}&limit=10`, {
       headers: stripeHeaders(),
     });
     const customers = await customersRes.json();
     for (const c of customers.data || []) {
-      const subsRes = await fetch(`${STRIPE_BASE}/subscriptions?customer=${c.id}&limit=10`, {
+      const subsRes = await fetch(`${base}/subscriptions?customer=${c.id}&limit=10`, {
         headers: stripeHeaders(),
       });
       const subs = await subsRes.json();
       for (const s of subs.data || []) {
         if (['trialing', 'active', 'past_due'].includes(s.status)) {
-          await fetch(`${STRIPE_BASE}/subscriptions/${s.id}`, { method: 'DELETE', headers: stripeHeaders() });
+          await fetch(`${base}/subscriptions/${s.id}`, { method: 'DELETE', headers: stripeHeaders() });
           console.log(`[billing-e2e] Cancelled stale subscription ${s.id} (${s.status})`);
         }
       }

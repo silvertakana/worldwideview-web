@@ -38,7 +38,17 @@ export async function getHubTierFallback(userId: string, email: string): Promise
     let customer = customers.data[0];
     if (!customer) {
       const byEmail = await stripe.customers.list({ email, limit: 1 });
-      customer = byEmail.data[0];
+      const emailCustomer = byEmail.data[0];
+      // When a Stripe customer matched by email carries a different userId
+      // than the current Supabase user, it is a stale artifact from a prior
+      // CI run (shared Stripe test account, recycled test email, different
+      // Supabase user ID). Reject the match so we don't misattribute a
+      // different user's paid subscription to a free user.
+      if (emailCustomer && emailCustomer.metadata?.userId && emailCustomer.metadata.userId !== userId) {
+        // Skip: customer belongs to a different user with the same email.
+      } else {
+        customer = emailCustomer;
+      }
     }
     if (customer && !customer.deleted) {
       const subs = await stripe.subscriptions.list({ customer: customer.id, limit: 10 });
