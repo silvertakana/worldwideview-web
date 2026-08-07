@@ -131,9 +131,9 @@ services:
       dockerfile: Dockerfile.dev
       # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
       cache_from:
-        - type=gha
+        - type=gha,scope=wwv-globe
       cache_to:
-        - type=gha,mode=max
+        - type=gha,mode=max,scope=wwv-globe,ignore-error=true
     container_name: wwv-dev-globe
     ports:
       - "${GLOBE_PORT:-3000}:3000"
@@ -184,9 +184,9 @@ services:
       dockerfile: Dockerfile.dev
       # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
       cache_from:
-        - type=gha
+        - type=gha,scope=wwv-hub
       cache_to:
-        - type=gha,mode=max
+        - type=gha,mode=max,scope=wwv-hub,ignore-error=true
     container_name: wwv-dev-hub
     ports:
       - "${HUB_PORT:-3001}:3001"
@@ -272,9 +272,9 @@ services:
       dockerfile: Dockerfile.dev-marketplace
       # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
       cache_from:
-        - type=gha
+        - type=gha,scope=wwv-marketplace
       cache_to:
-        - type=gha,mode=max
+        - type=gha,mode=max,scope=wwv-marketplace,ignore-error=true
     container_name: wwv-dev-marketplace
     ports:
       - "${MARKETPLACE_PORT:-3002}:3002"
@@ -303,9 +303,9 @@ services:
       dockerfile: Dockerfile.dev
       # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
       cache_from:
-        - type=gha
+        - type=gha,scope=wwv-data-engine
       cache_to:
-        - type=gha,mode=max
+        - type=gha,mode=max,scope=wwv-data-engine,ignore-error=true
     container_name: wwv-dev-engine
     ports:
       - "${ENGINE_PORT:-5000}:5000"
