@@ -96,8 +96,13 @@ async function seedGlobeDb() {
 }
 
 async function loginToHubAndSaveStorage(baseURL: string, storageState: string) {
+  // Direct launch does NOT inherit the config's project-level
+  // ignoreHTTPSErrors: true; the dev stack serves https://hub.wwv.local with
+  // a self-signed cert, so the login page would fail with
+  // net::ERR_CERT_AUTHORITY_INVALID without this option.
   const browser = await chromium.launch();
-  const page = await browser.newPage();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
   try {
     await page.goto(`${baseURL}/login`, { timeout: 30000 });
     await page.fill('input[name="email"]', TEST_EMAIL);
