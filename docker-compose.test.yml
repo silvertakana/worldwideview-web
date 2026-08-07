@@ -175,9 +175,9 @@ services:
     environment:
       # --- TEST-SPECIFIC OVERRIDES (compose `environment` wins over env_file) ---
       # Local Supabase (external CLI stack on the host; api port from supabase/config.toml)
-      NEXT_PUBLIC_SUPABASE_URL: "http://host.docker.internal:54321"
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
-      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
       # Billing UI + tier-sync enabled in the test stack
       NEXT_PUBLIC_BILLING_ENABLED: "true"
       # Globe tier-sync endpoint: compose network service name + internal port
@@ -332,8 +332,8 @@ services:
       - wwv-test-playwright-output:/app/playwright
     environment:
       # Supabase admin API (local CLI stack on the host; matches hub overrides)
-      NEXT_PUBLIC_SUPABASE_URL: "http://host.docker.internal:54321"
-      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:54321}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
       # Stripe REST helpers + webhook signing (TEST ONLY)
       STRIPE_SECRET_KEY: "sk_test_local_stripe_mock_fake_key"
       STRIPE_WEBHOOK_SECRET: "whsec_test_simulator_secret"
