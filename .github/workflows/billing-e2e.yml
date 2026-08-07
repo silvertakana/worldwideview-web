@@ -240,6 +240,15 @@ jobs:
             exit 1
           }
 
+      - name: Set up BuildKit (docker-container driver) for gha layer cache
+        # REQUIRED for the BuildKit gha cache backend in docker-compose.test.yml:
+        # the gha backend is not supported with the default docker driver and is
+        # silently ignored, so every run cold-builds all 4 images. The
+        # docker-container driver (default for this action) is what makes the
+        # per-service cache scopes (wwv-globe / wwv-hub / wwv-marketplace /
+        # wwv-data-engine in docker-compose.test.yml cache_from/cache_to) work.
+        uses: docker/setup-buildx-action@v4
+
       - name: Bring up billing test stack
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
