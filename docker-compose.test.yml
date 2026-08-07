@@ -62,6 +62,12 @@
 # injects real Stripe test-mode keys per billing-e2e.yml)
 #   STRIPE_SECRET_KEY       sk_test_local_stripe_mock_fake_key   (default; stripe-mock accepts anything)
 #   STRIPE_WEBHOOK_SECRET   whsec_test_simulator_secret          (default; simulator signs with this)
+#   STRIPE_PRO_PRICE_ID     price_1TiVzJCnLxBZfLqIEC3gKEOi      (test-mode public ID; real test account)
+#   STRIPE_PRO_ANNUAL_PRICE_ID  price_1TikxeCnLxBZfLqI06cRgceg  (test-mode public ID)
+#   STRIPE_TEAM_MONTHLY_PRICE_ID price_1TikxmCnLxBZfLqIHlviWvYg (test-mode public ID)
+#   STRIPE_TEAM_ANNUAL_PRICE_ID  price_1TikxqCnLxBZfLqINdd5I2xg (test-mode public ID)
+#   ENCRYPTION_MASTER_KEY    33deaa3777adb6b6c76987b80d10b4e6   (globe boot; TEST ONLY hex)
+#   BETTER_AUTH_SECRET       Be9Be6Unk7XJY/C6TIYhDLbKGPut3FogeSQicDUp7JI=  (globe boot; TEST ONLY base64)
 #   CROSS_SERVICE_SECRET    wwv-test-hmac-secret-2026            (hub <-> globe tier sync HMAC)
 #   SUPABASE keys           default `supabase start` local keys  (anon + service_role, see hub env)
 #
@@ -145,6 +151,14 @@ services:
       REDIS_URL: "redis://redis:6379"
       ALLOWED_DEV_ORIGIN: "app.wwv.local"
       CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"   # TEST ONLY, shared with hub
+      # Globe boot secrets (TEST ONLY). src/instrumentation.ts throws at
+      # startup without ENCRYPTION_MASTER_KEY and BETTER_AUTH_SECRET; the CI
+      # globe checkout has no .env files, so these compose defaults are what
+      # boot it. ENCRYPTION_MASTER_KEY is 32 hex chars (openssl rand -hex 16);
+      # BETTER_AUTH_SECRET is openssl rand -base64 32. ${VAR:-default} lets CI
+      # inject real values when the globe needs real credentials.
+      ENCRYPTION_MASTER_KEY: "${ENCRYPTION_MASTER_KEY:-33deaa3777adb6b6c76987b80d10b4e6}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-Be9Be6Unk7XJY/C6TIYhDLbKGPut3FogeSQicDUp7JI=}"
       WATCHPACK_POLLING: "true"
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_OPTIONS: "--use-system-ca"
@@ -217,6 +231,15 @@ services:
       # truthy) then keeps Stripe's real-API defaults. Unset -> stripe-mock.
       STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_local_stripe_mock_fake_key}"
       STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_test_simulator_secret}"
+      # Stripe price IDs for plan resolution (src/lib/billing/constants.ts
+      # reads these; checkout throws "Plan not configured" without them).
+      # TEST-MODE public identifiers (price_...) — safe to commit. Defaults are
+      # the real billing test-account prices from .env.local; CI can override
+      # via process env if the test account ever rotates them.
+      STRIPE_PRO_PRICE_ID: "${STRIPE_PRO_PRICE_ID:-price_1TiVzJCnLxBZfLqIEC3gKEOi}"
+      STRIPE_PRO_ANNUAL_PRICE_ID: "${STRIPE_PRO_ANNUAL_PRICE_ID:-price_1TikxeCnLxBZfLqI06cRgceg}"
+      STRIPE_TEAM_MONTHLY_PRICE_ID: "${STRIPE_TEAM_MONTHLY_PRICE_ID:-price_1TikxmCnLxBZfLqIHlviWvYg}"
+      STRIPE_TEAM_ANNUAL_PRICE_ID: "${STRIPE_TEAM_ANNUAL_PRICE_ID:-price_1TikxqCnLxBZfLqINdd5I2xg}"
       # Cross-service HMAC shared with the globe (TEST ONLY)
       CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"
       # client.ts spreads these only when truthy; CI sets them empty for
