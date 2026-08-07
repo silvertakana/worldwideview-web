@@ -2,6 +2,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
+import { cancelStaleSubscriptions } from './lib/stripe';
 
 /**
  * Regression test for the PMT-001 billing fix (hub worktree
@@ -122,43 +123,6 @@ async function createSupabaseUser(email: string, password: string): Promise<void
     }
   }
   console.log(`[billing-provision] Supabase user ensured: ${email}`);
-}
-
-// ---------------------------------------------------------------------------
-// Stripe REST helpers (no CLI, no interactive confirmation).
-// ---------------------------------------------------------------------------
-// STRIPE_BASE_URL lets the test stack point these at stripe-mock; defaults to
-// real Stripe test mode.
-const STRIPE_BASE = process.env.STRIPE_BASE_URL || 'https://api.stripe.com/v1';
-function stripeHeaders(): Record<string, string> {
-  return {
-    Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY || ''}`,
-    'Content-Type': 'application/x-www-form-urlencoded',
-  };
-}
-
-/** Best-effort: cancel any live subscription for the new-user's customers. */
-async function cancelStaleSubscriptions(email: string): Promise<void> {
-  try {
-    const customersRes = await fetch(`${STRIPE_BASE}/customers?email=${encodeURIComponent(email)}&limit=10`, {
-      headers: stripeHeaders(),
-    });
-    const customers = await customersRes.json();
-    for (const c of customers.data || []) {
-      const subsRes = await fetch(`${STRIPE_BASE}/subscriptions?customer=${c.id}&limit=10`, {
-        headers: stripeHeaders(),
-      });
-      const subs = await subsRes.json();
-      for (const s of subs.data || []) {
-        if (['trialing', 'active', 'past_due'].includes(s.status)) {
-          await fetch(`${STRIPE_BASE}/subscriptions/${s.id}`, { method: 'DELETE', headers: stripeHeaders() });
-          console.log(`[billing-provision] Cancelled stale subscription ${s.id}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.log(`[billing-provision] Stripe cleanup error: ${e}`);
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 import { chromium, type FullConfig } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
+import { cancelStaleSubscriptions } from './lib/stripe';
 import fs from 'fs';
 import path from 'path';
 
@@ -188,6 +189,14 @@ async function globalSetup(config: FullConfig) {
   if (typeof storageState !== 'string' || !baseURL) {
     throw new Error('[billing-setup] storageState / baseURL not defined in config');
   }
+
+  // Cancel leftover Stripe subscriptions from prior CI runs FIRST, so the
+  // login/storage-state snapshot below sees a FREE user (the billing page
+  // renders "Upgrade to Pro", not "Manage Billing"). The globe + Supabase
+  // teardown purges rows and deletes the user, but historically never
+  // cancelled Stripe subs — a stale sub made tests 1 and 5 fail on the shared
+  // CI Stripe test account.
+  await cancelStaleSubscriptions(TEST_EMAIL);
 
   await deleteSupabaseUser(TEST_EMAIL);
   await seedGlobeDb();
