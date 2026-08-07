@@ -28,7 +28,11 @@
 #
 # TWO-TIER TEST STRATEGY
 #   L1 - webhook-simulator (test/simulator/, compose profile "simulator"):
-#        signed-webhook matrix, no browser, fast. Intended future fast gate.
+#        signed-webhook matrix, no browser, fast. Executed below as the
+#        "Run webhook simulator signature contract" step: valid events must
+#        return 200, a tampered signature must return 400, and a
+#        byte-identical replay must be idempotent (200). Any violation fails
+#        the job (the simulator's --expect-status exits non-zero).
 #   L3 - full browser E2E (THIS workflow): real UI + Stripe checkout flow,
 #        tier sync against the globe. Current gate. Needs real Stripe
 #        test-mode secrets; stripe-mock is stateless, so checkout/webhook
@@ -287,6 +291,24 @@ jobs:
           echo "::error::Billing test stack did not become ready within 200s"
           docker compose -f docker-compose.test.yml ps
           exit 1
+
+      - name: Run webhook simulator signature contract
+        env:
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          WEBHOOK_TARGET_URL: https://hub.wwv.local/api/billing/webhook
+          # The hub sits behind Caddy with a self-signed wildcard cert; the
+          # simulator's raw https.request rejects it by default. Scope the
+          # Node TLS override to THIS step only (never job/global env) so the
+          # browser suite below still exercises its own TLS handling.
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        run: |
+          set -euo pipefail
+          echo "--- L1: valid-signature matrix (all 5 core events expect 200)"
+          node test/simulator/index.js --matrix --expect-status 200
+          echo "--- L1: tampered signature must be rejected (expect 400)"
+          node test/simulator/index.js checkout.session.completed --bad-signature --expect-status 400
+          echo "--- L1: byte-identical replay must be idempotent (expect 200)"
+          node test/simulator/index.js checkout.session.completed --duplicate --expect-status 200
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
