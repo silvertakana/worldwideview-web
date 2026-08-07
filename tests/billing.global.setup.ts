@@ -104,7 +104,12 @@ async function loginToHubAndSaveStorage(baseURL: string, storageState: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
   try {
-    await page.goto(`${baseURL}/login`, { timeout: 30000 });
+    // 90s: the hub runs `next dev` in CI, so /login cold-compiles on first
+    // hit. Under loaded runners that has exceeded the old 30s cap twice in a
+    // row (billing-e2e run 31146470100 / 31148499219). The workflow's
+    // readiness step now pre-warms /login + /accounts/billing, but keep the
+    // generous timeout as a safety net for slower compile bursts.
+    await page.goto(`${baseURL}/login`, { timeout: 90000 });
     await page.fill('input[name="email"]', TEST_EMAIL);
     await page.fill('input[name="password"]', TEST_PASSWORD);
     await page.click('button[type="submit"]');

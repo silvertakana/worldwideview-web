@@ -251,9 +251,17 @@ jobs:
 
       - name: Wait for stack readiness
         run: |
+          # Warm the routes the Playwright global setup hits first (/login, and
+          # /accounts/billing which redirects to /login for anonymous users).
+          # The hub runs `next dev`, so these compile on first request; doing
+          # it here means the compile happens during the wait, not inside
+          # Playwright (which has repeatedly timed out on the cold /login
+          # compile under loaded CI runners — see billing.global.setup.ts).
           for i in $(seq 1 40); do
             if curl -sf -o /dev/null http://localhost:3001/api/health && \
-               curl -kfsS -o /dev/null https://hub.wwv.local/pricing; then
+               curl -kfsS -o /dev/null https://hub.wwv.local/pricing && \
+               curl -kfsS -o /dev/null https://hub.wwv.local/login && \
+               curl -kfsS -o /dev/null https://hub.wwv.local/accounts/billing; then
               echo "Stack ready after $((i * 5))s"
               exit 0
             fi
