@@ -23,6 +23,14 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "warn",
     },
   },
+  {
+    // test/simulator is a standalone Node.js CJS test script, not part of the TS/ESM app.
+    // It uses build-in requires (crypto, http, fs). Relax the ESM-only require ban there.
+    files: ["test/simulator/**"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
   security.configs.recommended,
 ]);
 

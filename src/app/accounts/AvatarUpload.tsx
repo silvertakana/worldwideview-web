@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react'
 import { updateAvatar } from './actions'
-import { diceBearUrl } from '@/lib/diceBear'
+import { useDiceBearUrl } from '@/lib/useDiceBearUrl'
+import { avatarFallbackDataUrl } from '@/lib/avatarFallback'
 import styles from './AvatarUpload.module.css'
 
 interface AvatarUploadProps {
@@ -64,13 +65,19 @@ function resizeToDataUrl(file: File, size: number): Promise<string> {
 export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl)
+  const [avatarError, setAvatarError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const displaySrc =
+  const hasPersisted =
     avatarUrl && (avatarUrl.startsWith('data:') || avatarUrl.startsWith('http'))
+  const diceAvatarUrl = useDiceBearUrl(hasPersisted ? null : name)
+
+  const displaySrc = avatarError
+    ? avatarFallbackDataUrl(name)
+    : hasPersisted
       ? avatarUrl
-      : diceBearUrl(name)
+      : diceAvatarUrl
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -83,6 +90,7 @@ export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
       const dataUrl = await resizeToDataUrl(file, AVATAR_SIZE)
       const { publicUrl } = await updateAvatar(dataUrl)
       setAvatarUrl(publicUrl)
+      setAvatarError(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
     } finally {
@@ -94,7 +102,14 @@ export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
 
   return (
     <div className={styles.wrapper}>
-      <img src={displaySrc} alt="Your avatar" className={styles.uploadImg} />
+      {displaySrc && (
+        <img
+          src={displaySrc}
+          alt="Your avatar"
+          className={styles.uploadImg}
+          onError={() => setAvatarError(true)}
+        />
+      )}
 
       <button
         type="button"

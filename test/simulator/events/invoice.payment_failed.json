@@ -1,0 +1,26 @@
+{
+  "id": "evt_test_invoice_payment_failed",
+  "object": "event",
+  "api_version": "2026-05-27.dahlia",
+  "created": 1786000000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": "req_test_invoice_failed", "idempotency_key": "invoice-payment-failed-test" },
+  "type": "invoice.payment_failed",
+  "data": {
+    "object": {
+      "id": "in_test_simulator",
+      "object": "invoice",
+      "status": "open",
+      "customer": "cus_test_simulator",
+      "subscription": "sub_test_simulator",
+      "amount_due": 2000,
+      "amount_paid": 0,
+      "attempt_count": 1,
+      "currency": "usd",
+      "hosted_invoice_url": "https://invoice.stripe.com/i/acct_test/in_test_simulator",
+      "invoice_pdf": "https://pay.stripe.com/invoice/acct_test/in_test_simulator/pdf",
+      "metadata": { "email": "simulated-user@example.com" }
+    }
+  }
+}

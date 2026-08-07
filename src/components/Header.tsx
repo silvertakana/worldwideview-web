@@ -7,7 +7,8 @@ import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
-import { diceBearUrl } from '@/lib/diceBear';
+import { useDiceBearUrl } from '@/lib/useDiceBearUrl';
+import { avatarFallbackDataUrl } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 
 const NAV_LINKS = [
@@ -25,7 +26,20 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [user, setUser] = useState<User | null>(initialUser);
+  // Id of the user whose avatar failed to load. The fallback only applies to
+  // this exact user id, so a different signed-in user automatically gets a
+  // fresh avatar attempt without needing an effect to reset the flag.
+  const [avatarErrorUserId, setAvatarErrorUserId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const userAvatarUrl =
+    user &&
+    typeof user.user_metadata?.avatar_url === 'string' &&
+    user.user_metadata.avatar_url.startsWith('http')
+      ? user.user_metadata.avatar_url
+      : null;
+  const diceAvatarUrl = useDiceBearUrl(userAvatarUrl ? null : (user?.id ?? null));
+  const avatarSrc = userAvatarUrl || diceAvatarUrl;
 
   const closeDropdown = useCallback(() => {
     setDropdownOpen(false);
@@ -111,11 +125,18 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                 aria-label="User menu"
                 title={user.email ?? ''}
               >
-                <img
-                  src={user.user_metadata?.avatar_url || diceBearUrl(user.user_metadata?.display_name || user.email)}
-                  alt=""
-                  className={styles.avatarImg}
-                />
+                {avatarSrc && (
+                  <img
+                    src={
+                      avatarErrorUserId === user.id
+                        ? avatarFallbackDataUrl(user.id)
+                        : avatarSrc
+                    }
+                    alt=""
+                    className={styles.avatarImg}
+                    onError={() => setAvatarErrorUserId(user.id)}
+                  />
+                )}
               </button>
               {dropdownOpen && (
                 <div className={styles.dropdown} role="menu">

@@ -1,17 +1,16 @@
 import { createHash } from 'crypto'
 import { NextResponse } from 'next/server'
-
-const DICEBEAR_BASE =
-  'https://api.dicebear.com/9.x/adventurer-neutral/svg' +
-  '?backgroundColor=ffd5dc,c0aede,b6e3f4,f2d3b1' +
-  '&eyebrows=variant01,variant02,variant03,variant05,variant06,variant07,variant08,variant09,variant10,variant11,variant12,variant13,variant14,variant15' +
-  '&mouth=variant01,variant02,variant03,variant04,variant09,variant10,variant11,variant12,variant13,variant14,variant15,variant16,variant17,variant18,variant19,variant21,variant22,variant23,variant24,variant25,variant26,variant27,variant28,variant29,variant30,variant20'
+import { DICEBEAR_BASE } from '@/lib/diceBear'
 
 /**
  * GET /api/avatar?seed=<string>
  *
  * Server-side DiceBear proxy. SHA-256 hashes the incoming seed so that raw
  * PII (email, display name) is never forwarded to api.dicebear.com.
+ *
+ * The UI renders DiceBear avatars directly in the browser (see
+ * src/lib/useDiceBearUrl.ts), so this route is a compatibility/fallback endpoint:
+ * it works wherever the server can reach api.dicebear.com.
  *
  * - seed: URL-encoded seed string (required)
  * - Returns: SVG image with 24-hour public cache

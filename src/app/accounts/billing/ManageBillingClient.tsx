@@ -24,8 +24,13 @@ export function ManageBillingClient({ plan, status }: { plan: string; status: st
         try {
             const res = await fetch("/api/billing/checkout", {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan: "pro" }),
             });
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to start checkout");
+            }
             if (data.url) window.location.href = data.url;
         } catch {
             setLoading(false);

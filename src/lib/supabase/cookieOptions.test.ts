@@ -24,6 +24,10 @@ describe('resolveCookieDomain', () => {
 })
 
 describe('buildCookieOptions', () => {
+  it('pins an explicit cookie name (same on browser and server regardless of Supabase URL)', () => {
+    expect(buildCookieOptions().name).toBe('wwv-hub-auth-token')
+  })
+
   it('does not set httpOnly (client-side auth token needs JS access)', () => {
     expect(buildCookieOptions()).not.toHaveProperty('httpOnly')
   })

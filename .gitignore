@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright/
+/test-results/
+/playwright-report/
 
 # next.js
 /.next/
@@ -36,6 +39,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+
+# local secrets (act run secrets, e.g. Stripe test keys) — never commit
+.secrets
 
 # vercel
 .vercel

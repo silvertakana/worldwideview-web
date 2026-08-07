@@ -2,6 +2,7 @@ import { CreditCard, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
+import { getHubTierFallback } from "@/lib/billing/tier-fallback";
 
 export const metadata = { title: "Billing | Your Account" };
 
@@ -19,20 +20,38 @@ export default async function BillingPage() {
     let trialDaysRemaining: number | null = null;
 
     if (user) {
+        let globeSucceeded = false;
         try {
             const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
                 const data = await res.json();
-                plan = data.plan || "local";
-                status = data.status || "not_found";
+                // Globe returns `tier`/`effectiveStatus` (not `plan`). Map tier
+                // into plan so a pro/enterprise globe org renders Pro; a free
+                // org keeps the local/free rendering.
+                plan = data.plan || (data.tier && data.tier !== "free" ? data.tier : "local");
+                status = data.status || data.effectiveStatus || "not_found";
                 trialEndsAt = data.trialEndsAt || null;
                 instanceCount = data.instanceCount ?? 0;
                 instanceLimit = data.instanceLimit ?? Infinity;
                 isTrialing = data.isTrialing ?? (status === "trialing");
                 trialDaysRemaining = data.trialDaysRemaining ?? null;
+                globeSucceeded = true;
             }
         } catch {
-            // Globe unreachable - fall back to local plan
+            // Globe unreachable
+        }
+
+        if (!globeSucceeded && user.email) {
+            // Globe has no org for this user (404) or was unreachable. Fall back
+            // to the hub's authoritative data so a paid user still sees Pro
+            // even when the globe-side mirror is missing.
+            const fallback = await getHubTierFallback(user.id, user.email);
+            if (fallback) {
+                plan = fallback.plan;
+                status = fallback.status;
+                trialEndsAt = fallback.trialEndsAt;
+                isTrialing = fallback.isTrialing;
+            }
         }
     }
 
@@ -74,7 +93,9 @@ export default async function BillingPage() {
                 {isLocal
                     ? "You are on the Free plan."
                     : status === "trialing"
-                        ? `You are on the Pro plan (trial).`
+                        ? trialEndsAt
+                            ? `Your ${plan === "enterprise" ? "Enterprise" : "Pro"} trial continues until ${new Date(trialEndsAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" })}.`
+                            : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan (trial).`
                         : status === "suspended"
                             ? "Your account has been suspended."
                             : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan.`

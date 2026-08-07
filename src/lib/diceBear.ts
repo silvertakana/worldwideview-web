@@ -1,14 +1,40 @@
 /**
- * Returns a same-origin proxy URL for a DiceBear adventurer-neutral SVG avatar.
+ * DiceBear adventurer-neutral base URL (v9 API).
  *
- * The /api/avatar route handler SHA-256 hashes the seed before forwarding to
- * the DiceBear external service, ensuring raw PII (email, display name) is
- * never sent to that service by the browser.
+ * Shared by the client-side avatar hook (src/lib/useDiceBearUrl.ts) and the
+ * server-side /api/avatar proxy so both produce identical avatars for the same
+ * seed. This module must stay free of React imports: it is imported by the
+ * server route, so any `useState`/`useEffect` here would break the RSC
+ * boundary. The client hook lives in useDiceBearUrl.ts ("use client").
+ */
+export const DICEBEAR_BASE =
+  'https://api.dicebear.com/9.x/adventurer-neutral/svg' +
+  '?backgroundColor=ffd5dc,c0aede,b6e3f4,f2d3b1' +
+  '&eyebrows=variant01,variant02,variant03,variant05,variant06,variant07,variant08,variant09,variant10,variant11,variant12,variant13,variant14,variant15' +
+  '&mouth=variant01,variant02,variant03,variant04,variant09,variant10,variant11,variant12,variant13,variant14,variant15,variant16,variant17,variant18,variant19,variant21,variant22,variant23,variant24,variant25,variant26,variant27,variant28,variant29,variant30,variant20'
+
+/**
+ * Builds a DiceBear adventurer-neutral SVG avatar URL for a stable seed.
+ *
+ * The seed is SHA-256 hashed in the browser before being forwarded to
+ * api.dicebear.com, so raw PII (email, display name) never leaves the client.
+ *
+ * The avatar is loaded directly by the browser instead of via the server-side
+ * /api/avatar proxy because server containers may not be able to reach
+ * api.dicebear.com (e.g. Docker NAT paths to DiceBear's CDN edge), while the
+ * client's own network can.
  *
  * @param seed - A stable string (email, avatar_url, display name) used to
  *   derive a consistent avatar appearance for the same identity.
- * @returns Relative same-origin URL: /api/avatar?seed=<encoded>
+ * @returns A promise resolving to a direct api.dicebear.com SVG URL.
  */
-export function diceBearUrl(seed: string): string {
-  return `/api/avatar?seed=${encodeURIComponent(seed)}`
+export async function diceBearUrl(seed: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(seed),
+  )
+  const hashedSeed = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  return `${DICEBEAR_BASE}&seed=${hashedSeed}`
 }

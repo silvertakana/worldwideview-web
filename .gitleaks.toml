@@ -1,0 +1,24 @@
+# WorldWideView Web gitleaks configuration.
+#
+# Only one allowlist is defined: the PUBLIC Supabase demo/local-dev JWTs that
+# the Supabase CLI ships in every local project and that appear in Supabase
+# docs and tutorials. These are NOT production secrets:
+#   - service_role: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+#     decodes to {"iss":"supabase-demo","role":"service_role","exp":1983819996}
+#   - anon:       eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+#     decodes to {"iss":"supabase-demo","role":"anon","exp":1983819996}
+#
+# The allowlist regexes match the base64-encoded JWT payload substrings that
+# decode to the `supabase-demo` issuer (they never appear in any real token),
+# so the `jwt` rule stays fully active for genuine secrets. Scoped to the demo
+# tokens only -- NOT a blanket rule disable.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public Supabase demo/local-dev JWTs (iss=supabase-demo) used in E2E test infrastructure"
+regexes = [
+  '''eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0''',
+  '''eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9''',
+]
