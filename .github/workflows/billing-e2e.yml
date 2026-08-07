@@ -222,6 +222,12 @@ jobs:
       - name: Map .wwv.local hosts
         run: |
           sudo bash -c 'echo "127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local" >> /etc/hosts'
+          # host.docker.internal must resolve on the runner so the browser-side
+          # supabase-js (served by the hub, which bakes in host.docker.internal
+          # as its NEXT_PUBLIC_SUPABASE_URL) can reach the local Supabase on the
+          # host. Inside Docker containers, extra_hosts handles this; on the bare
+          # runner we map it explicitly.
+          sudo bash -c 'echo "127.0.0.1 host.docker.internal" >> /etc/hosts'
 
       - name: Verify globe Dockerfile.dev exists
         run: |
@@ -234,11 +240,11 @@ jobs:
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          # Captured from the local supabase instance. Inert until
-          # docker-compose.test.yml parameterizes its hub env with ${VAR:-...}
-          # interpolation (see compose header KNOWN GAPS); wired here so the
-          # contract is CI-ready the moment it is.
-          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          # hub container uses host.docker.internal to reach the host's local
+          # Supabase (NOT 127.0.0.1 — that resolves to the container itself).
+          # The compose fallback is correct; we set it explicitly to avoid
+          # ambiguity with the `supabase status`-captured 127.0.0.1 address.
+          SUPABASE_URL: http://host.docker.internal:54321
           SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
         run: docker compose -f docker-compose.test.yml up -d --build
