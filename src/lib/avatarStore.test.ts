@@ -4,6 +4,7 @@ import {
   AVATAR_SOURCE_UPLOAD,
   avatarSourceForProvider,
   buildDicebearAvatarDataUrl,
+  extractDataUrlPayload,
   shouldStoreDicebearAvatar,
   shouldWriteAvatarSource,
   storeDicebearAvatarAtSignup,
@@ -22,6 +23,39 @@ describe('svgToDataUrl', () => {
     const url = svgToDataUrl('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
     expect(url.startsWith('data:image/svg+xml;utf8,')).toBe(true)
     expect(url).not.toContain('<svg')
+  })
+})
+
+describe('extractDataUrlPayload', () => {
+  const SVG_DOC =
+    "<svg xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100'/></svg>"
+
+  it('round-trips svgToDataUrl output back to the original svg document', () => {
+    expect(extractDataUrlPayload(svgToDataUrl(SVG_DOC))).toBe(SVG_DOC)
+  })
+
+  it('decodes a raw (unencoded) svg data url payload as-is', () => {
+    expect(extractDataUrlPayload(`data:image/svg+xml;utf8,${SVG_DOC}`)).toBe(
+      SVG_DOC,
+    )
+  })
+
+  it('returns null for non-data urls, comma-less urls, and missing media params', () => {
+    expect(extractDataUrlPayload('https://cdn.example.com/me.png')).toBeNull()
+    expect(extractDataUrlPayload('data:image/svg+xml;utf8')).toBeNull()
+    expect(extractDataUrlPayload('data:,<svg></svg>')).toBeNull()
+    expect(extractDataUrlPayload('data:image/svg+xml;utf8,')).toBeNull()
+  })
+
+  it('returns null when the payload decodes but is not an svg document', () => {
+    expect(
+      extractDataUrlPayload('data:image/svg+xml;utf8,not%20encoded%20svg'),
+    ).toBeNull()
+    expect(extractDataUrlPayload('data:text/plain;utf8,hello')).toBeNull()
+  })
+
+  it('returns null when the payload fails to decode', () => {
+    expect(extractDataUrlPayload('data:image/svg+xml;utf8,%zz')).toBeNull()
   })
 })
 

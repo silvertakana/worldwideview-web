@@ -68,6 +68,45 @@ export function svgToDataUrl(svg: string): string {
 }
 
 /**
+ * Extracts and decodes the payload of a stored data-URL avatar.
+ *
+ * Inverse of `svgToDataUrl`: given the `data:image/svg+xml;utf8,<encoded>`
+ * URLs the store writes, returns the decoded SVG document. Returns null when
+ * the input is not a usable data URL (wrong prefix, missing `;` media
+ * parameter, empty payload, un-decodable encoding, or a payload that is not
+ * an SVG document) so callers can fall back to offline generation instead of
+ * serving the raw data-URL string as an image body.
+ *
+ * @param dataUrl - A stored `avatar_url` value beginning with `data:`.
+ * @returns The decoded SVG document, or null when malformed.
+ */
+export function extractDataUrlPayload(dataUrl: string): string | null {
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+    return null
+  }
+  const commaIndex = dataUrl.indexOf(',')
+  // Require the `data:<media>;<encoding>,<payload>` shape; a comma-less or
+  // media-parameter-less URL (e.g. bare `data:,payload`) is not an avatar.
+  if (commaIndex === -1 || !dataUrl.slice(0, commaIndex).includes(';')) {
+    return null
+  }
+  const payload = dataUrl.slice(commaIndex + 1)
+  if (payload === '') {
+    return null
+  }
+  try {
+    const decoded = decodeURIComponent(payload)
+    // The payload must actually be an SVG document, not decodable garbage.
+    if (!decoded.trimStart().startsWith('<svg')) {
+      return null
+    }
+    return decoded
+  } catch {
+    return null
+  }
+}
+
+/**
  * Maps a Supabase auth provider id to the avatar provenance label.
  *
  * Only OAuth providers that supply an avatar image are recognized; email and

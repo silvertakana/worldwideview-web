@@ -25,8 +25,12 @@ const USER = {
   user_metadata: { name: "Quick Verify" },
 };
 
-const DATA_AVATAR =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100'/></svg>";
+const SVG_DOC =
+  "<svg xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100'/></svg>";
+
+// Stored data-URL avatars are utf8-encoded (svgToDataUrl / backfill script):
+// `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`.
+const DATA_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(SVG_DOC)}`;
 
 let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -83,7 +87,7 @@ describe("GET /api/avatar — session-authenticated canonical avatar", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("serves a data: custom avatar URL INLINE with immutable cache instead of redirecting", async () => {
+  it("serves a data: custom avatar URL INLINE as the DECODED SVG body with immutable cache", async () => {
     mockGetUser.mockResolvedValue({
       data: {
         user: {
@@ -102,7 +106,36 @@ describe("GET /api/avatar — session-authenticated canonical avatar", () => {
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
     expect(res.headers.get("cache-control")).toBe("public, max-age=86400, immutable");
     expect(res.headers.get("location")).toBeNull();
-    expect(await res.text()).toBe(DATA_AVATAR);
+    // The body is the DECODED SVG document, never the raw data-URL string.
+    const body = await res.text();
+    expect(body).toBe(SVG_DOC);
+    expect(body.startsWith("<svg")).toBe(true);
+    expect(body).not.toBe(DATA_AVATAR);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to offline generation for a malformed data URL instead of serving garbage", async () => {
+    mockGetUser.mockResolvedValue({
+      data: {
+        user: {
+          ...USER,
+          user_metadata: {
+            name: "Quick Verify",
+            avatar_url: "data:image/svg+xml;utf8,not%20encoded%20svg",
+          },
+        },
+      },
+    });
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400, immutable");
+
+    const body = await res.text();
+    expect(body).toContain("<svg");
+    expect(body).not.toContain("not encoded svg");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

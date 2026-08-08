@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { canonicalAvatarState, normalizeEmailSeed } from '@/lib/avatar'
 import { generateAvatarSvg } from '@/lib/avatarSvg'
+import { extractDataUrlPayload } from '@/lib/avatarStore'
 
 /**
  * GET /api/avatar
@@ -14,7 +15,8 @@ import { generateAvatarSvg } from '@/lib/avatarSvg'
  * - No session -> 401.
  * - Custom `avatar_url` http/https -> 307 redirect, no-store cache.
  * - Custom `avatar_url` data: -> served INLINE (browsers do not reliably
- *   follow 307 redirects to data: URLs), immutable cache.
+ *   follow 307 redirects to data: URLs) as the DECODED SVG document body,
+ *   immutable cache. A malformed data URL falls back to offline generation.
  * - Otherwise -> DiceBear SVG generated OFFLINE in-process from the SHA-256
  *   hashed email seed (src/lib/avatarSvg.ts). No network call, no timeout,
  *   no upstream-failure path: generation cannot fail on the network.
@@ -34,16 +36,9 @@ export async function GET(): Promise<NextResponse> {
 
   const { customUrl } = canonicalAvatarState(user)
 
-  if (customUrl) {
-    if (customUrl.startsWith('data:')) {
-      return new NextResponse(customUrl, {
-        status: 200,
-        headers: {
-          'Content-Type': 'image/svg+xml',
-          'Cache-Control': 'public, max-age=86400, immutable',
-        },
-      })
-    }
+  // http/https custom URLs 307-redirect; data: URLs are served INLINE because
+  // browsers do not reliably follow 307 redirects to data: URLs.
+  if (customUrl && !customUrl.startsWith('data:')) {
     return new NextResponse(null, {
       status: 307,
       headers: {
@@ -53,10 +48,13 @@ export async function GET(): Promise<NextResponse> {
     })
   }
 
-  // Normalized (trimmed, lowercased) email seeds the face; generateAvatarSvg
-  // hashes it with SHA-256 before rendering, so the raw email never appears
-  // in the SVG output.
-  const svgText = await generateAvatarSvg(normalizeEmailSeed(user.email))
+  // Resolve the SVG document body: a stored data: avatar is decoded back to
+  // its SVG payload (a malformed data URL falls back to offline generation
+  // rather than serving the raw string); otherwise the face is generated
+  // offline from the email seed.
+  const storedSvg = customUrl ? extractDataUrlPayload(customUrl) : null
+  const svgText =
+    storedSvg ?? (await generateAvatarSvg(normalizeEmailSeed(user.email)))
 
   return new NextResponse(svgText, {
     status: 200,
