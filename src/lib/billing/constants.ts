@@ -60,3 +60,29 @@ export function getPriceId(plan: PlanOption, interval: IntervalOption): string {
 export function resolvePlanFromPriceId(priceId: string): PriceEntry | null {
   return PRICE_ID_MAP.find((entry) => entry.priceId === priceId) ?? null;
 }
+
+/**
+ * Canonical TEST-MODE Stripe price IDs (public `price_...` identifiers — safe
+ * to commit). These are the real billing test-account prices from .env.local.
+ *
+ * Single source of truth: docker-compose.test.yml mirrors them as `${VAR:-default}`
+ * compose defaults (YAML cannot import this module), and test specs derive their
+ * fallback via getDefaultPriceId() instead of carrying their own literal. When a
+ * price rotates, update ONLY this map + .env.local + the compose defaults.
+ */
+export const DEFAULT_PRICE_IDS: Readonly<
+  Record<`${PlanOption}:${IntervalOption}`, string>
+> = {
+  "pro:month": "price_1TiVzJCnLxBZfLqIEC3gKEOi",
+  "pro:year": "price_1TikxeCnLxBZfLqI06cRgceg",
+  "team:month": "price_1TikxmCnLxBZfLqIHlviWvYg",
+  "team:year": "price_1TikxqCnLxBZfLqINdd5I2xg",
+};
+
+/** Default price id for a plan/interval, used as the env-absent fallback. */
+export function getDefaultPriceId(
+  plan: PlanOption,
+  interval: IntervalOption,
+): string {
+  return DEFAULT_PRICE_IDS[`${plan}:${interval}`];
+}

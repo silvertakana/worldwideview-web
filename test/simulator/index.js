@@ -35,6 +35,8 @@
  *   --status <status>     override subscription status (subscription events)
  *   --duplicate           deliver the exact same signed body twice (replay)
  *   --bad-signature       tamper the signature (hub must reply 400)
+ *   --expect-status <code> assert every delivery returns this HTTP status;
+ *                          exit 3 on mismatch or transport error (CI mode)
  *   --delay <ms>          wait before firing
  *   --self-test           validate the signature locally, do NOT POST
  *   --list                print the event catalog and exit
@@ -267,8 +269,20 @@ function fireEventType(eventType, overrides, options = {}) {
       try {
         const res = await postRaw(rawBody, sig.header);
         console.log(`[simulator] <- HTTP ${res.status} ${res.body.slice(0, 200)}`);
+        if (options.expectStatus !== undefined && res.status !== options.expectStatus) {
+          console.error(
+            `[simulator] ASSERT FAIL: expected HTTP ${options.expectStatus}, got ${res.status}`,
+          );
+          process.exit(3);
+        }
       } catch (err) {
         console.error(`[simulator] <- transport error: ${err.message}`);
+        if (options.expectStatus !== undefined) {
+          console.error(
+            `[simulator] ASSERT FAIL: transport error while expecting HTTP ${options.expectStatus}`,
+          );
+          process.exit(3);
+        }
       }
     }
   })();
@@ -306,8 +320,12 @@ async function main() {
 
   if (args.flags.matrix) {
     console.log(`[simulator] matrix: firing ${CORE_TYPES.length} event types in sequence`);
+    const expectStatus =
+      args.flags["expect-status"] !== undefined && args.flags["expect-status"] !== true
+        ? Number(args.flags["expect-status"])
+        : undefined;
     for (const type of CORE_TYPES) {
-      await fireEventType(type, {});
+      await fireEventType(type, {}, { expectStatus });
     }
     return;
   }
@@ -316,7 +334,8 @@ async function main() {
   if (!eventType) {
     console.log(
       "usage: node test/simulator/index.js <event-type> [--email <email>] [--price <price_id>] " +
-        "[--status <status>] [--duplicate] [--bad-signature] [--delay <ms>] [--self-test] [--list] | --matrix\n" +
+        "[--status <status>] [--duplicate] [--bad-signature] [--expect-status <code>] " +
+        "[--delay <ms>] [--self-test] [--list] | --matrix\n" +
         `event types: ${CORE_TYPES.join(" | ")}`,
     );
     return;
@@ -327,10 +346,15 @@ async function main() {
   if (args.flags.price) overrides.price = String(args.flags.price);
   if (args.flags.status) overrides.status = String(args.flags.status);
 
+  const expectStatus =
+    args.flags["expect-status"] !== undefined && args.flags["expect-status"] !== true
+      ? Number(args.flags["expect-status"])
+      : undefined;
   await fireEventType(eventType, overrides, {
     badSignature: Boolean(args.flags["bad-signature"]),
     duplicate: Boolean(args.flags.duplicate),
     delay: Number(args.flags.delay) || 0,
+    expectStatus,
   });
 }
 

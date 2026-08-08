@@ -28,7 +28,11 @@
 #
 # TWO-TIER TEST STRATEGY
 #   L1 - webhook-simulator (test/simulator/, compose profile "simulator"):
-#        signed-webhook matrix, no browser, fast. Intended future fast gate.
+#        signed-webhook matrix, no browser, fast. Executed below as the
+#        "Run webhook simulator signature contract" step: valid events must
+#        return 200, a tampered signature must return 400, and a
+#        byte-identical replay must be idempotent (200). Any violation fails
+#        the job (the simulator's --expect-status exits non-zero).
 #   L3 - full browser E2E (THIS workflow): real UI + Stripe checkout flow,
 #        tier sync against the globe. Current gate. Needs real Stripe
 #        test-mode secrets; stripe-mock is stateless, so checkout/webhook
@@ -184,26 +188,31 @@ jobs:
           	tls /etc/caddy/certs/wwv.local.pem /etc/caddy/certs/wwv.local-key.pem
           }
 
-          app.wwv.local {
+          CADDY_EOF
+
+          # One *.wwv.local route per line: "<subdomain> <upstream>". Adding a
+          # new local service = one compose service + one line here (+ the
+          # /etc/hosts name in the "Map .wwv.local hosts" step below). Keep in
+          # sync with docker-compose.test.yml service names and ports.
+          SERVICES=(
+            "app globe:3000"
+            "hub hub:3001"
+            "marketplace marketplace:3002"
+            "api data-engine:5000"
+          )
+          for entry in "${SERVICES[@]}"; do
+            host="${entry%% *}"
+            upstream="${entry#* }"
+            cat >> Caddyfile.dev <<CADDY_EOF
+          $host.wwv.local {
           	import app_tls
-          	reverse_proxy globe:3000
+          	reverse_proxy $upstream
           }
 
-          hub.wwv.local {
-          	import app_tls
-          	reverse_proxy hub:3001
-          }
+          CADDY_EOF
+          done
 
-          marketplace.wwv.local {
-          	import app_tls
-          	reverse_proxy marketplace:3002
-          }
-
-          api.wwv.local {
-          	import app_tls
-          	reverse_proxy data-engine:5000
-          }
-
+          cat >> Caddyfile.dev <<'CADDY_EOF'
           wwv.local {
           	import app_tls
           	reverse_proxy globe:3000
@@ -221,6 +230,9 @@ jobs:
 
       - name: Map .wwv.local hosts
         run: |
+          # Keep this host list in sync with the SERVICES array in the
+          # "Provision Caddyfile and TLS certs" step above (one *.wwv.local
+          # name per routed service).
           sudo bash -c 'echo "127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local" >> /etc/hosts'
           # host.docker.internal must resolve on the runner so the browser-side
           # supabase-js (served by the hub, which bakes in host.docker.internal
@@ -235,6 +247,15 @@ jobs:
             echo "::error::globe/Dockerfile.dev is missing. docker-compose.test.yml builds the globe image from Dockerfile.dev, but the worldwideview repo does not track it yet (see compose header PREREQUISITES #2). Commit Dockerfile.dev to the worldwideview repo on branch ${{ env.GLOBE_REF }} before this workflow can pass."
             exit 1
           }
+
+      - name: Set up BuildKit (docker-container driver) for gha layer cache
+        # REQUIRED for the BuildKit gha cache backend in docker-compose.test.yml:
+        # the gha backend is not supported with the default docker driver and is
+        # silently ignored, so every run cold-builds all 4 images. The
+        # docker-container driver (default for this action) is what makes the
+        # per-service cache scopes (wwv-globe / wwv-hub / wwv-marketplace /
+        # wwv-data-engine in docker-compose.test.yml cache_from/cache_to) work.
+        uses: docker/setup-buildx-action@v4
 
       - name: Bring up billing test stack
         env:
@@ -287,6 +308,24 @@ jobs:
           echo "::error::Billing test stack did not become ready within 200s"
           docker compose -f docker-compose.test.yml ps
           exit 1
+
+      - name: Run webhook simulator signature contract
+        env:
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          WEBHOOK_TARGET_URL: https://hub.wwv.local/api/billing/webhook
+          # The hub sits behind Caddy with a self-signed wildcard cert; the
+          # simulator's raw https.request rejects it by default. Scope the
+          # Node TLS override to THIS step only (never job/global env) so the
+          # browser suite below still exercises its own TLS handling.
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        run: |
+          set -euo pipefail
+          echo "--- L1: valid-signature matrix (all 5 core events expect 200)"
+          node test/simulator/index.js --matrix --expect-status 200
+          echo "--- L1: tampered signature must be rejected (expect 400)"
+          node test/simulator/index.js checkout.session.completed --bad-signature --expect-status 400
+          echo "--- L1: byte-identical replay must be idempotent (expect 200)"
+          node test/simulator/index.js checkout.session.completed --duplicate --expect-status 200
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
