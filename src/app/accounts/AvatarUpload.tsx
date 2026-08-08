@@ -2,13 +2,12 @@
 
 import { useRef, useState } from 'react'
 import { updateAvatar } from './actions'
-import { useDiceBearUrl } from '@/lib/useDiceBearUrl'
 import { avatarFallbackDataUrl } from '@/lib/avatarFallback'
 import styles from './AvatarUpload.module.css'
 
 interface AvatarUploadProps {
   /**
-   * Seed used for DiceBear AND the initials fallback when no upload exists.
+   * Seed used for the initials fallback when no avatar image loads.
    * Callers pass the resolved display name (display_name ?? name ?? full_name,
    * see resolveDisplayName) or the email when no name exists. Passing a bare
    * user id here produces meaningless hex initials — never do that.
@@ -16,6 +15,13 @@ interface AvatarUploadProps {
   name: string
   /** Currently persisted avatar URL; null means no upload has been made yet. */
   initialAvatarUrl: string | null
+  /**
+   * Same-origin endpoint that serves the generated avatar. The browser never
+   * talks to DiceBear directly: /api/avatar proxies it server-side (or 307s
+   * to a custom avatar_url). Defaults to the canonical endpoint so every
+   * render path converges on the same source.
+   */
+  canonicalUrl?: string
 }
 
 /** Maximum dimension for resized avatar images in pixels. */
@@ -63,11 +69,12 @@ function resizeToDataUrl(file: File, size: number): Promise<string> {
 /**
  * Circular avatar with an inline "Change photo" trigger.
  *
- * Displays a real uploaded URL if present; falls back to DiceBear seeded by
- * `name`. On file selection the image is center-cropped, resized to 200x200,
- * and persisted via the `updateAvatar` server action.
+ * Displays a real uploaded URL if present; otherwise renders the same-origin
+ * canonical /api/avatar endpoint (server-side DiceBear proxy or custom-URL
+ * redirect). On file selection the image is center-cropped, resized to
+ * 200x200, and persisted via the `updateAvatar` server action.
  */
-export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
+export function AvatarUpload({ name, initialAvatarUrl, canonicalUrl = '/api/avatar' }: AvatarUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl)
   const [avatarError, setAvatarError] = useState(false)
@@ -76,13 +83,12 @@ export function AvatarUpload({ name, initialAvatarUrl }: AvatarUploadProps) {
 
   const hasPersisted =
     avatarUrl && (avatarUrl.startsWith('data:') || avatarUrl.startsWith('http'))
-  const diceAvatarUrl = useDiceBearUrl(hasPersisted ? null : name)
 
   const displaySrc = avatarError
     ? avatarFallbackDataUrl(name)
     : hasPersisted
       ? avatarUrl
-      : diceAvatarUrl
+      : canonicalUrl
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]

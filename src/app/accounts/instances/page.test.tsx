@@ -192,3 +192,24 @@ describe("InstancesPage — delete race condition", () => {
     });
   });
 });
+
+describe("InstancesPage — setup status", () => {
+  it("shows the Pending Setup badge and a Setup action when setupCompleted is false", async () => {
+    // Override the status fetch to report an un-set-up workspace.
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/provisioning/workspace") return MOUNT_FETCHES.workspace();
+      if (url === "/api/auth/entitlement") return MOUNT_FETCHES.entitlement();
+      if (url.includes("/status")) return json({ setupCompleted: false });
+      return Promise.reject(new Error(`Unmocked fetch: ${url}`));
+    });
+
+    await renderLoaded();
+
+    // Badge label for an un-set-up workspace (page.tsx:327-330).
+    expect(screen.getByText("Pending Setup")).toBeInTheDocument();
+    // The action button switches from the "Launch" link to a "Setup" button
+    // (page.tsx:363-370).
+    expect(screen.getByRole("button", { name: "Setup" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Launch" })).toBeNull();
+  });
+});
