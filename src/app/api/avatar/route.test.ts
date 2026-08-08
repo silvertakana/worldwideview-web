@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createHash } from "node:crypto";
 
 // ── Hoisted setup — runs before module imports ────────────────────
 // Mirror the provisioning instance route test: the supabase server module is
-// mocked so getUser() can be driven per-test, and global fetch is stubbed so
-// the server-side DiceBear proxy call is observable.
+// mocked so getUser() can be driven per-test. Global fetch is stubbed to
+// THROW: the reworked route must never touch the network (offline generation
+// only), so any accidental fetch fails the test loudly.
 const { mockGetUser } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
 }));
@@ -25,7 +25,8 @@ const USER = {
   user_metadata: { name: "Quick Verify" },
 };
 
-const SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+const DATA_AVATAR =
+  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100'/></svg>";
 
 let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -35,8 +36,11 @@ beforeEach(() => {
   mockGetUser.mockReset();
   mockGetUser.mockResolvedValue({ data: { user: USER } });
 
-  // Default fetch stub: no upstream call is expected unless a test opts in.
-  mockFetch = vi.fn();
+  // No upstream call is expected anywhere in the reworked route. Stub fetch
+  // to throw so a regression back to proxying fails the suite immediately.
+  mockFetch = vi.fn(() => {
+    throw new Error("offline violation: /api/avatar must not fetch");
+  });
   vi.stubGlobal("fetch", mockFetch);
 });
 
@@ -58,7 +62,7 @@ describe("GET /api/avatar — session-authenticated canonical avatar", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("307-redirects to the custom avatar URL with Cache-Control: no-store", async () => {
+  it("307-redirects to an http/https custom avatar URL with Cache-Control: no-store", async () => {
     mockGetUser.mockResolvedValue({
       data: {
         user: {
@@ -79,41 +83,50 @@ describe("GET /api/avatar — session-authenticated canonical avatar", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("proxies a server-side DiceBear SVG seeded with the SHA-256 email hash, never the display name", async () => {
-    mockFetch.mockResolvedValue(new Response(SVG, { status: 200 }));
+  it("serves a data: custom avatar URL INLINE with immutable cache instead of redirecting", async () => {
+    mockGetUser.mockResolvedValue({
+      data: {
+        user: {
+          ...USER,
+          user_metadata: {
+            name: "Quick Verify",
+            avatar_url: DATA_AVATAR,
+          },
+        },
+      },
+    });
 
     const res = await GET();
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
     expect(res.headers.get("cache-control")).toBe("public, max-age=86400, immutable");
-    expect(await res.text()).toBe(SVG);
-
-    // The upstream URL must carry the SHA-256 digest of the normalized email
-    // as the seed — not the raw email, and not the display name.
-    const expectedHash = createHash("sha256").update("quickverify@wwv.local").digest("hex");
-    const calledUrl = String(mockFetch.mock.calls[0][0]);
-    expect(calledUrl).toContain("https://api.dicebear.com/9.x/adventurer-neutral/svg");
-    expect(calledUrl).toContain(`seed=${expectedHash}`);
-    expect(calledUrl).not.toContain("quickverify@wwv.local");
-    expect(calledUrl).not.toContain("Quick");
+    expect(res.headers.get("location")).toBeNull();
+    expect(await res.text()).toBe(DATA_AVATAR);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("returns 502 with a JSON error when the upstream DiceBear fetch rejects", async () => {
-    mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
-
+  it("generates an offline SVG seeded by the SHA-256 email hash — never the raw email or display name", async () => {
     const res = await GET();
 
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Upstream avatar provider failed" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400, immutable");
+
+    const body = await res.text();
+    expect(body).toContain("<svg");
+    expect(body).not.toContain("quickverify@wwv.local");
+    expect(body).not.toContain("Quick");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("returns 502 with a JSON error when the upstream DiceBear fetch responds non-OK", async () => {
-    mockFetch.mockResolvedValue(new Response("rate limited", { status: 429 }));
+  it("generates deterministically: the same email always yields the same SVG", async () => {
+    const first = await GET();
+    const second = await GET();
 
-    const res = await GET();
-
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Upstream avatar provider failed" });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await first.text()).toBe(await second.text());
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
