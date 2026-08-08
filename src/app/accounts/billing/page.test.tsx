@@ -88,3 +88,53 @@ describe("billing page — zero-instance CTA", () => {
     expect(screen.getByRole("link", { name: /create your first instance/i })).toBeInTheDocument();
   });
 });
+
+// ── FIX 2b: setup-failure banner ──────────────────────────────────
+
+describe("billing page — setup-failure banner", () => {
+  it("shows the banner when paid but the globe org is missing (404) and zero instances", async () => {
+    mockCrossServiceFetch.mockResolvedValue(new Response("", { status: 404 }));
+    mockGetHubTierFallback.mockResolvedValue(PAID_TIER);
+
+    render(await BillingPage());
+
+    expect(screen.getByText(/account couldn't be fully set up/i)).toBeInTheDocument();
+  });
+
+  it("shows the banner when the globe is unreachable (transport error) and zero instances", async () => {
+    mockCrossServiceFetch.mockRejectedValue(new Error("network down"));
+    mockGetHubTierFallback.mockResolvedValue(PAID_TIER);
+
+    render(await BillingPage());
+
+    expect(screen.getByText(/account couldn't be fully set up/i)).toBeInTheDocument();
+  });
+
+  it("hides the banner when the globe confirms the org exists", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      globeResponse({ tier: "pro", effectiveStatus: "active", instanceCount: 0, instanceLimit: 10, isTrialing: false }),
+    );
+
+    render(await BillingPage());
+
+    expect(screen.queryByText(/account couldn't be fully set up/i)).toBeNull();
+  });
+
+  it("hides the banner for users without a paid tier (no fallback data)", async () => {
+    mockCrossServiceFetch.mockResolvedValue(new Response("", { status: 404 }));
+    mockGetHubTierFallback.mockResolvedValue(null);
+
+    render(await BillingPage());
+
+    expect(screen.queryByText(/account couldn't be fully set up/i)).toBeNull();
+  });
+
+  it("hides the banner for deleted accounts", async () => {
+    mockCrossServiceFetch.mockResolvedValue(new Response("", { status: 404 }));
+    mockGetHubTierFallback.mockResolvedValue({ plan: "pro", status: "deleted", trialEndsAt: null, isTrialing: false });
+
+    render(await BillingPage());
+
+    expect(screen.queryByText(/account couldn't be fully set up/i)).toBeNull();
+  });
+});

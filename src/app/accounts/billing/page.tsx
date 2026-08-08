@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CreditCard, Plus, Zap } from "lucide-react";
+import { AlertTriangle, CreditCard, Plus, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
 import hubStyles from "../../hub/hub.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
@@ -20,9 +20,9 @@ export default async function BillingPage() {
     let instanceLimit = Infinity;
     let isTrialing = false;
     let trialDaysRemaining: number | null = null;
+    let globeSucceeded = false;
 
     if (user) {
-        let globeSucceeded = false;
         try {
             const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
@@ -90,6 +90,22 @@ export default async function BillingPage() {
                     </span>
                 )}
             </div>
+
+            {!isLocal && status !== "deleted" && instanceCount === 0 && !globeSucceeded && (
+                <div style={{
+                    display: "flex", alignItems: "center", gap: "var(--space-sm)",
+                    padding: "var(--space-md) var(--space-lg)",
+                    marginBottom: "var(--space-lg)",
+                    background: "var(--color-danger-bg, #fef2f2)",
+                    border: "1px solid var(--color-danger, #dc2626)",
+                    borderRadius: "var(--radius-md)",
+                    color: "var(--color-danger, #dc2626)",
+                    fontSize: "0.92rem", fontWeight: 500,
+                }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                    <span>Your account couldn&apos;t be fully set up. Please contact support.</span>
+                </div>
+            )}
 
             <p style={{ marginBottom: "var(--space-lg)", color: "var(--color-text-secondary)" }}>
                 {isLocal

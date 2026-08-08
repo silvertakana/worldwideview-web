@@ -196,8 +196,13 @@ export async function POST(req: Request) {
         // checkout deliveries are safe ("already exists" returns ok).
         const hubUserId = session.metadata?.userId || session.client_reference_id || "";
         if (!hubUserId) {
-          console.warn(
-            `[webhook] checkout.session.completed: no hubUserId for ${email}; skipping workspace provisioning`,
+          // LOUD skip (PMT-017): a missing hubUserId means Stripe metadata never
+          // linked this checkout to a hub account — the user paid but nothing
+          // will be provisioned on the globe. Error-level, with every
+          // identifying field in scope so an operator can find and remediate
+          // the affected account from the log alone.
+          console.error(
+            `[webhook] checkout.session.completed: SKIPPED workspace provisioning - no hubUserId on checkout session; account requires manual remediation. sessionId=${session.id} email=${email} customerId=${session.customer ?? "n/a"} eventId=${event.id}`,
           );
         } else {
           const provision = await provisionWorkspace({

@@ -225,6 +225,34 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     expect(syncPaths()).toEqual(["/api/service/tier-sync"]);
   });
 
+  it("logs a structured error with session/email/customer identifiers when hubUserId is missing (loud skip)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = buildEvent("checkout.session.completed", {
+      id: "cs_test_123",
+      customer_email: "orphan@example.com",
+      customer: "cus_orphan",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(
+      buildCheckoutSession({
+        id: "cs_orphan_123",
+        client_reference_id: null,
+        metadata: {},
+        customer: "cus_orphan",
+      }),
+    );
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    const logMsg = errorSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes("no hubUserId"));
+    expect(logMsg).toBeDefined();
+    expect(logMsg).toContain("sessionId=cs_orphan_123");
+    expect(logMsg).toContain("email=orphan@example.com");
+    expect(logMsg).toContain("customerId=cus_orphan");
+    expect(logMsg).toContain("eventId=");
+  });
+
   it("breaks without syncing when no email is resolvable (deleted customer)", async () => {
     const event = buildEvent("checkout.session.completed", {
       id: "cs_test_123",
