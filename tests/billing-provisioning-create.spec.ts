@@ -47,21 +47,21 @@ import {
  * shared-account customer can never render a free user as paid via
  * getHubTierFallback's email match.
  *
- * KNOWN SERVER-SIDE LIMITATION (discovered while writing this suite, NOT
- * fixed — scope is one spec file):
- *   The billing page's "Instances: X of Unlimited" line reads instanceCount
- *   ONLY from the globe tier endpoint (src/app/accounts/billing/page.tsx:
- *   data.instanceCount ?? 0), but the globe's /api/service/tier response
- *   (globe src/lib/org-tier.ts getOrgTier) returns only {tier, status,
- *   trialEndsAt} — never instanceCount. So the billing page ALWAYS renders
- *   "Instances: 0 of Unlimited used" and the zero-instance CTA
- *   (instanceCount === 0) NEVER disappears, even after a workspace exists.
- *   The test-plan expectation "billing shows 1 of Unlimited and NO CTA" is
- *   therefore NOT achievable against current server code. This spec asserts
- *   the factual state (billing renders the 0-of-Unlimited line) and pins
- *   the CTA's persistence as a documented product gap; the create-success
- *   signal is asserted on the REAL surfaces: the workspace row in the globe
- *   DB and the workspace in the /accounts/instances UI list.
+ * GLOBE instanceCount FIX (landed): the globe's /api/service/tier now
+ * returns instanceCount (globe commit ccd1600a, branch fix/tier-instance-count
+ * — count of workspaces owned by the org's owner). The billing page reads it
+ * (src/app/accounts/billing/page.tsx: data.instanceCount ?? 0), so after a
+ * successful create the zero-instance CTA (instanceCount === 0) disappears.
+ * Test 2 asserts that fixed behavior.
+ *
+ * REMAINING RENDERING GATE (documented, not a gap): the billing page's
+ * "Instances: X of Y used" line only renders for non-local plans
+ * (billing/page.tsx: {!isLocal && ...}). A UI create-instance alone never
+ * writes org_tiers (that happens on tier-sync after payment), so the tier
+ * mirror still reports tier=free -> Local plan and the line stays hidden
+ * even though instanceCount is now 1. The instance count is asserted via
+ * the CTA's disappearance (the CTA renders only when instanceCount === 0)
+ * plus the globe DB workspace row and the /accounts/instances UI list.
  */
 
 export const PASSWORD = 'Provisioning-2026!!';
@@ -379,26 +379,24 @@ test('provisioning-create happy path: entitled user creates a workspace via the 
   expect(ws!.ownerId, 'workspace must be owned by the provisioned globe user').toBe(globeUser!.id);
   console.log('[provisioning-create] Globe DB row: workspaces(active/basic/pro), owner = provisioned user');
 
-  // Billing page post-create state. NOTE (see header): two facts make the
-  // test-plan's "1 of Unlimited and NO CTA" unreachable against the current
-  // server code:
-  //   1. The globe tier endpoint (/api/service/tier, getOrgTier in the globe
-  //      repo) returns only {tier,status,trialEndsAt} — never instanceCount —
-  //      so the billing page's instanceCount is always 0 and the CTA
-  //      (instanceCount === 0) never disappears.
-  //   2. A UI create-instance alone never writes org_tiers (that happens on
-  //      tier-sync after payment), so the billing mirror still reports
-  //      tier=free -> Local plan. The "Instances: X of Y" line only renders
-  //      for non-local plans.
-  // Assert the factual state: the page still shows Local/Free + CTA after a
-  // create (pinning the gap), and the "Instances:" line is absent.
+  // Billing page post-create state (globe instanceCount fix landed — see
+  // header). The globe /api/service/tier now returns instanceCount: 1 for
+  // this user's org, so:
+  //   1. The zero-instance CTA (instanceCount === 0) DISAPPEARS — the fixed
+  //      behavior this test asserts. The CTA is the billing page's only
+  //      instanceCount-driven element, so its disappearance proves the
+  //      count flowed from the globe through the hub to the UI.
+  //   2. The plan mirror is unchanged (Local/Free): a UI create-instance
+  //      alone never writes org_tiers (that happens on tier-sync after
+  //      payment), so the "Instances: X of Y used" line — gated on
+  //      {!isLocal} — stays hidden even at instanceCount 1.
   await page.goto('/accounts/billing');
   await expect(page.getByText(/You are on the Free plan\./)).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole('link', { name: /create your first instance/i })).toBeVisible({
+  await expect(page.getByRole('link', { name: /create your first instance/i })).toHaveCount(0, {
     timeout: 10000,
   });
   await expect(page.getByText(/Instances: \d+ of/)).toHaveCount(0);
-  console.log('[provisioning-create] Billing page: Local/Free + CTA persists after create (known globe-tier gap)');
+  console.log('[provisioning-create] Billing page: Free plan shown, zero-instance CTA gone (instanceCount=1)');
 });
 
 // ---------------------------------------------------------------------------
