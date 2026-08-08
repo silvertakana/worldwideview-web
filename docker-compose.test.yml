@@ -66,6 +66,7 @@
 #   STRIPE_PRO_ANNUAL_PRICE_ID  price_1TikxeCnLxBZfLqI06cRgceg  (test-mode public ID)
 #   STRIPE_TEAM_MONTHLY_PRICE_ID price_1TikxmCnLxBZfLqIHlviWvYg (test-mode public ID)
 #   STRIPE_TEAM_ANNUAL_PRICE_ID  price_1TikxqCnLxBZfLqINdd5I2xg (test-mode public ID)
+#   (canonical source: src/lib/billing/constants.ts DEFAULT_PRICE_IDS - keep in sync)
 #   ENCRYPTION_MASTER_KEY    33deaa3777adb6b6c76987b80d10b4e6   (globe boot; TEST ONLY hex)
 #   BETTER_AUTH_SECRET       Be9Be6Unk7XJY/C6TIYhDLbKGPut3FogeSQicDUp7JI=  (globe boot; TEST ONLY base64)
 #   CROSS_SERVICE_SECRET    wwv-test-hmac-secret-2026            (hub <-> globe tier sync HMAC)
@@ -238,9 +239,12 @@ services:
       STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_test_simulator_secret}"
       # Stripe price IDs for plan resolution (src/lib/billing/constants.ts
       # reads these; checkout throws "Plan not configured" without them).
-      # TEST-MODE public identifiers (price_...) — safe to commit. Defaults are
-      # the real billing test-account prices from .env.local; CI can override
-      # via process env if the test account ever rotates them.
+      # TEST-MODE public identifiers (price_...) — safe to commit. The canonical
+      # default values live in src/lib/billing/constants.ts DEFAULT_PRICE_IDS;
+      # YAML cannot import the module, so this block mirrors them as
+      # ${VAR:-default} compose defaults (they are the real billing test-account
+      # prices from .env.local). CI can override via process env if the test
+      # account ever rotates them — update BOTH here and DEFAULT_PRICE_IDS.
       STRIPE_PRO_PRICE_ID: "${STRIPE_PRO_PRICE_ID:-price_1TiVzJCnLxBZfLqIEC3gKEOi}"
       STRIPE_PRO_ANNUAL_PRICE_ID: "${STRIPE_PRO_ANNUAL_PRICE_ID:-price_1TikxeCnLxBZfLqI06cRgceg}"
       STRIPE_TEAM_MONTHLY_PRICE_ID: "${STRIPE_TEAM_MONTHLY_PRICE_ID:-price_1TikxmCnLxBZfLqIHlviWvYg}"

@@ -60,7 +60,9 @@ with `WEBHOOK_TARGET_URL`.
 | `checkout.session.completed.no_email.json` | `checkout.session.completed` | Edge: missing email → handler warns and skips |
 
 Price IDs used are the sandbox test prices (e.g. Pro monthly
-`price_1TiVzJCnLxBZfLqIEC3gKEOi`), matching the hub's `.env.local`.
+`price_1TiVzJCnLxBZfLqIEC3gKEOi`), matching the hub's `.env.local`; canonical
+defaults live in `src/lib/billing/constants.ts` (`DEFAULT_PRICE_IDS`); keep the
+fixtures in sync when a price rotates.
 
 ## Security model
 

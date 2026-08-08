@@ -188,26 +188,31 @@ jobs:
           	tls /etc/caddy/certs/wwv.local.pem /etc/caddy/certs/wwv.local-key.pem
           }
 
-          app.wwv.local {
+          CADDY_EOF
+
+          # One *.wwv.local route per line: "<subdomain> <upstream>". Adding a
+          # new local service = one compose service + one line here (+ the
+          # /etc/hosts name in the "Map .wwv.local hosts" step below). Keep in
+          # sync with docker-compose.test.yml service names and ports.
+          SERVICES=(
+            "app globe:3000"
+            "hub hub:3001"
+            "marketplace marketplace:3002"
+            "api data-engine:5000"
+          )
+          for entry in "${SERVICES[@]}"; do
+            host="${entry%% *}"
+            upstream="${entry#* }"
+            cat >> Caddyfile.dev <<CADDY_EOF
+          $host.wwv.local {
           	import app_tls
-          	reverse_proxy globe:3000
+          	reverse_proxy $upstream
           }
 
-          hub.wwv.local {
-          	import app_tls
-          	reverse_proxy hub:3001
-          }
+          CADDY_EOF
+          done
 
-          marketplace.wwv.local {
-          	import app_tls
-          	reverse_proxy marketplace:3002
-          }
-
-          api.wwv.local {
-          	import app_tls
-          	reverse_proxy data-engine:5000
-          }
-
+          cat >> Caddyfile.dev <<'CADDY_EOF'
           wwv.local {
           	import app_tls
           	reverse_proxy globe:3000
@@ -225,6 +230,9 @@ jobs:
 
       - name: Map .wwv.local hosts
         run: |
+          # Keep this host list in sync with the SERVICES array in the
+          # "Provision Caddyfile and TLS certs" step above (one *.wwv.local
+          # name per routed service).
           sudo bash -c 'echo "127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local" >> /etc/hosts'
           # host.docker.internal must resolve on the runner so the browser-side
           # supabase-js (served by the hub, which bakes in host.docker.internal

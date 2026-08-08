@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
 import { directTierSync } from './lib/globe-sync';
+import { getDefaultPriceId } from '../src/lib/billing/constants';
 
 /**
  * Full billing E2E flow against the RUNNING local stack:
@@ -214,8 +215,10 @@ async function createTrialingSubscription(): Promise<{ id: string; status: strin
   }
 
   // Same pro price the hub's checkout route uses (getPriceId('pro', 'month'));
-  // the CI/test-stack default is the real test-account price ID.
-  const priceId = process.env.STRIPE_PRO_PRICE_ID || 'price_1TiVzJCnLxBZfLqIEC3gKEOi';
+  // env override wins when CI injects a rotated test-account price; otherwise
+  // fall back to the CANONICAL default from src/lib/billing/constants.ts
+  // (getDefaultPriceId) — no duplicated literal lives in this spec.
+  const priceId = process.env.STRIPE_PRO_PRICE_ID || getDefaultPriceId('pro', 'month');
   const res = await fetch(`${STRIPE_BASE}/subscriptions`, {
     method: 'POST',
     headers: stripeHeaders(),
