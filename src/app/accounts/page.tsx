@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '../../lib/supabase/server'
+import { resolveDisplayName } from '../../lib/avatarFallback'
 import { AccountPageClient } from './AccountPageClient'
 
 export const metadata = { title: 'Your Account' }
@@ -19,10 +20,9 @@ export default async function AccountsPage({
   const params = await searchParams
   const justLinked = params.linked === '1'
   const email = user.email ?? 'your account'
-  const displayName =
-    typeof user.user_metadata?.display_name === 'string'
-      ? user.user_metadata.display_name
-      : null
+  // Signup stores the name under `name` (Supabase email signup) while the app
+  // historically read only `display_name`; resolve both (plus OAuth full_name).
+  const displayName = resolveDisplayName(user.user_metadata)
   const avatarUrl =
     typeof user.user_metadata?.avatar_url === 'string'
       ? user.user_metadata.avatar_url

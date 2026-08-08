@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
 import { useDiceBearUrl } from '@/lib/useDiceBearUrl';
-import { avatarFallbackDataUrl } from '@/lib/avatarFallback';
+import { avatarFallbackDataUrl, resolveDisplayName } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 
 const NAV_LINKS = [
@@ -38,7 +38,13 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
     user.user_metadata.avatar_url.startsWith('http')
       ? user.user_metadata.avatar_url
       : null;
-  const diceAvatarUrl = useDiceBearUrl(userAvatarUrl ? null : (user?.id ?? null));
+  // Resolved display name (display_name ?? name ?? full_name) drives both the
+  // DiceBear seed and the initials fallback so a present name always wins.
+  // user.id is used only as a last-resort seed when no name exists.
+  const resolvedDisplayName = user ? resolveDisplayName(user.user_metadata) : null;
+  const diceAvatarUrl = useDiceBearUrl(
+    userAvatarUrl ? null : (resolvedDisplayName ?? user?.id ?? null),
+  );
   const avatarSrc = userAvatarUrl || diceAvatarUrl;
 
   const closeDropdown = useCallback(() => {
@@ -129,7 +135,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                   <img
                     src={
                       avatarErrorUserId === user.id
-                        ? avatarFallbackDataUrl(user.id)
+                        ? avatarFallbackDataUrl(resolvedDisplayName ?? user.id)
                         : avatarSrc
                     }
                     alt=""

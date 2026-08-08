@@ -7,7 +7,12 @@ import { avatarFallbackDataUrl } from '@/lib/avatarFallback'
 import styles from './AvatarUpload.module.css'
 
 interface AvatarUploadProps {
-  /** Fallback seed (email or display name) used for DiceBear when no upload exists. */
+  /**
+   * Seed used for DiceBear AND the initials fallback when no upload exists.
+   * Callers pass the resolved display name (display_name ?? name ?? full_name,
+   * see resolveDisplayName) or the email when no name exists. Passing a bare
+   * user id here produces meaningless hex initials — never do that.
+   */
   name: string
   /** Currently persisted avatar URL; null means no upload has been made yet. */
   initialAvatarUrl: string | null
