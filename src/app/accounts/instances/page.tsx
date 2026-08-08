@@ -124,19 +124,25 @@ export default function InstancesPage() {
     setError('')
     if (!renameValue.trim()) return
 
-    const res = await fetch(`/api/provisioning/workspace/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: renameValue.trim() }),
-    })
+    try {
+      const res = await fetch(`/api/provisioning/workspace/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: renameValue.trim() }),
+      })
 
-    const data = await res.json()
-    if (res.ok) {
+      const data = await res.json()
+      if (res.ok) {
+        setRenamingId(null)
+        setRenameValue('')
+        fetchWorkspaces()
+      } else {
+        setError(data.error || 'Rename failed')
+      }
+    } catch {
+      setError('Failed to rename instance. Please try again.')
+    } finally {
       setRenamingId(null)
-      setRenameValue('')
-      fetchWorkspaces()
-    } else {
-      setError(data.error || 'Rename failed')
     }
   }
 
@@ -144,17 +150,22 @@ export default function InstancesPage() {
     setDeleteModalError('')
     setDeleteDeleting(true)
 
-    const res = await fetch(`/api/provisioning/workspace/${id}`, {
-      method: 'DELETE',
-    })
+    try {
+      const res = await fetch(`/api/provisioning/workspace/${id}`, {
+        method: 'DELETE',
+      })
 
-    const data = await res.json()
-    setDeleteDeleting(false)
-    if (res.ok) {
-      setDeleteModal(null)
-      fetchWorkspaces()
-    } else {
-      setDeleteModalError(data.error || 'Delete failed')
+      const data = await res.json()
+      if (res.ok) {
+        setDeleteModal(null)
+        fetchWorkspaces()
+      } else {
+        setDeleteModalError(data.error || 'Delete failed')
+      }
+    } catch {
+      setDeleteModalError('Failed to delete instance. Please try again.')
+    } finally {
+      setDeleteDeleting(false)
     }
   }
 
