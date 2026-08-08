@@ -1,5 +1,7 @@
-import { CreditCard, Zap } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, Plus, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
+import hubStyles from "../../hub/hub.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 import { getHubTierFallback } from "@/lib/billing/tier-fallback";
@@ -120,6 +122,22 @@ export default async function BillingPage() {
                 }}>
                     Instances: {instanceCount} of {instanceLimit === Infinity ? "Unlimited" : instanceLimit} used
                 </p>
+            )}
+
+            {instanceCount === 0 && (
+                <div style={{ marginBottom: "var(--space-lg)" }}>
+                    <Link
+                        href="/accounts/instances"
+                        className={hubStyles.submitButton}
+                        style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            gap: "var(--space-xs)", textDecoration: "none",
+                        }}
+                    >
+                        <Plus size={16} />
+                        Create your first instance
+                    </Link>
+                </div>
             )}
 
             <ManageBillingClient
