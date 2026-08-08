@@ -1,28 +1,51 @@
 import { createHash } from 'crypto'
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { canonicalAvatarState } from '@/lib/avatar'
 import { DICEBEAR_BASE } from '@/lib/diceBear'
 
 /**
- * GET /api/avatar?seed=<string>
+ * GET /api/avatar
  *
- * Server-side DiceBear proxy. SHA-256 hashes the incoming seed so that raw
- * PII (email, display name) is never forwarded to api.dicebear.com.
+ * Session-authenticated canonical avatar endpoint. Every avatar surface
+ * (Header, accounts page) renders from this same-origin URL, so avatars can
+ * never diverge; the custom-URL / canonical-URL decision lives in
+ * src/lib/avatar.ts (canonicalAvatarState).
  *
- * The UI renders DiceBear avatars directly in the browser (see
- * src/lib/useDiceBearUrl.ts), so this route is a compatibility/fallback endpoint:
- * it works wherever the server can reach api.dicebear.com.
+ * - No session -> 401.
+ * - Custom `avatar_url` (http/https/data:) -> 307 redirect, no-store cache.
+ * - Otherwise -> server-side DiceBear SVG proxy. The email seed is SHA-256
+ *   hashed before being forwarded as &seed=, so api.dicebear.com never sees
+ *   raw PII. Responses carry a 24h immutable public cache.
  *
- * - seed: URL-encoded seed string (required)
- * - Returns: SVG image with 24-hour public cache
+ * No ?email= / ?userId= / ?seed= params are accepted: identity comes solely
+ * from the session cookie.
  */
-export async function GET(request: Request): Promise<NextResponse> {
-  const { searchParams } = new URL(request.url)
-  const seed = searchParams.get('seed')
+export async function GET(): Promise<NextResponse> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  if (!seed) {
-    return new NextResponse('seed is required', { status: 400 })
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { customUrl, seed } = canonicalAvatarState(user)
+
+  if (customUrl) {
+    return new NextResponse(null, {
+      status: 307,
+      headers: {
+        Location: customUrl,
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+
+  // seed is the normalized (trimmed, lowercased) email from
+  // canonicalAvatarState. Hash it so the upstream provider only ever sees a
+  // digest, never the raw email.
   const hashedSeed = createHash('sha256').update(seed).digest('hex')
   const diceBearUrl = `${DICEBEAR_BASE}&seed=${hashedSeed}`
 
@@ -30,18 +53,24 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const upstream = await fetch(diceBearUrl)
     if (!upstream.ok) {
-      return new NextResponse('upstream error', { status: 502 })
+      return NextResponse.json(
+        { error: 'Upstream avatar provider failed' },
+        { status: 502 },
+      )
     }
     svgText = await upstream.text()
   } catch {
-    return new NextResponse('upstream error', { status: 502 })
+    return NextResponse.json(
+      { error: 'Upstream avatar provider failed' },
+      { status: 502 },
+    )
   }
 
   return new NextResponse(svgText, {
     status: 200,
     headers: {
       'Content-Type': 'image/svg+xml',
-      'Cache-Control': 'public, max-age=86400',
+      'Cache-Control': 'public, max-age=86400, immutable',
     },
   })
 }
