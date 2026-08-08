@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import type { UserIdentity } from '@supabase/supabase-js'
 import { createClient } from '../../lib/supabase/server'
 import { createAdminClient } from '../../lib/supabase/admin'
+import { AVATAR_SOURCE_UPLOAD } from '../../lib/avatarStore'
 
 const ALLOWED_AVATAR_PREFIXES = [
   'data:image/jpeg;base64,',
@@ -77,8 +78,11 @@ export async function updateAvatar(dataUrl: string): Promise<{ publicUrl: string
   const { data: { publicUrl } } = adminClient.storage.from(AVATARS_BUCKET).getPublicUrl(storagePath)
   const urlWithBuster = `${publicUrl}?t=${Date.now()}`
 
-  // Store only the short URL in user metadata -- not the base64 blob.
-  const { error } = await supabase.auth.updateUser({ data: { avatar_url: urlWithBuster } })
+  // Store only the short URL in user metadata -- not the base64 blob. The
+  // provenance label records that the user actively uploaded this avatar.
+  const { error } = await supabase.auth.updateUser({
+    data: { avatar_url: urlWithBuster, avatar_source: AVATAR_SOURCE_UPLOAD },
+  })
   if (error) throw new Error(error.message)
 
   revalidatePath('/accounts')
