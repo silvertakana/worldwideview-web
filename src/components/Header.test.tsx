@@ -58,14 +58,24 @@ describe('Header avatar', () => {
     mockTrackEvent.mockReset()
   })
 
-  it('renders the persisted http avatar_url directly (dicebear bypassed)', () => {
+  it('always renders the canonical /api/avatar endpoint (custom avatar redirect handled server-side)', () => {
     const user = makeUser({
       user_metadata: { avatar_url: 'https://storage.example.com/avatars/a.jpg' },
     })
     const { container } = render(<Header initialUser={user} />)
     const img = container.querySelector('img[alt=""]') as HTMLImageElement
     expect(img).toBeTruthy()
-    expect(img.src).toBe('https://storage.example.com/avatars/a.jpg')
+    // The endpoint 307s to the custom URL; the component never embeds it.
+    expect(img.getAttribute('src')).toBe('/api/avatar')
+  })
+
+  it('renders src=/api/avatar for a plain user and never a direct dicebear URL (never-diverge lock)', () => {
+    const user = makeUser()
+    const { container } = render(<Header initialUser={user} />)
+    const img = container.querySelector('img[alt=""]') as HTMLImageElement
+    expect(img).toBeTruthy()
+    expect(img.getAttribute('src')).toBe('/api/avatar')
+    expect(container.innerHTML).not.toContain('dicebear')
   })
 
   it('falls back to initials from the resolved display name on error, not user.id', async () => {
@@ -105,7 +115,9 @@ describe('Header avatar', () => {
     })
   })
 
-  it('falls back to user.id initials only when no name exists (documented last resort)', async () => {
+  it('falls back to email-based initials when no name exists (never user.id)', async () => {
+    // No name anywhere: the fallback seeds from the normalized email
+    // ("quickverify@worldwideview.local" -> "QW"), never from user.id ("4B").
     const user = makeUser({ user_metadata: {} })
     const { container } = render(<Header initialUser={user} />)
     await waitFor(() => {
@@ -117,7 +129,7 @@ describe('Header avatar', () => {
 
     await waitFor(() => {
       const fallback = container.querySelector('img[alt=""]') as HTMLImageElement
-      expect(initialsFromDataUrl(fallback.src)).toBe('4B')
+      expect(initialsFromDataUrl(fallback.src)).toBe('QW')
     })
   })
 })

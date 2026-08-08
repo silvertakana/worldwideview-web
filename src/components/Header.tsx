@@ -7,7 +7,7 @@ import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
-import { useDiceBearUrl } from '@/lib/useDiceBearUrl';
+import { canonicalAvatarState } from '@/lib/avatar';
 import { avatarFallbackDataUrl, resolveDisplayName } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 
@@ -32,20 +32,16 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   const [avatarErrorUserId, setAvatarErrorUserId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const userAvatarUrl =
-    user &&
-    typeof user.user_metadata?.avatar_url === 'string' &&
-    user.user_metadata.avatar_url.startsWith('http')
-      ? user.user_metadata.avatar_url
-      : null;
-  // Resolved display name (display_name ?? name ?? full_name) drives both the
-  // DiceBear seed and the initials fallback so a present name always wins.
-  // user.id is used only as a last-resort seed when no name exists.
+  const avatarState = canonicalAvatarState(user);
+  // The browser only ever talks to the same-origin canonical endpoint
+  // (`/api/avatar`); the server-side route proxies DiceBear or 307s to a
+  // custom avatar_url, so this component never embeds an external avatar URL.
+  const avatarSrc = user ? avatarState.canonicalUrl : null;
+  // Resolved display name (display_name ?? name ?? full_name) drives the
+  // initials fallback; the normalized email seed is the last resort. user.id
+  // is never used as a seed.
   const resolvedDisplayName = user ? resolveDisplayName(user.user_metadata) : null;
-  const diceAvatarUrl = useDiceBearUrl(
-    userAvatarUrl ? null : (resolvedDisplayName ?? user?.id ?? null),
-  );
-  const avatarSrc = userAvatarUrl || diceAvatarUrl;
+  const avatarFallbackSeed = resolvedDisplayName ?? avatarState.seed;
 
   const closeDropdown = useCallback(() => {
     setDropdownOpen(false);
@@ -135,7 +131,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                   <img
                     src={
                       avatarErrorUserId === user.id
-                        ? avatarFallbackDataUrl(resolvedDisplayName ?? user.id)
+                        ? avatarFallbackDataUrl(avatarFallbackSeed)
                         : avatarSrc
                     }
                     alt=""
