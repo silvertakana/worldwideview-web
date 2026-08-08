@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { resolveCookieDomain } from '@/lib/supabase/cookieOptions';
+import { clearSignoutCookiesClient } from '@/lib/supabase/signoutCleanup';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
 import { canonicalAvatarState } from '@/lib/avatar';
@@ -85,6 +87,12 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    // The browser-side signOut() only clears its own storage-key chunks
+    // (`wwv-hub-auth-token` + chunks). Expire every chunk of BOTH session
+    // cookie names (pinned hub name + legacy/marketplace default Supabase
+    // name) so the shared .wwv.local jar does not accumulate stale cookies
+    // and eventually trip HTTP 431.
+    clearSignoutCookiesClient(resolveCookieDomain(process.env.NEXT_PUBLIC_WWV_COOKIE_DOMAIN));
     router.push('/');
   }
 
