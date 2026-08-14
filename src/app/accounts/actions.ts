@@ -99,6 +99,7 @@ export async function updateAvatar(dataUrl: string): Promise<{ publicUrl: string
 
   // Store only the short URL in user metadata -- not the base64 blob. The
   // provenance label records that the user actively uploaded this avatar.
+  // nosemgrep: auth-error-swallowed - error handled by throw below
   const { error } = await supabase.auth.updateUser({
     data: { avatar_url: urlWithBuster, avatar_source: AVATAR_SOURCE_UPLOAD },
   })
