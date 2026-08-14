@@ -11,12 +11,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const { id } = await params
 
-  const res = await crossServiceFetch(`/api/instance/${id}`, {
-    searchParams: { userId: user.id },
-  })
+  try {
+    const res = await crossServiceFetch(`/api/instance/${id}`, {
+      searchParams: { userId: user.id },
+    })
 
-  const data = await res.json()
-  return NextResponse.json(data, { status: res.status })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  } catch {
+    return NextResponse.json({ error: 'Cannot reach globe service. Please try again.' }, { status: 502 })
+  }
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -34,14 +38,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const res = await crossServiceFetch(`/api/instance/${id}`, {
-    method: 'PATCH',
-    body,
-    headers: { 'x-user-id': user.id },
-  })
+  try {
+    const res = await crossServiceFetch(`/api/instance/${id}`, {
+      method: 'PATCH',
+      body,
+      headers: { 'x-user-id': user.id },
+    })
 
-  const data = await res.json()
-  return NextResponse.json(data, { status: res.status })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  } catch {
+    return NextResponse.json({ error: 'Cannot reach globe service. Please try again.' }, { status: 502 })
+  }
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -53,11 +61,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const { id } = await params
 
-  const res = await crossServiceFetch(`/api/instance/${id}`, {
-    method: 'DELETE',
-    headers: { 'x-user-id': user.id },
-  })
+  try {
+    const res = await crossServiceFetch(`/api/instance/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': user.id },
+    })
 
-  const data = await res.json()
-  return NextResponse.json(data, { status: res.status })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  } catch {
+    return NextResponse.json({ error: 'Cannot reach globe service. Please try again.' }, { status: 502 })
+  }
 }

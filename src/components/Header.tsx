@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { resolveCookieDomain } from '@/lib/supabase/cookieOptions';
+import { clearSignoutCookiesClient } from '@/lib/supabase/signoutCleanup';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
-import { useDiceBearUrl } from '@/lib/useDiceBearUrl';
-import { avatarFallbackDataUrl } from '@/lib/avatarFallback';
+import { canonicalAvatarState } from '@/lib/avatar';
+import { avatarFallbackDataUrl, resolveDisplayName } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 
 const NAV_LINKS = [
@@ -32,14 +34,16 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   const [avatarErrorUserId, setAvatarErrorUserId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const userAvatarUrl =
-    user &&
-    typeof user.user_metadata?.avatar_url === 'string' &&
-    user.user_metadata.avatar_url.startsWith('http')
-      ? user.user_metadata.avatar_url
-      : null;
-  const diceAvatarUrl = useDiceBearUrl(userAvatarUrl ? null : (user?.id ?? null));
-  const avatarSrc = userAvatarUrl || diceAvatarUrl;
+  const avatarState = canonicalAvatarState(user);
+  // The browser only ever talks to the same-origin canonical endpoint
+  // (`/api/avatar`); the server-side route proxies DiceBear or 307s to a
+  // custom avatar_url, so this component never embeds an external avatar URL.
+  const avatarSrc = user ? avatarState.canonicalUrl : null;
+  // Resolved display name (display_name ?? name ?? full_name) drives the
+  // initials fallback; the normalized email seed is the last resort. user.id
+  // is never used as a seed.
+  const resolvedDisplayName = user ? resolveDisplayName(user.user_metadata) : null;
+  const avatarFallbackSeed = resolvedDisplayName ?? avatarState.seed;
 
   const closeDropdown = useCallback(() => {
     setDropdownOpen(false);
@@ -83,6 +87,12 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    // The browser-side signOut() only clears its own storage-key chunks
+    // (`wwv-hub-auth-token` + chunks). Expire every chunk of BOTH session
+    // cookie names (pinned hub name + legacy/marketplace default Supabase
+    // name) so the shared .wwv.local jar does not accumulate stale cookies
+    // and eventually trip HTTP 431.
+    clearSignoutCookiesClient(resolveCookieDomain(process.env.NEXT_PUBLIC_WWV_COOKIE_DOMAIN));
     router.push('/');
   }
 
@@ -129,7 +139,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                   <img
                     src={
                       avatarErrorUserId === user.id
-                        ? avatarFallbackDataUrl(user.id)
+                        ? avatarFallbackDataUrl(avatarFallbackSeed)
                         : avatarSrc
                     }
                     alt=""

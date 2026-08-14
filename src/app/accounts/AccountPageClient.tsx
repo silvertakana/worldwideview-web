@@ -11,6 +11,8 @@ import styles from './accounts.module.css'
 interface AccountPageClientProps {
   email: string
   initialDisplayName: string | null
+  /** Canonical same-origin avatar endpoint (from canonicalAvatarState). */
+  avatarSrc: string
   initialAvatarUrl: string | null
   justLinked?: boolean
 }
@@ -18,6 +20,7 @@ interface AccountPageClientProps {
 export function AccountPageClient({
   email,
   initialDisplayName,
+  avatarSrc,
   initialAvatarUrl,
   justLinked = false,
 }: AccountPageClientProps) {
@@ -41,6 +44,7 @@ export function AccountPageClient({
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-lg)' }}>
         <AvatarUpload
           name={displayName || email}
+          canonicalUrl={avatarSrc}
           initialAvatarUrl={initialAvatarUrl}
         />
       </div>

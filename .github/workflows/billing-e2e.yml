@@ -20,8 +20,10 @@
 #   test account.
 #
 # PATH GATES
-#   Runs only when the diff touches billing code or the test stack:
-#     src/app/api/billing/**, src/lib/billing/**, src/lib/stripe/**,
+#   Runs only when the diff touches billing/provisioning code or the test stack:
+#     src/app/api/billing/**, src/app/api/provisioning/**,
+#     src/app/accounts/instances/**, src/app/accounts/billing/**,
+#     src/lib/billing/**, src/lib/stripe/**,
 #     tests/billing-*.spec.ts, tests/playwright.billing.config.ts,
 #     test/simulator/**, docker-compose.test.yml, supabase/migrations/**,
 #     .github/workflows/billing-e2e.yml
@@ -67,6 +69,9 @@ on:
     branches: [main]
     paths:
       - 'src/app/api/billing/**'
+      - 'src/app/api/provisioning/**'
+      - 'src/app/accounts/instances/**'
+      - 'src/app/accounts/billing/**'
       - 'src/lib/billing/**'
       - 'src/lib/stripe/**'
       - 'tests/billing-*.spec.ts'
@@ -79,6 +84,9 @@ on:
     branches: [main]
     paths:
       - 'src/app/api/billing/**'
+      - 'src/app/api/provisioning/**'
+      - 'src/app/accounts/instances/**'
+      - 'src/app/accounts/billing/**'
       - 'src/lib/billing/**'
       - 'src/lib/stripe/**'
       - 'tests/billing-*.spec.ts'

@@ -1,5 +1,7 @@
-import { CreditCard, Zap } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CreditCard, Plus, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
+import hubStyles from "../../hub/hub.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 import { getHubTierFallback } from "@/lib/billing/tier-fallback";
@@ -18,9 +20,9 @@ export default async function BillingPage() {
     let instanceLimit = Infinity;
     let isTrialing = false;
     let trialDaysRemaining: number | null = null;
+    let globeSucceeded = false;
 
     if (user) {
-        let globeSucceeded = false;
         try {
             const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
@@ -89,6 +91,22 @@ export default async function BillingPage() {
                 )}
             </div>
 
+            {!isLocal && status !== "deleted" && instanceCount === 0 && !globeSucceeded && (
+                <div style={{
+                    display: "flex", alignItems: "center", gap: "var(--space-sm)",
+                    padding: "var(--space-md) var(--space-lg)",
+                    marginBottom: "var(--space-lg)",
+                    background: "var(--color-danger-bg, #fef2f2)",
+                    border: "1px solid var(--color-danger, #dc2626)",
+                    borderRadius: "var(--radius-md)",
+                    color: "var(--color-danger, #dc2626)",
+                    fontSize: "0.92rem", fontWeight: 500,
+                }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                    <span>Your account couldn&apos;t be fully set up. Please contact support.</span>
+                </div>
+            )}
+
             <p style={{ marginBottom: "var(--space-lg)", color: "var(--color-text-secondary)" }}>
                 {isLocal
                     ? "You are on the Free plan."
@@ -120,6 +138,22 @@ export default async function BillingPage() {
                 }}>
                     Instances: {instanceCount} of {instanceLimit === Infinity ? "Unlimited" : instanceLimit} used
                 </p>
+            )}
+
+            {instanceCount === 0 && (
+                <div style={{ marginBottom: "var(--space-lg)" }}>
+                    <Link
+                        href="/accounts/instances"
+                        className={hubStyles.submitButton}
+                        style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            gap: "var(--space-xs)", textDecoration: "none",
+                        }}
+                    >
+                        <Plus size={16} />
+                        Create your first instance
+                    </Link>
+                </div>
             )}
 
             <ManageBillingClient

@@ -48,7 +48,7 @@ function hashString(input: string): number {
   return Math.abs(hash)
 }
 
-function initialsOf(seed: string): string {
+export function initialsOf(seed: string): string {
   const words = seed.split(/[^a-zA-Z0-9]+/).filter(Boolean)
   if (words.length >= 2) {
     return `${words[0][0]}${words[1][0]}`.toUpperCase()
@@ -57,4 +57,35 @@ function initialsOf(seed: string): string {
     return words[0].slice(0, 2).toUpperCase()
   }
   return '?'
+}
+
+/**
+ * Resolves the best available display name from Supabase user metadata.
+ *
+ * The app historically reads `user_metadata.display_name`, but Supabase
+ * email signup stores the signup name under `user_metadata.name` and OAuth
+ * providers populate `full_name`. Reading all three keeps the name visible
+ * to the avatar + display logic regardless of which key the identity
+ * provider wrote.
+ *
+ * Empty/whitespace-only values count as unset, so a cleared display_name
+ * falls through to `name` / `full_name`.
+ *
+ * @param metadata - `user.user_metadata` (or null/undefined).
+ * @returns The first present non-empty name, or null when none exists.
+ */
+export function resolveDisplayName(
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  const candidates = [
+    metadata?.display_name,
+    metadata?.name,
+    metadata?.full_name,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate
+    }
+  }
+  return null
 }

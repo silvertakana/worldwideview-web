@@ -1,47 +1,66 @@
-import { createHash } from 'crypto'
 import { NextResponse } from 'next/server'
-import { DICEBEAR_BASE } from '@/lib/diceBear'
+import { createClient } from '@/lib/supabase/server'
+import { canonicalAvatarState, normalizeEmailSeed } from '@/lib/avatar'
+import { generateAvatarSvg } from '@/lib/avatarSvg'
+import { extractDataUrlPayload } from '@/lib/avatarStore'
 
 /**
- * GET /api/avatar?seed=<string>
+ * GET /api/avatar
  *
- * Server-side DiceBear proxy. SHA-256 hashes the incoming seed so that raw
- * PII (email, display name) is never forwarded to api.dicebear.com.
+ * Session-authenticated canonical avatar endpoint. Every avatar surface
+ * (Header, accounts page) renders from this same-origin URL, so avatars can
+ * never diverge; the custom-URL / canonical-URL decision lives in
+ * src/lib/avatar.ts (canonicalAvatarState).
  *
- * The UI renders DiceBear avatars directly in the browser (see
- * src/lib/useDiceBearUrl.ts), so this route is a compatibility/fallback endpoint:
- * it works wherever the server can reach api.dicebear.com.
+ * - No session -> 401.
+ * - Custom `avatar_url` http/https -> 307 redirect, no-store cache.
+ * - Custom `avatar_url` data: -> served INLINE (browsers do not reliably
+ *   follow 307 redirects to data: URLs) as the DECODED SVG document body,
+ *   immutable cache. A malformed data URL falls back to offline generation.
+ * - Otherwise -> DiceBear SVG generated OFFLINE in-process from the SHA-256
+ *   hashed email seed (src/lib/avatarSvg.ts). No network call, no timeout,
+ *   no upstream-failure path: generation cannot fail on the network.
  *
- * - seed: URL-encoded seed string (required)
- * - Returns: SVG image with 24-hour public cache
+ * No ?email= / ?userId= / ?seed= params are accepted: identity comes solely
+ * from the session cookie.
  */
-export async function GET(request: Request): Promise<NextResponse> {
-  const { searchParams } = new URL(request.url)
-  const seed = searchParams.get('seed')
+export async function GET(): Promise<NextResponse> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  if (!seed) {
-    return new NextResponse('seed is required', { status: 400 })
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const hashedSeed = createHash('sha256').update(seed).digest('hex')
-  const diceBearUrl = `${DICEBEAR_BASE}&seed=${hashedSeed}`
+  const { customUrl } = canonicalAvatarState(user)
 
-  let svgText: string
-  try {
-    const upstream = await fetch(diceBearUrl)
-    if (!upstream.ok) {
-      return new NextResponse('upstream error', { status: 502 })
-    }
-    svgText = await upstream.text()
-  } catch {
-    return new NextResponse('upstream error', { status: 502 })
+  // http/https custom URLs 307-redirect; data: URLs are served INLINE because
+  // browsers do not reliably follow 307 redirects to data: URLs.
+  if (customUrl && !customUrl.startsWith('data:')) {
+    return new NextResponse(null, {
+      status: 307,
+      headers: {
+        Location: customUrl,
+        'Cache-Control': 'no-store',
+      },
+    })
   }
+
+  // Resolve the SVG document body: a stored data: avatar is decoded back to
+  // its SVG payload (a malformed data URL falls back to offline generation
+  // rather than serving the raw string); otherwise the face is generated
+  // offline from the email seed.
+  const storedSvg = customUrl ? extractDataUrlPayload(customUrl) : null
+  const svgText =
+    storedSvg ?? (await generateAvatarSvg(normalizeEmailSeed(user.email)))
 
   return new NextResponse(svgText, {
     status: 200,
     headers: {
       'Content-Type': 'image/svg+xml',
-      'Cache-Control': 'public, max-age=86400',
+      'Cache-Control': 'public, max-age=86400, immutable',
     },
   })
 }
