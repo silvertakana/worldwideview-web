@@ -45,10 +45,10 @@ To keep the marketing page lightweight and fast-loading, 3D visualizations here 
 
 ```bash
 pnpm dev    # Start the local development server
-pnpm build  # Runs `next build` to generate the `/out` directory
+pnpm build  # Runs `next build` to produce the `.next/standalone` output
 ```
 
-- **Deployment**: The `Dockerfile` uses Nginx (`nginx.conf`) to serve the static HTML/JS/CSS assets from the `out/` directory. No Node.js process runs in production.
+- **Deployment**: The `Dockerfile` uses a minimal Node.js 22 runtime: it copies `.next/standalone` and runs `pm2-runtime server.js -i 4`. The app is a real Node.js server in production (no Nginx, no `nginx.conf`, no `out/` directory).
 
 ---
 
