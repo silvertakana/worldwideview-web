@@ -24,7 +24,9 @@ const NAV_LINKS = [
 export default function Header({ initialUser = null }: { initialUser?: User | null }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [activePath, setActivePath] = useState('');
+  // activePath is always the current pathname -- derive it instead of copying
+  // it into state via an effect.
+  const activePath = pathname;
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [user, setUser] = useState<User | null>(initialUser);
@@ -49,13 +51,14 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
     setDropdownOpen(false);
   }, []);
 
-  useEffect(() => {
-    setActivePath(pathname);
-  }, [pathname]);
-
-  useEffect(() => {
-    closeDropdown();
-  }, [pathname, closeDropdown]);
+  // Close the dropdown whenever the route changes. Adjusting state during
+  // render (instead of in an effect) lets React fold the reset into the same
+  // render pass as the pathname change.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setDropdownOpen(false);
+  }
 
   useEffect(() => {
     const supabase = createClient();
