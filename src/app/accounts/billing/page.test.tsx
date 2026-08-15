@@ -138,3 +138,77 @@ describe("billing page — setup-failure banner", () => {
     expect(screen.queryByText(/account couldn't be fully set up/i)).toBeNull();
   });
 });
+
+// ── FIX 3: hub authority overrides a stale globe "free" ───────────
+
+describe("billing page — plan display uses the hub tier authority when the globe mirror says free", () => {
+  it("shows Pro when the globe reports free but the hub authority says pro (stale globe mirror)", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      globeResponse({ tier: "free", effectiveStatus: "active", instanceCount: 0, instanceLimit: 10, isTrialing: false }),
+    );
+    mockGetHubTierFallback.mockResolvedValue(PAID_TIER);
+
+    render(await BillingPage());
+
+    // The hub fallback must have been consulted despite the globe succeeding.
+    expect(mockGetHubTierFallback).toHaveBeenCalledWith(USER.id, USER.email);
+    // Badge shows Pro, not Local; copy says Pro; no setup-failure banner
+    // (the account IS set up — only the globe-side mirror was stale).
+    expect(screen.getByText("Pro")).toBeInTheDocument();
+    expect(screen.queryByText("Local")).toBeNull();
+    expect(screen.getByText(/you are on the pro plan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/account couldn't be fully set up/i)).toBeNull();
+  });
+
+  it("keeps showing Free when the globe reports free and the hub has no paid tier", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      globeResponse({ tier: "free", effectiveStatus: "active", instanceCount: 0, instanceLimit: 10, isTrialing: false }),
+    );
+    mockGetHubTierFallback.mockResolvedValue(null);
+
+    render(await BillingPage());
+
+    expect(screen.getByText("Local")).toBeInTheDocument();
+    expect(screen.getByText(/you are on the free plan/i)).toBeInTheDocument();
+  });
+
+  it("shows Pro from the globe when the globe reports a paid tier, without consulting the hub", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      globeResponse({ tier: "pro", effectiveStatus: "active", instanceCount: 0, instanceLimit: 10, isTrialing: false }),
+    );
+    mockGetHubTierFallback.mockResolvedValue(null);
+
+    render(await BillingPage());
+
+    // Globe paid is conclusive — the hub fallback is not needed.
+    expect(mockGetHubTierFallback).not.toHaveBeenCalled();
+    expect(screen.getByText("Pro")).toBeInTheDocument();
+    expect(screen.getByText(/you are on the pro plan/i)).toBeInTheDocument();
+  });
+
+  it("shows Pro via the hub fallback when the globe org is missing entirely (404)", async () => {
+    mockCrossServiceFetch.mockResolvedValue(new Response("", { status: 404 }));
+    mockGetHubTierFallback.mockResolvedValue(PAID_TIER);
+
+    render(await BillingPage());
+
+    expect(mockGetHubTierFallback).toHaveBeenCalledWith(USER.id, USER.email);
+    expect(screen.getByText("Pro")).toBeInTheDocument();
+  });
+
+  it("shows Pro - Trial when the hub fallback resolves to a trialing subscription", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      globeResponse({ tier: "free", effectiveStatus: "active", instanceCount: 0, instanceLimit: 10, isTrialing: false }),
+    );
+    mockGetHubTierFallback.mockResolvedValue({
+      plan: "pro",
+      status: "trialing",
+      trialEndsAt: "2026-09-01T00:00:00.000Z",
+      isTrialing: true,
+    });
+
+    render(await BillingPage());
+
+    expect(screen.getByText("Pro - Trial")).toBeInTheDocument();
+  });
+});
