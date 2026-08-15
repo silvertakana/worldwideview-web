@@ -4,7 +4,8 @@ import styles from "../accounts.module.css";
 import hubStyles from "../../hub/hub.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
-import { getHubTierFallback } from "@/lib/billing/tier-fallback";
+import { getHubTierFallback, type HubTierFallback } from "@/lib/billing/tier-fallback";
+import { resolveDisplayTier, shouldConsultHubAuthority, type GlobeTierSnapshot } from "@/lib/billing/display-tier";
 
 export const metadata = { title: "Billing | Your Account" };
 
@@ -13,49 +14,51 @@ export default async function BillingPage() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    let plan = "local";
-    let status = "not_found";
-    let trialEndsAt: string | null = null;
+    const globe: GlobeTierSnapshot = {
+        succeeded: false,
+        plan: null,
+        tier: null,
+        status: null,
+        trialEndsAt: null,
+        isTrialing: false,
+    };
     let instanceCount = 0;
     let instanceLimit = Infinity;
-    let isTrialing = false;
     let trialDaysRemaining: number | null = null;
-    let globeSucceeded = false;
 
     if (user) {
         try {
             const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
                 const data = await res.json();
-                // Globe returns `tier`/`effectiveStatus` (not `plan`). Map tier
-                // into plan so a pro/enterprise globe org renders Pro; a free
-                // org keeps the local/free rendering.
-                plan = data.plan || (data.tier && data.tier !== "free" ? data.tier : "local");
-                status = data.status || data.effectiveStatus || "not_found";
-                trialEndsAt = data.trialEndsAt || null;
+                // Globe returns `tier`/`effectiveStatus` (not `plan`).
+                globe.succeeded = true;
+                globe.plan = data.plan ?? null;
+                globe.tier = data.tier ?? null;
+                globe.status = data.status || data.effectiveStatus || "not_found";
+                globe.trialEndsAt = data.trialEndsAt ?? null;
+                globe.isTrialing = data.isTrialing ?? (globe.status === "trialing");
                 instanceCount = data.instanceCount ?? 0;
                 instanceLimit = data.instanceLimit ?? Infinity;
-                isTrialing = data.isTrialing ?? (status === "trialing");
                 trialDaysRemaining = data.trialDaysRemaining ?? null;
-                globeSucceeded = true;
             }
         } catch {
             // Globe unreachable
         }
-
-        if (!globeSucceeded && user.email) {
-            // Globe has no org for this user (404) or was unreachable. Fall back
-            // to the hub's authoritative data so a paid user still sees Pro
-            // even when the globe-side mirror is missing.
-            const fallback = await getHubTierFallback(user.id, user.email);
-            if (fallback) {
-                plan = fallback.plan;
-                status = fallback.status;
-                trialEndsAt = fallback.trialEndsAt;
-                isTrialing = fallback.isTrialing;
-            }
-        }
     }
+
+    // The globe tier cache is a mirror that fails open to "free" when the
+    // org_tiers row is missing or stale, so a globe "free" is inconclusive,
+    // not proof of non-payment. The hub is the billing authority (ADR-0009):
+    // consult its fallback (Stripe live subscription, then code-redeemed
+    // entitlement) whenever the globe did not report a paid tier.
+    let hubFallback: HubTierFallback | null = null;
+    if (user?.email && shouldConsultHubAuthority(globe)) {
+        hubFallback = await getHubTierFallback(user.id, user.email);
+    }
+    const decision = resolveDisplayTier(globe, hubFallback);
+    const { plan, status, trialEndsAt, isTrialing } = decision;
+    const globeSucceeded = globe.succeeded;
 
     const isLocal = plan === "local";
 
