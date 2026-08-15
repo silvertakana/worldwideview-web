@@ -28,19 +28,17 @@ export async function signUp(formData: FormData) {
     )
   }
 
-  // Store-once: stamp a deterministic DiceBear avatar (offline-generated) onto
-  // the new user's metadata now, so /api/avatar serves it as a stored data URL
-  // instead of regenerating on every render. Best-effort -- a failed avatar
-  // write (e.g. missing service-role key) must never block signup. An email
-  // signup never carries an OAuth avatar, so stamping is safe; the helper also
-  // skips users that somehow already have an avatar_url.
+  // Stamp a small DiceBear provenance marker onto the new user's metadata
+  // (avatar_source: 'dicebear' only -- NOT the generated SVG). Storing the
+  // full ~5-7KB SVG data URL here would be embedded by GoTrue into every
+  // access-token JWT, blowing the Authorization header past Kong's 8KB limit;
+  // /api/avatar regenerates the deterministic face offline from the email
+  // seed instead. Best-effort -- a failed marker write must never block
+  // signup. An email signup never carries an OAuth avatar, so stamping is
+  // safe; the helper also skips users that somehow already have an avatar_url.
   if (data?.user) {
     try {
-      await storeDicebearAvatarAtSignup(
-        createAdminClient(),
-        data.user.id,
-        data.user.email ?? email,
-      )
+      await storeDicebearAvatarAtSignup(createAdminClient(), data.user.id)
     } catch (err) {
       console.error('[signup] avatar store failed:', err)
     }

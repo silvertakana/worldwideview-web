@@ -173,17 +173,21 @@ describe('storeDicebearAvatarAtSignup', () => {
     }
   }
 
-  it('writes avatar_url + avatar_source dicebear for a fresh user', async () => {
+  it('writes only a small avatar_source marker (no avatar_url) for a fresh user', async () => {
     const client = makeAdminClient()
-    await storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com')
+    await storeDicebearAvatarAtSignup(client, 'u1')
 
     expect(client.auth.admin.updateUserById).toHaveBeenCalledTimes(1)
     const [userId, attrs] = client.auth.admin.updateUserById.mock.calls[0]
     expect(userId).toBe('u1')
     const metadata = attrs.user_metadata as Record<string, unknown>
     expect(metadata.avatar_source).toBe(AVATAR_SOURCE_DICEBEAR)
-    expect(metadata.avatar_url).toContain('data:image/svg+xml;utf8,')
-    expect(metadata.avatar_url).not.toContain('<svg')
+    // The SVG must NOT be persisted: user_metadata rides in the access-token
+    // JWT, and a ~5-7KB data URL would push the token past Kong's 8KB header
+    // limit and break authenticated calls. The face is regenerated on demand
+    // by /api/avatar from the email seed.
+    expect(metadata.avatar_url).toBeUndefined()
+    expect(JSON.stringify(metadata).length).toBeLessThan(512)
   })
 
   it('preserves existing metadata when writing', async () => {
@@ -194,7 +198,7 @@ describe('storeDicebearAvatarAtSignup', () => {
         user_metadata: { display_name: 'Alice', other: 'keep' },
       },
     })
-    await storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com')
+    await storeDicebearAvatarAtSignup(client, 'u1')
 
     const attrs = client.auth.admin.updateUserById.mock.calls[0][1]
     expect(attrs.user_metadata).toMatchObject({
@@ -202,6 +206,7 @@ describe('storeDicebearAvatarAtSignup', () => {
       other: 'keep',
       avatar_source: 'dicebear',
     })
+    expect(attrs.user_metadata.avatar_url).toBeUndefined()
   })
 
   it('skips users that already have an avatar_url (e.g. OAuth signup)', async () => {
@@ -212,14 +217,14 @@ describe('storeDicebearAvatarAtSignup', () => {
         user_metadata: { avatar_url: 'https://avatars.githubusercontent.com/u/1' },
       },
     })
-    await storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com')
+    await storeDicebearAvatarAtSignup(client, 'u1')
 
     expect(client.auth.admin.updateUserById).not.toHaveBeenCalled()
   })
 
   it('skips when the user cannot be read', async () => {
     const client = makeAdminClient({ getUserError: { message: 'nope' } })
-    await storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com')
+    await storeDicebearAvatarAtSignup(client, 'u1')
 
     expect(client.auth.admin.updateUserById).not.toHaveBeenCalled()
   })
@@ -227,7 +232,7 @@ describe('storeDicebearAvatarAtSignup', () => {
   it('never throws when the metadata write fails', async () => {
     const client = makeAdminClient({ updateError: { message: 'write failed' } })
     await expect(
-      storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com'),
+      storeDicebearAvatarAtSignup(client, 'u1'),
     ).resolves.toBeUndefined()
     expect(client.auth.admin.updateUserById).toHaveBeenCalledTimes(1)
   })
@@ -236,7 +241,7 @@ describe('storeDicebearAvatarAtSignup', () => {
     const client = makeAdminClient()
     client.auth.admin.getUserById.mockRejectedValue(new Error('network down'))
     await expect(
-      storeDicebearAvatarAtSignup(client, 'u1', 'alice@example.com'),
+      storeDicebearAvatarAtSignup(client, 'u1'),
     ).resolves.toBeUndefined()
   })
 })
