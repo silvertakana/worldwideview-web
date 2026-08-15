@@ -1,12 +1,18 @@
 /**
  * Avatar store-once + provenance helpers for the hub.
  *
- * Every write site that stores an avatar URL into `user_metadata` also stamps
- * `avatar_source` so "where did this avatar come from" stays answerable:
+ * Every avatar write stamps `avatar_source` so "where did this avatar come
+ * from" stays answerable:
  *
  *   - 'google' | 'github'  OAuth provider avatar copied by Supabase at signup
  *   - 'upload'             user-uploaded image stored in Supabase Storage
  *   - 'dicebear'           deterministic offline-generated face (email seed)
+ *
+ * The DiceBear face is deliberately NOT persisted: /api/avatar regenerates it
+ * offline from the email seed whenever `avatar_url` is absent. Storing the
+ * ~5-7KB SVG data URL in `user_metadata` would be embedded by GoTrue into
+ * every access-token JWT, pushing the Authorization header past Kong's 8KB
+ * limit (large_client_header_buffers) and breaking authenticated requests.
  *
  * The I/O helpers are deliberately dependency-free (no Supabase imports, no
  * `server-only`): call sites create and pass in their own client (admin client
@@ -179,21 +185,25 @@ export async function buildDicebearAvatarDataUrl(
 }
 
 /**
- * Best-effort store-once: stamps a DiceBear avatar onto a freshly created
- * user's metadata (avatar_url + avatar_source: 'dicebear').
+ * Best-effort store-once: stamps a DiceBear provenance marker
+ * (`avatar_source: 'dicebear'`) onto a freshly created user's metadata.
+ *
+ * The generated face itself is NOT stored here. GoTrue embeds user_metadata
+ * into every access-token JWT, so persisting the ~5-7KB SVG data URL would
+ * blow the Authorization header past Kong's 8KB limit and break authenticated
+ * calls. Instead /api/avatar regenerates the deterministic face offline from
+ * the email seed whenever `avatar_url` is absent.
  *
  * Skips users that already have an avatar_url and swallows every failure so a
- * broken avatar write can never fail the signup flow. Requires the admin
+ * broken marker write can never fail the signup flow. Requires the admin
  * client because email-signup users have no session yet.
  *
  * @param client - Admin (service-role) client, created by the caller.
  * @param userId - The newly created user's id.
- * @param email - The user's email, used as the avatar seed.
  */
 export async function storeDicebearAvatarAtSignup(
   client: AdminAvatarClient,
   userId: string,
-  email: string | null | undefined,
 ): Promise<void> {
   try {
     const { data, error } = await client.auth.admin.getUserById(userId)
@@ -203,15 +213,13 @@ export async function storeDicebearAvatarAtSignup(
     if (!shouldStoreDicebearAvatar(data.user.user_metadata)) {
       return
     }
-    const avatarUrl = await buildDicebearAvatarDataUrl(email)
     const userMetadata = {
       ...(data.user.user_metadata ?? {}),
-      avatar_url: avatarUrl,
       avatar_source: AVATAR_SOURCE_DICEBEAR,
     }
     await client.auth.admin.updateUserById(userId, { user_metadata: userMetadata })
   } catch (err) {
-    console.error('[avatarStore] failed to store dicebear avatar at signup:', err)
+    console.error('[avatarStore] failed to stamp dicebear avatar source at signup:', err)
   }
 }
 

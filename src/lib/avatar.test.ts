@@ -80,6 +80,22 @@ describe('canonicalAvatarState', () => {
     ).toBeNull()
   })
 
+  it('falls back to the canonical endpoint when only the dicebear marker exists (new signup shape)', () => {
+    // Signup now stores only avatar_source: 'dicebear' (never the SVG), so the
+    // resolution path must degrade to the same-origin /api/avatar endpoint,
+    // which regenerates the face offline from the email seed.
+    expect(
+      canonicalAvatarState({
+        email: 'alice@example.com',
+        user_metadata: { avatar_source: 'dicebear' },
+      }),
+    ).toEqual({
+      canonicalUrl: '/api/avatar',
+      customUrl: null,
+      seed: 'alice@example.com',
+    })
+  })
+
   it('keeps the seed stable when display_name or name changes (email stability)', () => {
     // The core requirement: renaming a user must not re-randomize their
     // avatar, because the seed is derived from email, never the display name.
