@@ -119,6 +119,11 @@ jobs:
       GLOBE_REF: main
       MARKETPLACE_REF: main
       ENGINE_REF: main
+      # Tenant subdomain the provisioning setup-link spec uses
+      # (tests/billing-provisioning-setup-link.spec.ts, default 'asdf'). Must
+      # be resolvable on the runner via /etc/hosts (see "Map .wwv.local hosts")
+      # and routable through Caddy's *.wwv.local catch-all.
+      E2E_SUBDOMAIN: asdf
 
     steps:
       - uses: actions/checkout@v6
@@ -240,8 +245,12 @@ jobs:
         run: |
           # Keep this host list in sync with the SERVICES array in the
           # "Provision Caddyfile and TLS certs" step above (one *.wwv.local
-          # name per routed service).
-          sudo bash -c 'echo "127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local" >> /etc/hosts'
+          # name per routed service). E2E_SUBDOMAIN adds the tenant host the
+          # provisioning setup-link spec navigates to (billing-e2e provisions
+          # no wildcard DNS, so the concrete {subdomain}.wwv.local must be
+          # mapped for the browser to resolve it).
+          TENANT_HOST="${E2E_SUBDOMAIN:-asdf}.wwv.local"
+          sudo bash -c "echo '127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local $TENANT_HOST' >> /etc/hosts"
           # host.docker.internal must resolve on the runner so the browser-side
           # supabase-js (served by the hub, which bakes in host.docker.internal
           # as its NEXT_PUBLIC_SUPABASE_URL) can reach the local Supabase on the
