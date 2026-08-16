@@ -46,7 +46,7 @@ pnpm install
 pnpm dev
 ```
 
-Opens at `http://localhost:3000`.
+Opens at `https://wwv.local:3001`.
 
 ### Run tests
 
@@ -93,7 +93,7 @@ Documentation lives in `content/docs/` as Markdown files with YAML frontmatter. 
 
 1. Create or edit the `.md` file in `content/docs/`
 2. Set `order:` in the frontmatter to control sidebar position
-3. Run `pnpm dev` and visit `http://localhost:3000/docs` to preview
+3. Run `pnpm dev` and visit `https://wwv.local:3001/docs` to preview
 4. Submit a PR
 
 Frontmatter fields:

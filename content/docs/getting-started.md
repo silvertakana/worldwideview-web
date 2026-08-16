@@ -25,7 +25,7 @@ pnpm run setup
 pnpm dev
 ```
 
-`pnpm run setup` generates a `.env.local` file with a secure `AUTH_SECRET`. After that, open [http://localhost:3000](http://localhost:3000) in your browser.
+`pnpm run setup` generates a `.env.local` file with a secure `AUTH_SECRET`. After that, open [http://localhost:3000](http://localhost:3000) in your browser. That URL serves the globe app (`worldwideview` repo); the web hub documented here runs separately on `https://wwv.local:3001`.
 
 For the full setup guide including API key configuration, see the [download page](/download).
 
