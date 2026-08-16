@@ -1,6 +1,6 @@
 {
   "name": "worldwideview-web",
-  "version": "0.14.4",
+  "version": "0.18.49",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--use-system-ca next dev --port 3001 --hostname wwv.local --experimental-https --experimental-https-key ./certs/wwv.local+4-key.pem --experimental-https-cert ./certs/wwv.local+4.pem",
@@ -8,9 +8,13 @@
     "start": "next start",
     "lint:urls": "node scripts/lint-urls.mjs",
     "lint": "eslint && node scripts/lint-urls.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test --config=tests/playwright.billing.config.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dicebear/adventurer-neutral": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
     "@fontsource/inter": "^5.2.8",
     "@material-symbols/font-200": "^0.44.9",
     "@react-three/drei": "^10.7.7",
@@ -21,7 +25,6 @@
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.577.0",
     "next": "16.2.3",
-    "next-mdx-remote": "^6.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
@@ -32,10 +35,12 @@
     "three": "^0.183.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.183.1",
@@ -45,6 +50,7 @@
     "eslint-config-next": "^16.2.9",
     "eslint-plugin-security": "^4.0.1",
     "jsdom": "^29.1.1",
+    "pg": "^8.22.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
   },

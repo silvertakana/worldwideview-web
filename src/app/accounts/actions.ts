@@ -2,9 +2,13 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 import type { UserIdentity } from '@supabase/supabase-js'
 import { createClient } from '../../lib/supabase/server'
 import { createAdminClient } from '../../lib/supabase/admin'
+import { resolveCookieDomain } from '../../lib/supabase/cookieOptions'
+import { buildSignoutExpiryCookies } from '../../lib/supabase/signoutCleanup'
+import { AVATAR_SOURCE_UPLOAD } from '../../lib/avatarStore'
 
 const ALLOWED_AVATAR_PREFIXES = [
   'data:image/jpeg;base64,',
@@ -16,10 +20,26 @@ const AVATAR_MAX_LENGTH = 35_000
 const AVATARS_BUCKET = 'avatars'
 
 export async function signOut() {
+  // Capture the cookie names the browser actually sent BEFORE signOut() runs,
+  // because @supabase/ssr removes the current pinned-name cookies from the
+  // store as part of signing out.
+  const cookieStore = await cookies()
+  const requestCookieNames = cookieStore.getAll().map((c) => c.name)
   const supabase = await createClient()
-  // Clears the session cookie on the parent domain (ADR-003D) so every
-  // subdomain is de-authenticated, not just this one.
+  // Sign out the Supabase session. This only clears the CURRENT storage-key
+  // cookies (`wwv-hub-auth-token` + chunks) via @supabase/ssr setAll — it
+  // does NOT touch the legacy default Supabase cookie name
+  // (`sb-<project-ref>-auth-token`) that this app used before the pin
+  // migration (commit e71ef30), nor the marketplace session, which still uses
+  // that same default name on the shared parent domain. Stale chunks of the
+  // legacy name linger in browsers forever and accumulate on the shared
+  // `.wwv.local` / `.worldwideview.dev` jar past Node's 16KB max header size
+  // (HTTP 431), so we explicitly expire every chunk of BOTH names below.
   await supabase.auth.signOut()
+  const domain = resolveCookieDomain(process.env.NEXT_PUBLIC_WWV_COOKIE_DOMAIN)
+  for (const { name, value, options } of buildSignoutExpiryCookies(requestCookieNames, domain)) {
+    cookieStore.set(name, value, options)
+  }
   redirect('/login')
 }
 
@@ -77,8 +97,12 @@ export async function updateAvatar(dataUrl: string): Promise<{ publicUrl: string
   const { data: { publicUrl } } = adminClient.storage.from(AVATARS_BUCKET).getPublicUrl(storagePath)
   const urlWithBuster = `${publicUrl}?t=${Date.now()}`
 
-  // Store only the short URL in user metadata -- not the base64 blob.
-  const { error } = await supabase.auth.updateUser({ data: { avatar_url: urlWithBuster } })
+  // Store only the short URL in user metadata -- not the base64 blob. The
+  // provenance label records that the user actively uploaded this avatar.
+  // nosemgrep: semgrep.auth-error-swallowed - error handled by throw below
+  const { error } = await supabase.auth.updateUser({
+    data: { avatar_url: urlWithBuster, avatar_source: AVATAR_SOURCE_UPLOAD },
+  })
   if (error) throw new Error(error.message)
 
   revalidatePath('/accounts')

@@ -1,0 +1,421 @@
+# =============================================================================
+# Billing E2E — docker-compose.test.yml + local Supabase + Playwright
+# =============================================================================
+# PURPOSE
+#   Brings up the WWV billing test stack (globe, hub, db, redis, caddy,
+#   marketplace, data-engine, stripe-mock) plus an EXTERNAL local Supabase
+#   (host CLI, same pattern as ci.yml), then runs the Playwright billing E2E
+#   suite (tests/billing-*.spec.ts, config tests/playwright.billing.config.ts).
+#
+# REQUIRED SECRETS (repo Settings -> Secrets and variables -> Actions)
+#   STRIPE_SECRET_KEY      Stripe test-mode secret key (sk_test_...)
+#   STRIPE_WEBHOOK_SECRET  Stripe test-mode webhook signing secret (whsec_...)
+#   Both are exported to the compose process env AND to the Playwright step.
+#   docker-compose.test.yml defaults STRIPE_HOST/PORT/PROTOCOL to stripe-mock
+#   for offline local runs; this workflow overrides them to EMPTY (see the
+#   "Bring up billing test stack" step) so the hub's Stripe SDK (client.ts
+#   spreads those options only when truthy) keeps its real-API defaults and
+#   CI talks to REAL Stripe test mode. The Playwright step does NOT set
+#   STRIPE_BASE_URL so the specs' direct Stripe helpers also hit the real
+#   test account.
+#
+# PATH GATES
+#   Runs only when the diff touches billing/provisioning code or the test stack:
+#     src/app/api/billing/**, src/app/api/provisioning/**,
+#     src/app/accounts/instances/**, src/app/accounts/billing/**,
+#     src/lib/billing/**, src/lib/stripe/**,
+#     tests/billing-*.spec.ts, tests/playwright.billing.config.ts,
+#     test/simulator/**, docker-compose.test.yml, supabase/migrations/**,
+#     .github/workflows/billing-e2e.yml
+#
+# TWO-TIER TEST STRATEGY
+#   L1 - webhook-simulator (test/simulator/, compose profile "simulator"):
+#        signed-webhook matrix, no browser, fast. Executed below as the
+#        "Run webhook simulator signature contract" step: valid events must
+#        return 200, a tampered signature must return 400, and a
+#        byte-identical replay must be idempotent (200). Any violation fails
+#        the job (the simulator's --expect-status exits non-zero).
+#   L3 - full browser E2E (THIS workflow): real UI + Stripe checkout flow,
+#        tier sync against the globe. Current gate. Needs real Stripe
+#        test-mode secrets; stripe-mock is stateless, so checkout/webhook
+#        assertions stay flaky until the mock gaps in the compose header are
+#        closed (hub stripe client routing + spec STRIPE_BASE_URL defaults).
+#
+# STACK PREREQUISITES (why the extra steps exist)
+#   1. docker-compose.test.yml defaults point at ecosystem SIBLING dirs
+#      (../worldwideview.fix-billing-tier, ../worldwideview-marketplace,
+#      ../wwv-data-engine, ../Caddyfile.dev, ../certs). CI overrides them via
+#      the job env (GLOBE_DIR/MARKETPLACE_DIR/ENGINE_DIR/CADDYFILE_DIR/
+#      CERTS_DIR) and checks out each PUBLIC sibling repo into ./globe,
+#      ./marketplace, ./engine. GLOBE_REF/MARKETPLACE_REF/ENGINE_REF default
+#      to main; bump GLOBE_REF to the globe branch carrying the tier-sync
+#      endpoints until they land on the globe's main.
+#   2. Caddyfile.dev + certs/ are NOT tracked in any repo (local ecosystem
+#      root only), so this workflow provisions them deterministically:
+#      inline Caddyfile (mirror of the ecosystem root) + an openssl
+#      self-signed wildcard cert for *.wwv.local. Playwright uses
+#      ignoreHTTPSErrors, and /etc/hosts maps the *.wwv.local names to the
+#      runner so caddy (published 443) routes by Host header.
+#   3. The globe repo does NOT yet track Dockerfile.dev, but the compose
+#      stack builds the globe image from it (compose PREREQUISITES #2). The
+#      "Verify globe Dockerfile.dev" step fails fast with instructions until
+#      that file is committed to the worldwideview repo.
+# =============================================================================
+
+name: Billing E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/api/billing/**'
+      - 'src/app/api/provisioning/**'
+      - 'src/app/accounts/instances/**'
+      - 'src/app/accounts/billing/**'
+      - 'src/lib/billing/**'
+      - 'src/lib/stripe/**'
+      - 'tests/billing-*.spec.ts'
+      - 'tests/playwright.billing.config.ts'
+      - 'test/simulator/**'
+      - 'docker-compose.test.yml'
+      - 'supabase/migrations/**'
+      - '.github/workflows/billing-e2e.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/app/api/billing/**'
+      - 'src/app/api/provisioning/**'
+      - 'src/app/accounts/instances/**'
+      - 'src/app/accounts/billing/**'
+      - 'src/lib/billing/**'
+      - 'src/lib/stripe/**'
+      - 'tests/billing-*.spec.ts'
+      - 'tests/playwright.billing.config.ts'
+      - 'test/simulator/**'
+      - 'docker-compose.test.yml'
+      - 'supabase/migrations/**'
+      - '.github/workflows/billing-e2e.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  billing-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # CI overrides for docker-compose.test.yml source-dir defaults
+      GLOBE_DIR: ./globe
+      HUB_DIR: .
+      MARKETPLACE_DIR: ./marketplace
+      ENGINE_DIR: ./engine
+      CADDYFILE_DIR: ./Caddyfile.dev
+      CERTS_DIR: ./certs
+      # Sibling repo refs (default main; bump GLOBE_REF for unmerged globe work)
+      GLOBE_REF: main
+      MARKETPLACE_REF: main
+      ENGINE_REF: main
+      # Tenant subdomain the provisioning setup-link spec uses
+      # (tests/billing-provisioning-setup-link.spec.ts, default 'asdf'). Must
+      # be resolvable on the runner via /etc/hosts (see "Map .wwv.local hosts")
+      # and routable through Caddy's *.wwv.local catch-all.
+      E2E_SUBDOMAIN: asdf
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Checkout globe (worldwideview)
+        uses: actions/checkout@v6
+        with:
+          repository: silvertakana/worldwideview
+          ref: ${{ env.GLOBE_REF }}
+          path: globe
+
+      - name: Checkout marketplace
+        uses: actions/checkout@v6
+        with:
+          repository: silvertakana/worldwideview-marketplace
+          ref: ${{ env.MARKETPLACE_REF }}
+          path: marketplace
+
+      - name: Checkout data engine
+        uses: actions/checkout@v6
+        with:
+          repository: silvertakana/wwv-data-engine
+          ref: ${{ env.ENGINE_REF }}
+          path: engine
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        timeout-minutes: 5
+        run: supabase start
+
+      - name: Apply migrations
+        run: supabase db push --local
+
+      - name: Capture local Supabase credentials
+        run: |
+          # supabase start generates a fresh JWT secret per instance (config.toml
+          # has no [auth] jwt_secret), so the well-known demo anon/service_role
+          # keys are rejected. Export the REAL keys from the running instance.
+          # NOTE: `supabase status -o env` emits UNPREFIXED names
+          # (API_URL, ANON_KEY, SERVICE_ROLE_KEY, DB_URL) with values quoted
+          # (SERVICE_ROLE_KEY="eyJ..."); we strip the quotes and re-export as
+          # SUPABASE_* for the compose/Playwright steps.
+          supabase status -o env > /tmp/supabase-env
+          SERVICE_ROLE_KEY=$(grep '^SERVICE_ROLE_KEY=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')
+          if [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "::error::supabase status did not report a SERVICE_ROLE_KEY; cannot run billing e2e"
+            exit 1
+          fi
+          echo "SUPABASE_ANON_KEY=$(grep '^ANON_KEY=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_DB_URL=$(grep '^DB_URL=' /tmp/supabase-env | cut -d= -f2 | tr -d '"')" >> "$GITHUB_ENV"
+
+      - name: Provision Caddyfile and TLS certs
+        run: |
+          mkdir -p certs
+          cat > Caddyfile.dev <<'CADDY_EOF'
+          {
+          	auto_https off
+          	admin off
+          }
+
+          (app_tls) {
+          	tls /etc/caddy/certs/wwv.local.pem /etc/caddy/certs/wwv.local-key.pem
+          }
+
+          CADDY_EOF
+
+          # One *.wwv.local route per line: "<subdomain> <upstream>". Adding a
+          # new local service = one compose service + one line here (+ the
+          # /etc/hosts name in the "Map .wwv.local hosts" step below). Keep in
+          # sync with docker-compose.test.yml service names and ports.
+          SERVICES=(
+            "app globe:3000"
+            "hub hub:3001"
+            "marketplace marketplace:3002"
+            "api data-engine:5000"
+          )
+          for entry in "${SERVICES[@]}"; do
+            host="${entry%% *}"
+            upstream="${entry#* }"
+            cat >> Caddyfile.dev <<CADDY_EOF
+          $host.wwv.local {
+          	import app_tls
+          	reverse_proxy $upstream
+          }
+
+          CADDY_EOF
+          done
+
+          cat >> Caddyfile.dev <<'CADDY_EOF'
+          wwv.local {
+          	import app_tls
+          	reverse_proxy globe:3000
+          }
+
+          *.wwv.local {
+          	import app_tls
+          	reverse_proxy globe:3000
+          }
+          CADDY_EOF
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout certs/wwv.local-key.pem -out certs/wwv.local.pem \
+            -days 365 -subj "/CN=*.wwv.local" \
+            -addext "subjectAltName=DNS:*.wwv.local,DNS:wwv.local,DNS:localhost"
+
+      - name: Map .wwv.local hosts
+        run: |
+          # Keep this host list in sync with the SERVICES array in the
+          # "Provision Caddyfile and TLS certs" step above (one *.wwv.local
+          # name per routed service). E2E_SUBDOMAIN adds the tenant host the
+          # provisioning setup-link spec navigates to (billing-e2e provisions
+          # no wildcard DNS, so the concrete {subdomain}.wwv.local must be
+          # mapped for the browser to resolve it).
+          TENANT_HOST="${E2E_SUBDOMAIN:-asdf}.wwv.local"
+          sudo bash -c "echo '127.0.0.1 hub.wwv.local app.wwv.local marketplace.wwv.local api.wwv.local wwv.local $TENANT_HOST' >> /etc/hosts"
+          # host.docker.internal must resolve on the runner so the browser-side
+          # supabase-js (served by the hub, which bakes in host.docker.internal
+          # as its NEXT_PUBLIC_SUPABASE_URL) can reach the local Supabase on the
+          # host. Inside Docker containers, extra_hosts handles this; on the bare
+          # runner we map it explicitly.
+          sudo bash -c 'echo "127.0.0.1 host.docker.internal" >> /etc/hosts'
+
+      - name: Verify globe Dockerfile.dev exists
+        run: |
+          test -f globe/Dockerfile.dev || {
+            echo "::error::globe/Dockerfile.dev is missing. docker-compose.test.yml builds the globe image from Dockerfile.dev, but the worldwideview repo does not track it yet (see compose header PREREQUISITES #2). Commit Dockerfile.dev to the worldwideview repo on branch ${{ env.GLOBE_REF }} before this workflow can pass."
+            exit 1
+          }
+
+      - name: Set up BuildKit (docker-container driver) for gha layer cache
+        # REQUIRED for the BuildKit gha cache backend in docker-compose.test.yml:
+        # the gha backend is not supported with the default docker driver and is
+        # silently ignored, so every run cold-builds all 4 images. The
+        # docker-container driver (default for this action) is what makes the
+        # per-service cache scopes (wwv-globe / wwv-hub / wwv-marketplace /
+        # wwv-data-engine in docker-compose.test.yml cache_from/cache_to) work.
+        uses: docker/setup-buildx-action@v4
+
+      - name: Bring up billing test stack
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # CRITICAL: route the hub's Stripe SDK at the REAL Stripe API in CI.
+          # docker-compose.test.yml defaults STRIPE_HOST/PORT/PROTOCOL to
+          # stripe-mock; client.ts spreads those options only when truthy, so
+          # setting them to EMPTY keeps Stripe's real-API defaults. The compose
+          # entries use ${VAR-default} (NOT :-) so this empty value propagates
+          # instead of falling back to stripe-mock. Local/act runs leave these
+          # unset -> stripe-mock default preserved.
+          STRIPE_HOST: ""
+          STRIPE_PORT: ""
+          STRIPE_PROTOCOL: ""
+          # The hub container needs TWO Supabase URLs:
+          #   - NEXT_PUBLIC_SUPABASE_URL (browser-facing, inlined into the client
+          #     bundle): MUST be loopback. The browser runs on the runner host and
+          #     Chromium blocks https://hub.wwv.local -> http://host.docker.internal
+          #     as mixed content (non-loopback hostname), which left login stuck on
+          #     /login. 127.0.0.1 is mixed-content exempt AND reaches the runner's
+          #     local Supabase.
+          #   - SUPABASE_INTERNAL_URL (server-to-server, used by server.ts /
+          #     admin.ts / proxy.ts): host.docker.internal — inside the container,
+          #     127.0.0.1 would be the container itself, not the host.
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_INTERNAL_URL: http://host.docker.internal:54321
+          SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+        run: docker compose -f docker-compose.test.yml up -d --build
+
+      - name: Wait for stack readiness
+        run: |
+          # Warm the routes the Playwright global setup hits first (/login, and
+          # /accounts/billing which redirects to /login for anonymous users).
+          # The hub runs `next dev`, so these compile on first request; doing
+          # it here means the compile happens during the wait, not inside
+          # Playwright (which has repeatedly timed out on the cold /login
+          # compile under loaded CI runners — see billing.global.setup.ts).
+          for i in $(seq 1 40); do
+            if curl -sf -o /dev/null http://localhost:3001/api/health && \
+               curl -kfsS -o /dev/null https://hub.wwv.local/pricing && \
+               curl -kfsS -o /dev/null https://hub.wwv.local/login && \
+               curl -kfsS -o /dev/null https://hub.wwv.local/accounts/billing; then
+              echo "Stack ready after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Billing test stack did not become ready within 200s"
+          docker compose -f docker-compose.test.yml ps
+          exit 1
+
+      - name: Run webhook simulator signature contract
+        env:
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          WEBHOOK_TARGET_URL: https://hub.wwv.local/api/billing/webhook
+          # The hub sits behind Caddy with a self-signed wildcard cert; the
+          # simulator's raw https.request rejects it by default. Scope the
+          # Node TLS override to THIS step only (never job/global env) so the
+          # browser suite below still exercises its own TLS handling.
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        run: |
+          set -euo pipefail
+          echo "--- L1: valid-signature matrix (all 5 core events expect 200)"
+          node test/simulator/index.js --matrix --expect-status 200
+          echo "--- L1: tampered signature must be rejected (expect 400)"
+          node test/simulator/index.js checkout.session.completed --bad-signature --expect-status 400
+          echo "--- L1: byte-identical replay must be idempotent (expect 200)"
+          node test/simulator/index.js checkout.session.completed --duplicate --expect-status 200
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          # ~/.cache/ms-playwright holds the downloaded Chromium (~150MB).
+          # Keyed on the lockfile so the cache invalidates when Playwright's
+          # pinned version changes; restore-keys keeps the last cache warm
+          # across minor bumps. The `--with-deps` install below still runs
+          # apt-get for the browser's OS deps on a miss.
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pw-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pw-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run billing E2E suite
+        env:
+          CI: "1"
+          # Runner-side view of the local supabase instance (supabase start,
+          # api port from supabase/config.toml). Loopback: the tests run on the
+          # runner host. The hub container's server side reaches Supabase via
+          # host.docker.internal (SUPABASE_INTERNAL_URL); its browser bundle
+          # uses 127.0.0.1 (NEXT_PUBLIC_SUPABASE_URL) to stay mixed-content safe.
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # NOTE: do NOT set STRIPE_BASE_URL here. The specs' direct Stripe
+          # helpers (findActiveSubscription/cancelSubscription/cancelAtPeriodEnd
+          # in billing-flow.spec.ts and tests/lib/stripe.ts) default to the real
+          # Stripe API when STRIPE_BASE_URL is absent; pointing them at
+          # stripe-mock made the suite query a different store than the hub
+          # (which talks to real Stripe) and the checkout-created subscription
+          # was never found.
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/worldwideview?schema=public
+          CROSS_SERVICE_SECRET: wwv-test-hmac-secret-2026
+        run: pnpm exec playwright test --config=tests/playwright.billing.config.ts
+
+      - name: Capture stack logs on failure
+        if: failure()
+        run: |
+          # Container logs are the only window into SSR-side failures (tier
+          # sync fetches, webhook handler errors) that the Playwright trace
+          # cannot capture; the teardown step below wipes the stack, so capture
+          # before it runs.
+          docker compose -f docker-compose.test.yml ps
+          echo "================ HUB LOGS (tail 200) ================"
+          docker compose -f docker-compose.test.yml logs hub --tail 200
+          echo "================ GLOBE LOGS (tail 100) ================"
+          docker compose -f docker-compose.test.yml logs globe --tail 100
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: billing-e2e-playwright
+          path: playwright/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Teardown test stack
+        if: always()
+        run: |
+          # CI: wipe volumes (isolated runner; nothing to persist between runs).
+          # Local act: the billing-e2e-local.sh wrapper sets
+          # ACT_KEEP_TEST_VOLUMES=1 so wwv-dev-* named volumes (.next output,
+          # node_modules) survive across runs — see that script's header.
+          if [ "${ACT_KEEP_TEST_VOLUMES:-}" = "1" ]; then
+            docker compose -f docker-compose.test.yml down
+          else
+            docker compose -f docker-compose.test.yml down -v
+          fi
+          supabase stop || true

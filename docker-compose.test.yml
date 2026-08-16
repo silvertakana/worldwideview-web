@@ -1,0 +1,459 @@
+# =============================================================================
+# WWV BILLING TEST STACK (docker-compose.test.yml)
+# =============================================================================
+# Isolated, offline-friendly stack for billing E2E testing. Mirrors
+# docker-compose.dev.yml (same 7 services, same env-var parameterization,
+# bind mounts, WATCHPACK_POLLING, internal network) and ADDS the test-only
+# services: stripe-mock, webhook-simulator (on-demand), playwright-runner
+# (on-demand). Design doc: .agents/research/billing-test-architecture.md.
+#
+# SECURITY NOTE
+#   The inline secrets are TEST-ONLY DEFAULT values. ${VAR:-default}
+#   interpolation lets CI inject real test-mode credentials through the
+#   process env (see the hub STRIPE_* entries and .github/workflows/
+#   billing-e2e.yml) -- the values below are the local-run fallbacks only.
+#   Nothing here is a production credential. stripe-mock accepts any key; the
+#   webhook simulator signs with the TEST webhook secret; the Supabase keys
+#   are the well-known `supabase start` local defaults. NEVER copy production
+#   secrets into this file or into the host .env files used below.
+#
+# PREREQUISITES
+#   1. Local Supabase is EXTERNAL (runs on the host via the Supabase CLI,
+#      same pattern as .github/workflows/ci.yml):
+#          cd <hub worktree>
+#          npx supabase start          # pulls containers, applies supabase/migrations/
+#          npx supabase db push --local
+#      It listens on host ports api=54321 / db=54322 (see supabase/config.toml).
+#      Containers reach it at host.docker.internal:54321 via the
+#      host-gateway extra_hosts entries below (works on Docker Desktop and
+#      Linux CI runners). Start it BEFORE `docker compose up`.
+#   2. The GLOBE_DIR checkout must contain Dockerfile.dev. The local globe
+#      worktree (worldwideview.fix-billing-tier) currently only ships a
+#      placeholder Dockerfile.test, so one-time copy from the main checkout:
+#          copy C:\dev\wwv\worldwideview\Dockerfile.dev  ->  C:\dev\wwv\worldwideview.fix-billing-tier\Dockerfile.dev
+#      (dev-only file; CI checkouts have it natively).
+#   3. Default source dirs (relative to THIS file's directory, i.e. the hub
+#      worktree) are ecosystem siblings. Override via env vars in CI:
+#          GLOBE_DIR=./globe HUB_DIR=. docker compose ... up -d
+#   4. The test stack is MUTUALLY EXCLUSIVE with the dev stack: same host
+#      ports (3000/3001/3002/5000/80/443/5432/6379) and same wwv-dev-*
+#      container names. Stop the dev stack first:
+#          docker compose -f docker-compose.dev.yml down
+#
+# HOW TO RUN (from the ecosystem root or the hub worktree)
+#   1. Bring up the always-running services (builds images, starts db/redis/
+#      globe/hub/marketplace/data-engine/caddy/stripe-mock):
+#          docker compose -f docker-compose.test.yml up -d --build
+#   2. Run the billing Playwright suite (on-demand runner container):
+#          docker compose --profile test -f docker-compose.test.yml run --rm playwright-runner
+#      Override the suite: append a command, e.g.
+#          docker compose --profile test -f docker-compose.test.yml run --rm playwright-runner \
+#            node_modules/.bin/playwright test --config=tests/playwright.billing.config.ts --grep "no-org"
+#   3. Fire the signed-webhook simulator matrix (L1, no browser):
+#          docker compose --profile simulator -f docker-compose.test.yml run --rm webhook-simulator --matrix
+#      Single event + edge cases, e.g.:
+#          docker compose --profile simulator -f docker-compose.test.yml run --rm webhook-simulator \
+#            customer.subscription.updated --status past_due --email billing-e2e@worldwideview.local
+#   4. Teardown (fresh DB per run):
+#          docker compose -f docker-compose.test.yml down -v     # wipe test volumes
+#          npx supabase stop                                     # stop local Supabase
+#
+# TEST-ONLY SECRETS (local-run defaults; overridable via env vars -- CI
+# injects real Stripe test-mode keys per billing-e2e.yml)
+#   STRIPE_SECRET_KEY       sk_test_local_stripe_mock_fake_key   (default; stripe-mock accepts anything)
+#   STRIPE_WEBHOOK_SECRET   whsec_test_simulator_secret          (default; simulator signs with this)
+#   STRIPE_PRO_PRICE_ID     price_1TiVzJCnLxBZfLqIEC3gKEOi      (test-mode public ID; real test account)
+#   STRIPE_PRO_ANNUAL_PRICE_ID  price_1TikxeCnLxBZfLqI06cRgceg  (test-mode public ID)
+#   STRIPE_TEAM_MONTHLY_PRICE_ID price_1TikxmCnLxBZfLqIHlviWvYg (test-mode public ID)
+#   STRIPE_TEAM_ANNUAL_PRICE_ID  price_1TikxqCnLxBZfLqINdd5I2xg (test-mode public ID)
+#   (canonical source: src/lib/billing/constants.ts DEFAULT_PRICE_IDS - keep in sync)
+#   ENCRYPTION_MASTER_KEY    33deaa3777adb6b6c76987b80d10b4e6   (globe boot; TEST ONLY hex)
+#   BETTER_AUTH_SECRET       Be9Be6Unk7XJY/C6TIYhDLbKGPut3FogeSQicDUp7JI=  (globe boot; TEST ONLY base64)
+#   CROSS_SERVICE_SECRET    wwv-test-hmac-secret-2026            (hub <-> globe tier sync HMAC)
+#   SUPABASE keys           default `supabase start` local keys  (anon + service_role, see hub env)
+#
+# KNOWN GAPS (outside this file's scope, flagged for follow-up)
+#   - Hub Stripe routing: src/lib/stripe/client.ts reads
+#     STRIPE_HOST/STRIPE_PORT/STRIPE_PROTOCOL and spreads them into the
+#     stripe-node constructor ONLY when truthy. Local runs default to
+#     stripe-mock (vars below); CI (billing-e2e.yml) sets them explicitly
+#     EMPTY so the SDK keeps its real-API defaults and the hub talks to real
+#     Stripe test mode. The `${VAR-default}` form propagates the CI empty
+#     string; `${VAR:-default}` would fall back to stripe-mock, which is why
+#     the host/port/protocol entries below use `-` not `:-`.
+#   - Spec-side Stripe REST: billing-*.spec.ts default STRIPE_BASE to the real
+#     API (https://api.stripe.com/v1) unless STRIPE_BASE_URL is set. CI no
+#     longer sets STRIPE_BASE_URL, so the specs' direct Stripe helpers hit the
+#     same real test account as the hub. The on-demand playwright-runner
+#     service (local offline use only) still pins STRIPE_BASE_URL to
+#     stripe-mock; it is unused by the CI workflow.
+#   - The runner mounts ONLY tests/test/node_modules from HUB_DIR (deliberately
+#     NOT the whole tree): tests/lib/env.ts's loadHubEnv() overwrites
+#     process.env unconditionally, so exposing the hub .env files would
+#     clobber the test env with host values.
+# =============================================================================
+
+name: wwv-test
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: wwv-dev-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: worldwideview
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - wwv-dev-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: wwv-dev-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  globe:
+    build:
+      context: ${GLOBE_DIR:-../worldwideview.fix-billing-tier}
+      dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha,scope=wwv-globe
+      cache_to:
+        - type=gha,mode=max,scope=wwv-globe,ignore-error=true
+    container_name: wwv-dev-globe
+    ports:
+      - "${GLOBE_PORT:-3000}:3000"
+    volumes:
+      - ${GLOBE_DIR:-../worldwideview.fix-billing-tier}:/app
+      - wwv-dev-globe-modules:/app/node_modules
+      - wwv-dev-globe-next:/app/.next
+    env_file:
+      - path: ${GLOBE_DIR:-../worldwideview.fix-billing-tier}/.env
+        required: false
+      - path: ${GLOBE_DIR:-../worldwideview.fix-billing-tier}/.env.local
+        required: false
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/worldwideview?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      ALLOWED_DEV_ORIGIN: "app.wwv.local"
+      CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"   # TEST ONLY, shared with hub
+      # Globe boot secrets (TEST ONLY). src/instrumentation.ts throws at
+      # startup without ENCRYPTION_MASTER_KEY and BETTER_AUTH_SECRET; the CI
+      # globe checkout has no .env files, so these compose defaults are what
+      # boot it. ENCRYPTION_MASTER_KEY is 32 hex chars (openssl rand -hex 16);
+      # BETTER_AUTH_SECRET is openssl rand -base64 32. ${VAR:-default} lets CI
+      # inject real values when the globe needs real credentials.
+      ENCRYPTION_MASTER_KEY: "${ENCRYPTION_MASTER_KEY:-33deaa3777adb6b6c76987b80d10b4e6}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-Be9Be6Unk7XJY/C6TIYhDLbKGPut3FogeSQicDUp7JI=}"
+      WATCHPACK_POLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: "--use-system-ca"
+    command:
+      - sh
+      - -c
+      # The bind mount below shadows /app with the host checkout, which never
+      # contains src/generated (gitignored in the globe repo). The image's
+      # Dockerfile.dev generates the Prisma client at build, but the mount
+      # hides it, so re-generate at startup (generate needs no DB; db push
+      # still waits on the db healthcheck via depends_on).
+      - "cd /app && npx prisma generate && npx prisma db push && npx next dev --port ${GLOBE_PORT:-3000} --hostname 0.0.0.0"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  hub:
+    build:
+      context: ${HUB_DIR:-.}
+      dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha,scope=wwv-hub
+      cache_to:
+        - type=gha,mode=max,scope=wwv-hub,ignore-error=true
+    container_name: wwv-dev-hub
+    ports:
+      - "${HUB_PORT:-3001}:3001"
+    volumes:
+      - ${HUB_DIR:-.}:/app
+      - wwv-dev-hub-modules:/app/node_modules
+      - wwv-dev-hub-next:/app/.next
+    env_file:
+      - path: ${HUB_DIR:-.}/.env
+        required: false
+      - path: ${HUB_DIR:-.}/.env.local
+        required: false
+    environment:
+      # --- TEST-SPECIFIC OVERRIDES (compose `environment` wins over env_file) ---
+      # Local Supabase (external CLI stack on the host; api port from supabase/config.toml)
+      # Browser-facing URL MUST be loopback: NEXT_PUBLIC_* vars are inlined into
+      # the client bundle, and Chromium blocks insecure fetches from an https
+      # page to non-loopback hostnames (host.docker.internal = mixed content).
+      # The browser runs on the host/runner, so 127.0.0.1 reaches local Supabase
+      # AND is mixed-content exempt.
+      NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}"
+      # Server-to-server URL for server.ts / admin.ts / proxy.ts (preferred over
+      # NEXT_PUBLIC_SUPABASE_URL): inside the container 127.0.0.1 is the
+      # container itself, so the host's local Supabase needs host.docker.internal.
+      SUPABASE_INTERNAL_URL: "${SUPABASE_INTERNAL_URL:-http://host.docker.internal:54321}"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTk5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
+      # Cross-subdomain session cookie: the server-side getUser() in
+      # src/lib/supabase/cookieOptions.ts reads NEXT_PUBLIC_WWV_COOKIE_DOMAIN
+      # to emit the cookie Domain attribute. Without it the cookie is
+      # host-only and the server session lookup fails over Caddy TLS at
+      # hub.wwv.local. Default .wwv.local matches local dev (.env.local);
+      # CI can override via the compose step env if it ever differs.
+      NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
+      # Tenant/workspace domain the app renders ({subdomain}.{domain}). The
+      # app falls back to cloud-wwv.dev when unset, but the test stack routes
+      # *.wwv.local (Caddy + /etc/hosts provisioning in billing-e2e.yml), so
+      # the hub MUST render wwv.local for the setup-link journey
+      # (https://{subdomain}.wwv.local/setup) to resolve. Default wwv.local
+      # matches local dev (.env.local) and the Caddyfile provisioning; CI can
+      # override via the compose step env if it ever differs.
+      NEXT_PUBLIC_WORKSPACE_DOMAIN: "${NEXT_PUBLIC_WORKSPACE_DOMAIN:-wwv.local}"
+      # Billing UI + tier-sync enabled in the test stack
+      NEXT_PUBLIC_BILLING_ENABLED: "true"
+      # Globe tier-sync endpoint: compose network service name + internal port
+      # (crossServiceFetch throws if unset). Local dev .env.local uses the
+      # container name wwv-dev-globe; both resolve on the compose network.
+      PROVISIONING_API_URL: "http://globe:3000"
+      # Stripe routing: ${VAR:-default} lets CI inject real test-mode
+      # credentials (billing-e2e.yml); defaults point at stripe-mock for local
+      # runs. STRIPE_HOST/PORT/PROTOCOL use the `${VAR-default}` (not
+      # `${VAR:-default}`) form: billing-e2e.yml sets them EXPLICITLY EMPTY so
+      # the interpolation keeps the empty value instead of falling back to
+      # stripe-mock, and src/lib/stripe/client.ts (which only spreads them when
+      # truthy) then keeps Stripe's real-API defaults. Unset -> stripe-mock.
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_local_stripe_mock_fake_key}"
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_test_simulator_secret}"
+      # Stripe price IDs for plan resolution (src/lib/billing/constants.ts
+      # reads these; checkout throws "Plan not configured" without them).
+      # TEST-MODE public identifiers (price_...) — safe to commit. The canonical
+      # default values live in src/lib/billing/constants.ts DEFAULT_PRICE_IDS;
+      # YAML cannot import the module, so this block mirrors them as
+      # ${VAR:-default} compose defaults (they are the real billing test-account
+      # prices from .env.local). CI can override via process env if the test
+      # account ever rotates them — update BOTH here and DEFAULT_PRICE_IDS.
+      STRIPE_PRO_PRICE_ID: "${STRIPE_PRO_PRICE_ID:-price_1TiVzJCnLxBZfLqIEC3gKEOi}"
+      STRIPE_PRO_ANNUAL_PRICE_ID: "${STRIPE_PRO_ANNUAL_PRICE_ID:-price_1TikxeCnLxBZfLqI06cRgceg}"
+      STRIPE_TEAM_MONTHLY_PRICE_ID: "${STRIPE_TEAM_MONTHLY_PRICE_ID:-price_1TikxmCnLxBZfLqIHlviWvYg}"
+      STRIPE_TEAM_ANNUAL_PRICE_ID: "${STRIPE_TEAM_ANNUAL_PRICE_ID:-price_1TikxqCnLxBZfLqINdd5I2xg}"
+      # Cross-service HMAC shared with the globe (TEST ONLY)
+      CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"
+      # client.ts spreads these only when truthy; CI sets them empty for
+      # real-API defaults, local runs leave them unset -> stripe-mock.
+      STRIPE_HOST: "${STRIPE_HOST-stripe-mock}"
+      STRIPE_PORT: "${STRIPE_PORT-12111}"
+      STRIPE_PROTOCOL: "${STRIPE_PROTOCOL-http}"
+      # --- unchanged dev-compose settings ---
+      WATCHPACK_POLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: "--use-system-ca"
+    command:
+      - sh
+      - -c
+      - "cd /app && npx next dev --port ${HUB_PORT:-3001} --hostname 0.0.0.0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - stripe-mock
+    restart: unless-stopped
+
+  marketplace:
+    build:
+      context: ${MARKETPLACE_DIR:-../worldwideview-marketplace}
+      dockerfile: Dockerfile.dev-marketplace
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha,scope=wwv-marketplace
+      cache_to:
+        - type=gha,mode=max,scope=wwv-marketplace,ignore-error=true
+    container_name: wwv-dev-marketplace
+    ports:
+      - "${MARKETPLACE_PORT:-3002}:3002"
+    volumes:
+      - ${MARKETPLACE_DIR:-../worldwideview-marketplace}:/app
+      - wwv-dev-marketplace-modules:/app/node_modules
+      - wwv-dev-marketplace-next:/app/.next
+    env_file:
+      - path: ${MARKETPLACE_DIR:-../worldwideview-marketplace}/.env
+        required: false
+      - path: ${MARKETPLACE_DIR:-../worldwideview-marketplace}/.env.local
+        required: false
+    environment:
+      WATCHPACK_POLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: "--use-system-ca"
+    command:
+      - sh
+      - -c
+      - "cd /app && npx next dev --webpack --port ${MARKETPLACE_PORT:-3002} --hostname 0.0.0.0"
+    restart: unless-stopped
+
+  data-engine:
+    build:
+      context: ${ENGINE_DIR:-../wwv-data-engine}
+      dockerfile: Dockerfile.dev
+      # CI layer cache (BuildKit gha backend) — reuse layers across billing-e2e runs
+      cache_from:
+        - type=gha,scope=wwv-data-engine
+      cache_to:
+        - type=gha,mode=max,scope=wwv-data-engine,ignore-error=true
+    container_name: wwv-dev-engine
+    ports:
+      - "${ENGINE_PORT:-5000}:5000"
+    volumes:
+      - ${ENGINE_DIR:-../wwv-data-engine}:/app
+      - wwv-dev-engine-modules:/app/node_modules
+    env_file:
+      - path: ${ENGINE_DIR:-../wwv-data-engine}/.env
+        required: false
+    environment:
+      PORT: "${ENGINE_PORT:-5000}"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "development"
+      WWV_SKIP_WS_AUTH: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: wwv-dev-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${CADDYFILE_DIR:-../Caddyfile.dev}:/etc/caddy/Caddyfile:ro
+      - ${CERTS_DIR:-../certs}:/etc/caddy/certs:ro
+    depends_on:
+      - globe
+      - hub
+      - marketplace
+      - data-engine
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # TEST-ONLY SERVICES
+  # ---------------------------------------------------------------------------
+
+  # Stripe's official open-source mock. Stands in for api.stripe.com for the
+  # hub's outbound Stripe calls (customers.retrieve, checkout.sessions.*,
+  # subscriptions.*). Accepts any API key. Always running (part of `up -d`).
+  stripe-mock:
+    image: stripe/stripe-mock:latest
+    container_name: wwv-test-stripe-mock
+    ports:
+      - "12111:12111"
+    restart: unless-stopped
+
+  # Signed-webhook simulator (L1). On-demand only (profile "simulator"): NOT
+  # started by plain `up -d`. Reuses the hub's Dockerfile.dev image so the
+  # `stripe` dependency is available for local signature verification.
+  # Invoke: docker compose --profile simulator -f docker-compose.test.yml run --rm webhook-simulator --matrix
+  # Entrypoint is the simulator CLI; args after `run --rm webhook-simulator` are
+  # passed straight to it (event type + flags).
+  webhook-simulator:
+    build:
+      context: ${HUB_DIR:-.}
+      dockerfile: Dockerfile.dev
+    container_name: wwv-test-webhook-simulator
+    profiles: ["simulator"]
+    volumes:
+      - ${HUB_DIR:-.}:/app
+    environment:
+      STRIPE_WEBHOOK_SECRET: "whsec_test_simulator_secret"   # TEST ONLY
+      STRIPE_SECRET_KEY: "sk_test_local_stripe_mock_fake_key"
+      WEBHOOK_TARGET_URL: "http://hub:3001/api/billing/webhook"
+    entrypoint: ["node", "test/simulator/index.js"]
+    depends_on:
+      - hub
+      - stripe-mock
+
+  # Playwright runner (L3 suite). On-demand only (profile "test"): NOT started
+  # by plain `up -d`. Image tag MUST match the @playwright/test version in
+  # HUB_DIR's node_modules (currently 1.61.1 -> v1.61.1-noble) so the image's
+  # browsers match the runner's playwright client.
+  # Invoke: docker compose --profile test -f docker-compose.test.yml run --rm playwright-runner
+  # Deliberately mounts ONLY tests/test/node_modules from HUB_DIR (not the
+  # whole tree): tests/lib/env.ts's loadHubEnv() overwrites process.env
+  # unconditionally, so exposing .env files would clobber the test env.
+  playwright-runner:
+    image: mcr.microsoft.com/playwright:${PLAYWRIGHT_TAG:-v1.61.1-noble}
+    container_name: wwv-test-playwright-runner
+    profiles: ["test"]
+    working_dir: /app
+    volumes:
+      - ${HUB_DIR:-.}/tests:/app/tests
+      - ${HUB_DIR:-.}/test:/app/test
+      - ${HUB_DIR:-.}/node_modules:/app/node_modules
+      - wwv-test-playwright-output:/app/playwright
+    environment:
+      # Supabase admin API (local CLI stack on the host; matches hub overrides).
+      # Loopback like the hub's browser-facing URL — the runner is unused in CI
+      # (the workflow runs Playwright on the runner host), and loopback keeps
+      # runner↔hub agreement on the client-side Supabase contract.
+      NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}"
+      # Same cookie-domain contract as the hub service (cookieOptions.ts reads
+      # NEXT_PUBLIC_WWV_COOKIE_DOMAIN); keep runner and hub in agreement.
+      NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxOTk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
+      # Stripe REST helpers + webhook signing (TEST ONLY)
+      STRIPE_SECRET_KEY: "sk_test_local_stripe_mock_fake_key"
+      STRIPE_WEBHOOK_SECRET: "whsec_test_simulator_secret"
+      # Direct Stripe REST in the specs points at stripe-mock (not the real API)
+      STRIPE_BASE_URL: "http://stripe-mock:12111/v1"
+      # Globe DB + tier-sync HMAC
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/worldwideview?schema=public"
+      CROSS_SERVICE_SECRET: "wwv-test-hmac-secret-2026"
+      CI: "${CI:-1}"
+    extra_hosts:
+      # .wwv.local must resolve for the Supabase cookie domain (baseURL is
+      # https://hub.wwv.local). host-gateway -> host -> caddy's published
+      # 443 -> routes by Host header to the hub/globe containers.
+      - "hub.wwv.local:host-gateway"
+      - "app.wwv.local:host-gateway"
+      - "host.docker.internal:host-gateway"
+    command:
+      - sh
+      - -c
+      - "node_modules/.bin/playwright test --config=tests/playwright.billing.config.ts"
+    depends_on:
+      - db
+      - globe
+      - hub
+      - caddy
+      - stripe-mock
+
+volumes:
+  wwv-dev-db-data:
+  wwv-dev-globe-modules:
+  wwv-dev-globe-next:
+  wwv-dev-hub-modules:
+  wwv-dev-hub-next:
+  wwv-dev-marketplace-modules:
+  wwv-dev-marketplace-next:
+  wwv-dev-engine-modules:
+  # Persists the runner's playwright/report + output across `run --rm` calls
+  # so CI can upload artifacts after the container is removed.
+  wwv-test-playwright-output:

@@ -5,9 +5,12 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { resolveCookieDomain } from '@/lib/supabase/cookieOptions';
+import { clearSignoutCookiesClient } from '@/lib/supabase/signoutCleanup';
 import { trackEvent } from '@/lib/analytics';
 import { BILLING_ENABLED } from '@/lib/billing/constants';
-import { diceBearUrl } from '@/lib/diceBear';
+import { canonicalAvatarState } from '@/lib/avatar';
+import { avatarFallbackDataUrl, resolveDisplayName } from '@/lib/avatarFallback';
 import styles from './Header.module.css';
 
 const NAV_LINKS = [
@@ -21,23 +24,41 @@ const NAV_LINKS = [
 export default function Header({ initialUser = null }: { initialUser?: User | null }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [activePath, setActivePath] = useState('');
+  // activePath is always the current pathname -- derive it instead of copying
+  // it into state via an effect.
+  const activePath = pathname;
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [user, setUser] = useState<User | null>(initialUser);
+  // Id of the user whose avatar failed to load. The fallback only applies to
+  // this exact user id, so a different signed-in user automatically gets a
+  // fresh avatar attempt without needing an effect to reset the flag.
+  const [avatarErrorUserId, setAvatarErrorUserId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const avatarState = canonicalAvatarState(user);
+  // The browser only ever talks to the same-origin canonical endpoint
+  // (`/api/avatar`); the server-side route proxies DiceBear or 307s to a
+  // custom avatar_url, so this component never embeds an external avatar URL.
+  const avatarSrc = user ? avatarState.canonicalUrl : null;
+  // Resolved display name (display_name ?? name ?? full_name) drives the
+  // initials fallback; the normalized email seed is the last resort. user.id
+  // is never used as a seed.
+  const resolvedDisplayName = user ? resolveDisplayName(user.user_metadata) : null;
+  const avatarFallbackSeed = resolvedDisplayName ?? avatarState.seed;
 
   const closeDropdown = useCallback(() => {
     setDropdownOpen(false);
   }, []);
 
-  useEffect(() => {
-    setActivePath(pathname);
-  }, [pathname]);
-
-  useEffect(() => {
-    closeDropdown();
-  }, [pathname, closeDropdown]);
+  // Close the dropdown whenever the route changes. Adjusting state during
+  // render (instead of in an effect) lets React fold the reset into the same
+  // render pass as the pathname change.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setDropdownOpen(false);
+  }
 
   useEffect(() => {
     const supabase = createClient();
@@ -69,6 +90,12 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    // The browser-side signOut() only clears its own storage-key chunks
+    // (`wwv-hub-auth-token` + chunks). Expire every chunk of BOTH session
+    // cookie names (pinned hub name + legacy/marketplace default Supabase
+    // name) so the shared .wwv.local jar does not accumulate stale cookies
+    // and eventually trip HTTP 431.
+    clearSignoutCookiesClient(resolveCookieDomain(process.env.NEXT_PUBLIC_WWV_COOKIE_DOMAIN));
     router.push('/');
   }
 
@@ -111,11 +138,18 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                 aria-label="User menu"
                 title={user.email ?? ''}
               >
-                <img
-                  src={user.user_metadata?.avatar_url || diceBearUrl(user.id)}
-                  alt=""
-                  className={styles.avatarImg}
-                />
+                {avatarSrc && (
+                  <img
+                    src={
+                      avatarErrorUserId === user.id
+                        ? avatarFallbackDataUrl(avatarFallbackSeed)
+                        : avatarSrc
+                    }
+                    alt=""
+                    className={styles.avatarImg}
+                    onError={() => setAvatarErrorUserId(user.id)}
+                  />
+                )}
               </button>
               {dropdownOpen && (
                 <div className={styles.dropdown} role="menu">
@@ -146,7 +180,7 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
               Sign In
             </Link>
           )}
-          
+
           <button
             className={styles.menuBtn}
             onClick={() => setMenuOpen((v) => !v)}
@@ -216,14 +250,13 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
           </>
         )}
         {!user && (
-          <div className={styles.mobileCta}>
-            <Link
-              href="/login"
-              className={styles.signIn}
-            >
-              Sign In
-            </Link>
-          </div>
+          <Link
+            href="/login"
+            className={styles.mobileLink}
+            onClick={() => setMenuOpen(false)}
+          >
+            Sign In
+          </Link>
         )}
       </div>
     </header>

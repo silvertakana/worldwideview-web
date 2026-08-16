@@ -61,48 +61,55 @@ export default function InstancesPage() {
   const [setupStates, setSetupStates] = useState<Record<string, boolean>>({})
   const [settingUp, setSettingUp] = useState<string | null>(null)
 
-  const fetchWorkspaces = useCallback(async () => {
-    try {
-      const [wsRes, entRes] = await Promise.all([
-        fetch('/api/provisioning/workspace'),
-        fetch('/api/auth/entitlement'),
-      ])
-      const wsData = await wsRes.json()
-      const workspaces: Workspace[] = wsData.workspaces || []
-      if (workspaces) setWorkspaces(workspaces)
-      if (wsData.account) setAccount(wsData.account)
-      if (entRes.ok) {
-        const entData = await entRes.json()
-        setEntitlement(entData)
-      }
-
-      // Fetch setup status for each workspace from the globe's status endpoint.
-      // TODO: replace with batch endpoint when available. Falls back to Launch
-      // if the per-instance /api/instance/{id}/status endpoint does not exist yet.
-      const states: Record<string, boolean> = {}
-      await Promise.allSettled(
-        workspaces.map(async (ws: Workspace) => {
-          try {
-            const res = await fetch(`/api/provisioning/workspace/${ws.id}/status`)
-            if (res.ok) {
-              const data = await res.json()
-              states[ws.id] = data.setupCompleted === true
-            } else if (res.status === 404) {
-              // status endpoint not implemented yet -- default to completed
-              states[ws.id] = true
-            } else {
+  // Promise-chain style (not async/await) keeps every state update inside a
+  // .then/.finally callback, so mounting this page never performs a
+  // synchronous setState from an effect.
+  const fetchWorkspaces = useCallback(() => {
+    Promise.all([
+      fetch('/api/provisioning/workspace'),
+      fetch('/api/auth/entitlement'),
+    ])
+      .then(async ([wsRes, entRes]) => {
+        const wsData = await wsRes.json()
+        const workspaces: Workspace[] = wsData.workspaces || []
+        if (workspaces) setWorkspaces(workspaces)
+        if (wsData.account) setAccount(wsData.account)
+        if (entRes.ok) {
+          const entData = await entRes.json()
+          setEntitlement(entData)
+        }
+        return workspaces
+      })
+      .then((workspaces: Workspace[]) => {
+        // Fetch setup status for each workspace from the globe's status endpoint.
+        // TODO: replace with batch endpoint when available. Falls back to Launch
+        // if the per-instance /api/instance/{id}/status endpoint does not exist yet.
+        const states: Record<string, boolean> = {}
+        return Promise.allSettled(
+          workspaces.map(async (ws: Workspace) => {
+            try {
+              const res = await fetch(`/api/provisioning/workspace/${ws.id}/status`)
+              if (res.ok) {
+                const data = await res.json()
+                states[ws.id] = data.setupCompleted === true
+              } else if (res.status === 404) {
+                // status endpoint not implemented yet -- default to completed
+                states[ws.id] = true
+              } else {
+                states[ws.id] = true
+              }
+            } catch {
               states[ws.id] = true
             }
-          } catch {
-            states[ws.id] = true
-          }
-        }),
-      )
-      setSetupStates(states)
-    } catch {
-      // network error -- keep current list
-    }
-    setLoading(false)
+          }),
+        ).then(() => setSetupStates(states))
+      })
+      .catch(() => {
+        // network error -- keep current list
+      })
+      .finally(() => {
+        setLoading(false)
+      })
   }, [])
 
   useEffect(() => {
@@ -124,19 +131,25 @@ export default function InstancesPage() {
     setError('')
     if (!renameValue.trim()) return
 
-    const res = await fetch(`/api/provisioning/workspace/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: renameValue.trim() }),
-    })
+    try {
+      const res = await fetch(`/api/provisioning/workspace/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: renameValue.trim() }),
+      })
 
-    const data = await res.json()
-    if (res.ok) {
+      const data = await res.json()
+      if (res.ok) {
+        setRenamingId(null)
+        setRenameValue('')
+        fetchWorkspaces()
+      } else {
+        setError(data.error || 'Rename failed')
+      }
+    } catch {
+      setError('Failed to rename instance. Please try again.')
+    } finally {
       setRenamingId(null)
-      setRenameValue('')
-      fetchWorkspaces()
-    } else {
-      setError(data.error || 'Rename failed')
     }
   }
 
@@ -144,17 +157,22 @@ export default function InstancesPage() {
     setDeleteModalError('')
     setDeleteDeleting(true)
 
-    const res = await fetch(`/api/provisioning/workspace/${id}`, {
-      method: 'DELETE',
-    })
+    try {
+      const res = await fetch(`/api/provisioning/workspace/${id}`, {
+        method: 'DELETE',
+      })
 
-    const data = await res.json()
-    setDeleteDeleting(false)
-    if (res.ok) {
-      setDeleteModal(null)
-      fetchWorkspaces()
-    } else {
-      setDeleteModalError(data.error || 'Delete failed')
+      const data = await res.json()
+      if (res.ok) {
+        setDeleteModal(null)
+        fetchWorkspaces()
+      } else {
+        setDeleteModalError(data.error || 'Delete failed')
+      }
+    } catch {
+      setDeleteModalError('Failed to delete instance. Please try again.')
+    } finally {
+      setDeleteDeleting(false)
     }
   }
 
@@ -431,7 +449,7 @@ export default function InstancesPage() {
       ) : entitlementAlreadyUsed && workspaces.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
           <p style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)' }}>
-            You've already created your instance.
+            You&apos;ve already created your instance.
           </p>
         </div>
       ) : showForm ? (
@@ -458,7 +476,7 @@ export default function InstancesPage() {
       )}
       {atInstanceLimit && !isSuspended && !isDeleted && BILLING_ENABLED && (
         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-sm)' }}>
-          You've reached the instance limit for your plan.
+          You&apos;ve reached the instance limit for your plan.
         </p>
       )}
       {atInstanceLimit && !isSuspended && !isDeleted && !BILLING_ENABLED && (

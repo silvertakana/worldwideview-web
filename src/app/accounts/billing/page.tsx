@@ -1,7 +1,11 @@
-import { CreditCard, Zap } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CreditCard, Plus, Zap } from "lucide-react";
 import styles from "../accounts.module.css";
+import hubStyles from "../../hub/hub.module.css";
 import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
+import { getHubTierFallback, type HubTierFallback } from "@/lib/billing/tier-fallback";
+import { resolveDisplayTier, shouldConsultHubAuthority, type GlobeTierSnapshot } from "@/lib/billing/display-tier";
 
 export const metadata = { title: "Billing | Your Account" };
 
@@ -10,12 +14,16 @@ export default async function BillingPage() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    let plan = "local";
-    let status = "not_found";
-    let trialEndsAt: string | null = null;
+    const globe: GlobeTierSnapshot = {
+        succeeded: false,
+        plan: null,
+        tier: null,
+        status: null,
+        trialEndsAt: null,
+        isTrialing: false,
+    };
     let instanceCount = 0;
     let instanceLimit = Infinity;
-    let isTrialing = false;
     let trialDaysRemaining: number | null = null;
 
     if (user) {
@@ -23,18 +31,34 @@ export default async function BillingPage() {
             const res = await crossServiceFetch(`/api/service/tier?email=${encodeURIComponent(user.email!)}`);
             if (res.ok) {
                 const data = await res.json();
-                plan = data.plan || "local";
-                status = data.status || "not_found";
-                trialEndsAt = data.trialEndsAt || null;
+                // Globe returns `tier`/`effectiveStatus` (not `plan`).
+                globe.succeeded = true;
+                globe.plan = data.plan ?? null;
+                globe.tier = data.tier ?? null;
+                globe.status = data.status || data.effectiveStatus || "not_found";
+                globe.trialEndsAt = data.trialEndsAt ?? null;
+                globe.isTrialing = data.isTrialing ?? (globe.status === "trialing");
                 instanceCount = data.instanceCount ?? 0;
                 instanceLimit = data.instanceLimit ?? Infinity;
-                isTrialing = data.isTrialing ?? (status === "trialing");
                 trialDaysRemaining = data.trialDaysRemaining ?? null;
             }
         } catch {
-            // Globe unreachable - fall back to local plan
+            // Globe unreachable
         }
     }
+
+    // The globe tier cache is a mirror that fails open to "free" when the
+    // org_tiers row is missing or stale, so a globe "free" is inconclusive,
+    // not proof of non-payment. The hub is the billing authority (ADR-0009):
+    // consult its fallback (Stripe live subscription, then code-redeemed
+    // entitlement) whenever the globe did not report a paid tier.
+    let hubFallback: HubTierFallback | null = null;
+    if (user?.email && shouldConsultHubAuthority(globe)) {
+        hubFallback = await getHubTierFallback(user.id, user.email);
+    }
+    const decision = resolveDisplayTier(globe, hubFallback);
+    const { plan, status, trialEndsAt, isTrialing } = decision;
+    const globeSucceeded = globe.succeeded;
 
     const isLocal = plan === "local";
 
@@ -70,11 +94,29 @@ export default async function BillingPage() {
                 )}
             </div>
 
+            {!isLocal && status !== "deleted" && instanceCount === 0 && !globeSucceeded && (
+                <div style={{
+                    display: "flex", alignItems: "center", gap: "var(--space-sm)",
+                    padding: "var(--space-md) var(--space-lg)",
+                    marginBottom: "var(--space-lg)",
+                    background: "var(--color-danger-bg, #fef2f2)",
+                    border: "1px solid var(--color-danger, #dc2626)",
+                    borderRadius: "var(--radius-md)",
+                    color: "var(--color-danger, #dc2626)",
+                    fontSize: "0.92rem", fontWeight: 500,
+                }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                    <span>Your account couldn&apos;t be fully set up. Please contact support.</span>
+                </div>
+            )}
+
             <p style={{ marginBottom: "var(--space-lg)", color: "var(--color-text-secondary)" }}>
                 {isLocal
                     ? "You are on the Free plan."
                     : status === "trialing"
-                        ? `You are on the Pro plan (trial).`
+                        ? trialEndsAt
+                            ? `Your ${plan === "enterprise" ? "Enterprise" : "Pro"} trial continues until ${new Date(trialEndsAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" })}.`
+                            : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan (trial).`
                         : status === "suspended"
                             ? "Your account has been suspended."
                             : `You are on the ${plan === "enterprise" ? "Enterprise" : "Pro"} plan.`
@@ -99,6 +141,22 @@ export default async function BillingPage() {
                 }}>
                     Instances: {instanceCount} of {instanceLimit === Infinity ? "Unlimited" : instanceLimit} used
                 </p>
+            )}
+
+            {instanceCount === 0 && (
+                <div style={{ marginBottom: "var(--space-lg)" }}>
+                    <Link
+                        href="/accounts/instances"
+                        className={hubStyles.submitButton}
+                        style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            gap: "var(--space-xs)", textDecoration: "none",
+                        }}
+                    >
+                        <Plus size={16} />
+                        Create your first instance
+                    </Link>
+                </div>
             )}
 
             <ManageBillingClient

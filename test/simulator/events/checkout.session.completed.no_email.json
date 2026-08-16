@@ -1,0 +1,25 @@
+{
+  "id": "evt_test_checkout_session_completed_no_email",
+  "object": "event",
+  "api_version": "2026-05-27.dahlia",
+  "created": 1786000000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": { "id": "req_test_checkout_no_email", "idempotency_key": "checkout-session-completed-no-email-test" },
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_simulator_no_email",
+      "object": "checkout.session",
+      "mode": "subscription",
+      "status": "complete",
+      "payment_status": "paid",
+      "amount_total": 2000,
+      "currency": "usd",
+      "customer": "cus_test_simulator",
+      "customer_details": null,
+      "metadata": {},
+      "subscription": "sub_test_simulator"
+    }
+  }
+}
