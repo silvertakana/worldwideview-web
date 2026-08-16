@@ -39,7 +39,7 @@ jobs:
           cache: pnpm
       - run: pnpm install
       - name: Type check
-        run: pnpm exec tsc --noEmit
+        run: pnpm typecheck
       - name: Lint
         run: pnpm lint
       - name: Test

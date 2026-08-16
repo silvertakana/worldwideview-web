@@ -9,7 +9,8 @@
     "lint:urls": "node scripts/lint-urls.mjs",
     "lint": "eslint && node scripts/lint-urls.mjs",
     "test": "vitest run",
-    "test:e2e": "playwright test --config=tests/playwright.billing.config.ts"
+    "test:e2e": "playwright test --config=tests/playwright.billing.config.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dicebear/adventurer-neutral": "^9.4.2",
@@ -24,7 +25,6 @@
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.577.0",
     "next": "16.2.3",
-    "next-mdx-remote": "^6.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
