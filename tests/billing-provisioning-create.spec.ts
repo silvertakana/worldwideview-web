@@ -54,14 +54,17 @@ import {
  * successful create the zero-instance CTA (instanceCount === 0) disappears.
  * Test 2 asserts that fixed behavior.
  *
- * REMAINING RENDERING GATE (documented, not a gap): the billing page's
- * "Instances: X of Y used" line only renders for non-local plans
- * (billing/page.tsx: {!isLocal && ...}). A UI create-instance alone never
- * writes org_tiers (that happens on tier-sync after payment), so the tier
- * mirror still reports tier=free -> Local plan and the line stays hidden
- * even though instanceCount is now 1. The instance count is asserted via
- * the CTA's disappearance (the CTA renders only when instanceCount === 0)
- * plus the globe DB workspace row and the /accounts/instances UI list.
+ * PLAN DISPLAY (hub authority, PR #69): the billing page treats a globe
+ * "free" as inconclusive and consults the hub's authority (Stripe live
+ * subscription first, then code-redeemed user_entitlements rows via
+ * getHubTierFallback). This suite grants each user a pro entitlement row,
+ * so the post-create billing page renders the PRO plan even though the
+ * globe mirror (org_tiers, written only on tier-sync after payment) still
+ * reports tier=free. The "Instances: X of Y used" line renders for the
+ * non-local plan; the globe tier payload carries no instanceLimit, so the
+ * page shows "Unlimited". The instance count is asserted via the CTA's
+ * disappearance (the CTA renders only when instanceCount === 0) plus the
+ * globe DB workspace row and the /accounts/instances UI list.
  */
 
 export const PASSWORD = 'Provisioning-2026!!';
@@ -82,7 +85,7 @@ loadHubEnv();
 
 const SUPABASE_BASE = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WORKSPACE_DOMAIN = process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'cloud-wwv.dev';
+const WORKSPACE_DOMAIN = process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'wwv.local';
 
 function requireSupabaseEnv(): void {
   if (!SUPABASE_BASE || !SERVICE_ROLE) {
@@ -386,17 +389,21 @@ test('provisioning-create happy path: entitled user creates a workspace via the 
   //      behavior this test asserts. The CTA is the billing page's only
   //      instanceCount-driven element, so its disappearance proves the
   //      count flowed from the globe through the hub to the UI.
-  //   2. The plan mirror is unchanged (Local/Free): a UI create-instance
-  //      alone never writes org_tiers (that happens on tier-sync after
-  //      payment), so the "Instances: X of Y used" line — gated on
-  //      {!isLocal} — stays hidden even at instanceCount 1.
+  //   2. Hub-authority plan display (PR #69): a UI create-instance alone
+  //      never writes org_tiers, so the globe mirror reports tier=free and
+  //      that is INCONCLUSIVE. The page consults the hub's authority
+  //      (getHubTierFallback) and resolves this user's e2e-granted pro
+  //      entitlement (user_entitlements row) to the Pro plan. The
+  //      "Instances: X of Y used" line (gated on {!isLocal}) now
+  //      RENDERS (instanceCount 1; the globe tier payload carries no
+  //      instanceLimit, so the page shows "Unlimited").
   await page.goto('/accounts/billing');
-  await expect(page.getByText(/You are on the Free plan\./)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(/You are on the Pro plan\./)).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('link', { name: /create your first instance/i })).toHaveCount(0, {
     timeout: 10000,
   });
-  await expect(page.getByText(/Instances: \d+ of/)).toHaveCount(0);
-  console.log('[provisioning-create] Billing page: Free plan shown, zero-instance CTA gone (instanceCount=1)');
+  await expect(page.getByText(/Instances: \d+ of (Unlimited|\d+) used/)).toBeVisible({ timeout: 10000 });
+  console.log('[provisioning-create] Billing page: Pro plan shown (hub authority), zero-instance CTA gone, instances line visible (instanceCount=1)');
 });
 
 // ---------------------------------------------------------------------------

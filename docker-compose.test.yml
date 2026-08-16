@@ -222,6 +222,14 @@ services:
       # hub.wwv.local. Default .wwv.local matches local dev (.env.local);
       # CI can override via the compose step env if it ever differs.
       NEXT_PUBLIC_WWV_COOKIE_DOMAIN: "${NEXT_PUBLIC_WWV_COOKIE_DOMAIN:-.wwv.local}"
+      # Tenant/workspace domain the app renders ({subdomain}.{domain}). The
+      # app falls back to cloud-wwv.dev when unset, but the test stack routes
+      # *.wwv.local (Caddy + /etc/hosts provisioning in billing-e2e.yml), so
+      # the hub MUST render wwv.local for the setup-link journey
+      # (https://{subdomain}.wwv.local/setup) to resolve. Default wwv.local
+      # matches local dev (.env.local) and the Caddyfile provisioning; CI can
+      # override via the compose step env if it ever differs.
+      NEXT_PUBLIC_WORKSPACE_DOMAIN: "${NEXT_PUBLIC_WORKSPACE_DOMAIN:-wwv.local}"
       # Billing UI + tier-sync enabled in the test stack
       NEXT_PUBLIC_BILLING_ENABLED: "true"
       # Globe tier-sync endpoint: compose network service name + internal port
