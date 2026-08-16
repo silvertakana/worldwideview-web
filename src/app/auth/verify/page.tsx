@@ -8,17 +8,18 @@ import hubStyles from '../../hub/hub.module.css'
 import styles from '../../accounts/accounts.module.css'
 
 function VerifyContent() {
-  const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing')
   const searchParams = useSearchParams()
   const router = useRouter()
+  const code = searchParams.get('code')
+  const next = searchParams.get('next')
+  // A missing code is not an async outcome -- derive it as the initial state
+  // instead of setting it from inside an effect.
+  const [status, setStatus] = useState<'processing' | 'success' | 'error'>(() =>
+    code ? 'processing' : 'error',
+  )
 
   useEffect(() => {
-    const code = searchParams.get('code')
-    const next = searchParams.get('next')
-    if (!code) {
-      setStatus('error')
-      return
-    }
+    if (!code) return
     const target = safeNext(next)
     verifyEmail(code).then((result) => {
       if (result.success) {
@@ -27,9 +28,9 @@ function VerifyContent() {
         setStatus('error')
       }
     })
-    // searchParams and router are stable refs -- no need to re-run
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // code/next are plain strings from the URL and router is a stable ref, so
+    // the effect only re-runs if the params change while the page is open.
+  }, [code, next, router])
 
   return (
     <div className={hubStyles.hubContainer}>

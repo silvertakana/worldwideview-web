@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useState, ReactNode } from "react";
 
 type Theme = "light" | "dark";
 const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
@@ -11,20 +11,27 @@ const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
 export const useTheme = () => useContext(ThemeContext);
 
 export default function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-
-  useEffect(() => {
+  // localStorage is browser-only, so the lazy initializer guards for SSR and
+  // reads the stored theme before the first client paint. No effect is needed
+  // to seed the state, and there is no flash of the wrong theme.
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "dark";
     const stored = localStorage.getItem("wwv-web-theme") as Theme | null;
-    const initial = stored || "dark";
-    setTheme(initial);
-    document.documentElement.setAttribute("data-theme", initial);
-  }, []);
+    return stored || "dark";
+  });
+
+  // Keep the DOM attribute in sync with the theme. useLayoutEffect runs before
+  // paint so toggling never shows a frame with the old data-theme. This effect
+  // never sets state -- it only writes to an external system (the document
+  // element).
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   const toggle = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     localStorage.setItem("wwv-web-theme", next);
-    document.documentElement.setAttribute("data-theme", next);
   };
 
   return (

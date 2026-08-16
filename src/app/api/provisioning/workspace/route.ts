@@ -13,6 +13,14 @@ async function requireUser(): Promise<{ user: { id: string; email: string }; res
   return { user: { id: user.id, email: user.email ?? '' }, response: null }
 }
 
+interface GlobeInstance {
+  id: string
+  name: string
+  subdomain?: string | null
+  status?: string
+  createdAt?: string
+}
+
 export async function GET() {
   const auth = await requireUser()
   if (auth.response) return auth.response
@@ -22,7 +30,9 @@ export async function GET() {
   const instancesRes = await crossServiceFetch('/api/instance', {
     searchParams: { userId: user.id, email: user.email },
   })
-  const instancesData = await instancesRes.json().catch(() => ({ instances: [] }))
+  const instancesData = (await instancesRes.json().catch(() => ({ instances: [] }))) as {
+    instances?: GlobeInstance[]
+  }
 
   // Get user's tier from hub entitlements (source of truth)
   const userTier = await getHighestTier(user.id)
@@ -37,7 +47,7 @@ export async function GET() {
   const instanceLimit = TIER_INSTANCE_LIMITS[userTier] ?? null
 
   // Map instances to workspaces format
-  const workspaces = (instancesData.instances || []).map((inst: any) => ({
+  const workspaces = (instancesData.instances || []).map((inst) => ({
     id: inst.id,
     name: inst.name,
     subdomain: inst.subdomain,

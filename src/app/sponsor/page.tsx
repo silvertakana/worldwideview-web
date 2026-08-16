@@ -32,7 +32,7 @@ export default function SponsorPage() {
                 <h2>Sponsor Silver Phung on GitHub</h2>
               </div>
               <p>
-                I'm Building WorldWideView: an open geospatial intelligence platform mapping real-world events in real time. I'm a solo founder focused on building something we all wish existed!
+                I&apos;m Building WorldWideView: an open geospatial intelligence platform mapping real-world events in real time. I&apos;m a solo founder focused on building something we all wish existed!
               </p>
               <a 
                 href="https://github.com/sponsors/silvertakana" 

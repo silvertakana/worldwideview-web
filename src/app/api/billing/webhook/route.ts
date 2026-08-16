@@ -82,6 +82,7 @@ interface PayloadEmailFields {
     customer_email?: string | null;
     customer_details?: { email?: string | null } | null;
     customer?: string | { email?: string | null } | null;
+    metadata?: { email?: string | null } | null;
 }
 
 /**
@@ -110,7 +111,8 @@ function emailFromPayload(obj: PayloadEmailFields): string | null {
 async function resolveCustomerEmail(stripe: Stripe, customerId: string): Promise<string | null> {
     try {
         const customer = await stripe.customers.retrieve(customerId);
-        return !customer.deleted ? (customer as any).email : null;
+        if (customer.deleted) return null;
+        return customer.email;
     } catch (err) {
         console.warn(
             `[webhook] Could not retrieve customer ${customerId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -131,8 +133,9 @@ export async function POST(req: Request) {
       sig!,
       process.env.STRIPE_WEBHOOK_SECRET!,
     );
-  } catch (err: any) {
-    return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return new NextResponse(`Webhook Error: ${message}`, { status: 400 });
   }
 
   // PMT-008: claim the event before processing. The unique event_id makes
@@ -165,7 +168,7 @@ export async function POST(req: Request) {
         const payload = event.data.object as PayloadEmailFields;
         const email =
           emailFromPayload(payload) ||
-          (payload as any).metadata?.email ||
+          payload.metadata?.email ||
           (typeof payload.customer === "string"
             ? await resolveCustomerEmail(stripe, payload.customer)
             : null);
@@ -312,7 +315,7 @@ export async function POST(req: Request) {
         break;
       }
     }
-  } catch (err: any) {
+  } catch (err) {
     console.error(`[webhook] Error handling ${event.type}:`, err);
   }
 
