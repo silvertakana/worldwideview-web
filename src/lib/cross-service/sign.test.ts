@@ -25,7 +25,7 @@ describe("signCrossServiceRequest", () => {
             method: "POST",
             path: "/api/test",
             body: { key: "value" },
-            timestamp: 1234567890000,
+            timestamp: 1234567890, // SECONDS, matching the globe verifier's expected unit
         };
         const headers = signCrossServiceRequest(opts);
         const sig = headers["X-Service-Signature"].match(/sig=([0-9a-f]+)/)![1];
@@ -36,6 +36,24 @@ describe("signCrossServiceRequest", () => {
         const expectedSig = crypto.createHmac("sha256", TEST_SECRET).update(canon, "utf8").digest("hex");
 
         expect(sig).toBe(expectedSig);
+    });
+
+    it("normalizes a millisecond timestamp to seconds before signing", () => {
+        const headers = signCrossServiceRequest({
+            method: "POST",
+            path: "/api/test",
+            body: { key: "value" },
+            timestamp: 1234567890000, // milliseconds (~2009) — the unit verify.ts rejects
+        });
+
+        expect(headers["X-Service-Timestamp"]).toBe("1234567890");
+        expect(headers["X-Service-Signature"]).toMatch(/^t=1234567890,n=/);
+
+        const bodyStr = JSON.stringify({ key: "value" });
+        const bodyHash = crypto.createHash("sha256").update(bodyStr, "utf8").digest("hex");
+        const canon = `POST\n/api/test\n1234567890\n${bodyHash}`;
+        const expectedSig = crypto.createHmac("sha256", TEST_SECRET).update(canon, "utf8").digest("hex");
+        expect(headers["X-Service-Signature"]).toContain(`sig=${expectedSig}`);
     });
 });
 
