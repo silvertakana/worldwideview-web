@@ -56,3 +56,4 @@ certificates
 # local dev artifacts
 .dev-server.log
 .vscode/
+graphify-out/
