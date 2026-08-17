@@ -18,6 +18,17 @@ function sha256Hex(input: string): string {
     return crypto.createHash("sha256").update(input, "utf8").digest("hex");
 }
 
+// The globe verifier (verify.ts) expects SECONDS since the Unix epoch
+// (`Math.floor(Date.now() / 1000)` with a ±300s window). A milliseconds value
+// (13-digit, e.g. raw `Date.now()`) would always be rejected as "expired".
+// Any timestamp far outside the verification window is unambiguously
+// milliseconds (epoch ms is ~1e12 vs ~1.8e9 seconds) — normalize it down to
+// seconds. Values inside the window pass through untouched.
+function normalizeTimestamp(input: number): number {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return input > nowSeconds + 300 ? Math.floor(input / 1000) : input;
+}
+
 export function signCrossServiceRequest(opts: {
     method: string;
     path: string;
@@ -26,7 +37,7 @@ export function signCrossServiceRequest(opts: {
 }): SignedHeaders {
     const secret = getSecret();
     const nonce = crypto.randomUUID();
-    const timestamp = opts.timestamp ?? Math.floor(Date.now() / 1000);
+    const timestamp = normalizeTimestamp(opts.timestamp ?? Math.floor(Date.now() / 1000));
 
     const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : "";
     const bodyHash = sha256Hex(bodyStr);
