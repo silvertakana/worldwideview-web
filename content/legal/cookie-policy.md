@@ -1,12 +1,12 @@
 ---
 title: Cookie Policy
-lastUpdated: 2026-05-27
+lastUpdated: 2026-08-27
 seo: noindex
 ---
 
 # Cookie Policy
 
-**Last Updated:** May 27, 2026
+**Last Updated:** August 27, 2026
 
 This Cookie Policy explains how Tri Phung trading as WorldWideView ("we," "us," or "our") uses cookies and similar local storage technologies across our website (worldwideview.dev), Cloud Platform, and Marketplace.
 
@@ -41,7 +41,7 @@ To ensure your privacy and reduce our liability, we do not store your third-part
 | `wwv_key_nasa_firms` | Your personal NASA FIRMS MAP_KEY (for wildfire plugins). |
 
 ## 5. Third-Party Analytics and Advertising
-- **Umami**: We use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for
+- **Umami**: When enabled in our deployment configuration, we use a self-hosted instance of Umami (`analytics.worldwideview.dev`) for
   privacy-focused analytics. Umami is fully cookieless: it sets no cookies of any kind,
   including session cookies. It does not use fingerprinting or assign any persistent
   identifier to visitors. The data collected is limited to anonymized visit metadata --
