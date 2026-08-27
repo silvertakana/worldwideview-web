@@ -1,12 +1,12 @@
 ---
 title: Privacy Policy
-lastUpdated: 2026-05-27
+lastUpdated: 2026-08-27
 seo: noindex
 ---
 
 # Privacy Policy
 
-**Last Updated:** May 27, 2026
+**Last Updated:** August 27, 2026
 
 Welcome to WorldWideView. This Privacy Policy explains how Tri Phung trading as WorldWideView ("we," "us," or "our") collects, uses, shares, and protects your information when you use our website (worldwideview.dev), the WorldWideView Cloud Platform, the Local/Self-Hosted Edition, and the WorldWideView Marketplace.
 
@@ -26,7 +26,7 @@ We use a privacy-first, self-hosted analytics tool (Umami) to understand how our
 - Event metadata (e.g., plugin IDs, setting keys), which does not contain personally identifiable information (PII)
 
 ### C. Error Tracking
-We do not currently use error tracking software. Errors are monitored via server logs.
+We may collect error reports via our self-hosted, Sentry-compatible error tracking service (GlitchTip, hosted at sentry.worldwideview.dev) for operational purposes, such as diagnosing and resolving technical issues. Where applicable, names and other identifying information are masked or redacted before error reports are stored or analyzed. Errors are also monitored via server logs.
 
 ### D. User Preferences (Stored Locally)
 Certain preferences are stored directly on your device:
