@@ -255,7 +255,8 @@ async function runSweepPhase(sweepTargets) {
   console.log(`[reconcile] accounts affected: ${emails.join(', ') || '(no email on the drift items)'}`)
   const result = await requestTierLockSweep({ emails })
   console.log(
-    `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked}`,
+    `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked} ` +
+      `unapplied=${result.unapplied} failed=${result.failed}`,
   )
 }
 

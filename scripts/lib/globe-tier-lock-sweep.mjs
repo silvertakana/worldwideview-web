@@ -142,6 +142,29 @@ export function signCrossServiceRequest({ method, path, body, timestamp, secret 
 }
 
 /**
+ * The globe's sweep body is four counts, and the counts are the truth; its
+ * `success` flag is a convenience. The route computes that flag as
+ * `result.failed === 0`, so it says nothing at all about `unapplied`, and a body
+ * that simply never mentions a count is not a body that reported zero.
+ *
+ * @param {unknown} value the raw field
+ * @param {string} field the field's name, for the message only
+ * @param {string} bodyText the whole body, for the message only
+ * @returns {number}
+ */
+function requireCount(value, field, bodyText) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `globe lock sweep reported ${field} as ${JSON.stringify(value ?? null)} instead of a number, ` +
+        'so this run cannot say how much of the backlog was actually swept. A count that is absent ' +
+        'is not a count of zero, and this runner will not turn one into the other: refusing to ' +
+        `report a clean sweep. Body: ${bodyText.slice(0, 300)}`,
+    )
+  }
+  return value
+}
+
+/**
  * One signed sweep request. Carries no payload.
  * @param {string} baseUrl
  * @param {string} secret
@@ -176,11 +199,28 @@ async function sweepOnce(baseUrl, secret) {
     throw new Error(`globe lock sweep reported failure: ${text.slice(0, 300)}`)
   }
 
-  return {
-    due: Number(parsed.due ?? 0),
-    locked: Number(parsed.locked ?? 0),
-    hasMore: parsed.hasMore === true,
+  // Read one by one rather than defaulted: `Number(parsed.due ?? 0)` turns a
+  // body that never mentioned `due` into a report of zero deadlines, which looks
+  // exactly like a healthy sweep and is the one thing this runner must not do.
+  const due = requireCount(parsed.due, 'due', text)
+  const locked = requireCount(parsed.locked, 'locked', text)
+  const unapplied = requireCount(parsed.unapplied, 'unapplied', text)
+  const failed = requireCount(parsed.failed, 'failed', text)
+
+  // Checks `failed` as well as the flag. The globe sets the flag from this same
+  // count today, so this is belt-and-braces - but it is the count that decides,
+  // not a summary that a future route could compute differently.
+  if (failed > 0) {
+    throw new Error(
+      `globe lock sweep reported failure: ${failed} of ${due} due deadline(s) could not be applied ` +
+        `(locked=${locked}, unapplied=${unapplied}). Body: ${text.slice(0, 300)}`,
+    )
   }
+
+  // A nonzero `unapplied` is NOT a failure: a deadline can come due and need no
+  // action taken on it. It is still never rounded away - the caller logs it and
+  // returns it, so the run shows what the sweep actually did.
+  return { due, locked, unapplied, failed, hasMore: parsed.hasMore === true }
 }
 
 /**
@@ -193,9 +233,13 @@ async function sweepOnce(baseUrl, secret) {
  * dropping the remainder is exactly the failure mode this reconciler exists to
  * catch.
  *
+ * The returned counts describe the LAST call, not a total across calls: each
+ * call reports on the batch it was handed, and every round is logged as it
+ * happens, so nothing is lost by not adding them up.
+ *
  * @param {{emails?: string[]}} [input] accounts that motivated the sweep - for
  *   the log line only, and never part of the request
- * @returns {Promise<{rounds: number, due: number, locked: number, hasMore: boolean}>}
+ * @returns {Promise<{rounds: number, due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}>}
  */
 export async function requestTierLockSweep({ emails = [] } = {}) {
   // Both checked before anything else so a missing setting is reported by name,
@@ -213,22 +257,39 @@ export async function requestTierLockSweep({ emails = [] } = {}) {
   )
 
   let rounds = 0
-  let last = { due: 0, locked: 0, hasMore: false }
+  let last = { due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false }
 
   for (;;) {
     rounds += 1
     last = await sweepOnce(baseUrl, secret)
-    console.log(`[reconcile] sweep round ${rounds}: due=${last.due} locked=${last.locked}`)
+    console.log(
+      `[reconcile] sweep round ${rounds}: due=${last.due} locked=${last.locked} ` +
+        `unapplied=${last.unapplied} failed=${last.failed}`,
+    )
+    if (last.unapplied > 0) {
+      console.log(
+        `[reconcile] sweep WARNING: the globe reported ${last.unapplied} due deadline(s) it did not ` +
+          'apply. That is not necessarily an error - a deadline can come due and need no action - ' +
+          'but it is the first number to look at if a lock you expected is missing.',
+      )
+    }
 
     if (!last.hasMore) {
-      return { rounds, due: last.due, locked: last.locked, hasMore: false }
+      return {
+        rounds,
+        due: last.due,
+        locked: last.locked,
+        unapplied: last.unapplied,
+        failed: last.failed,
+        hasMore: false,
+      }
     }
     if (rounds >= MAX_SWEEP_ROUNDS) {
       throw new Error(
         `the globe still reports hasMore after ${rounds} sweeps ` +
-          `(last call: due=${last.due}, locked=${last.locked}). More armed deadlines exist than one ` +
-          `run will process, so the remainder was NOT swept. This is a backlog, not a transient: ` +
-          `check the globe's lock scheduler.`,
+          `(last call: due=${last.due}, locked=${last.locked}, unapplied=${last.unapplied}). More ` +
+          `armed deadlines exist than one run will process, so the remainder was NOT swept. This is ` +
+          `a backlog, not a transient: check the globe's lock scheduler.`,
       )
     }
   }

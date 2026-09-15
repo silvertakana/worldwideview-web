@@ -69,7 +69,7 @@ function combinedStub(pages: Map<string, StripePage[]>, sweepReplies: SweepReply
       body: init?.body,
     })
     const reply = sweepReplies[sweepIndex] ?? sweepReplies[sweepReplies.length - 1] ?? {
-      body: { success: true, due: 0, locked: 0, hasMore: false },
+      body: { success: true, due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false },
     }
     sweepIndex += 1
     const status = reply.status ?? 200
@@ -250,7 +250,7 @@ describe('billing-reconcile runner', () => {
         // Stripe holds nothing for a grant the ledger is still carrying.
         ['/v1/subscriptions', [{ data: [], has_more: false }]],
       ]),
-      [{ body: { success: true, due: 1, locked: 1, hasMore: false } }],
+      [{ body: { success: true, due: 1, locked: 1, unapplied: 0, failed: 0, hasMore: false } }],
     )
     vi.stubGlobal('fetch', stub.impl)
 
@@ -272,7 +272,7 @@ describe('billing-reconcile runner', () => {
         ['/v1/customers', [{ data: [customer('cus_1', 'subscriber@example.com')], has_more: false }]],
         ['/v1/subscriptions', [{ data: [], has_more: false }]],
       ]),
-      [{ body: { success: true, due: 500, locked: 500, hasMore: true } }],
+      [{ body: { success: true, due: 500, locked: 500, unapplied: 0, failed: 0, hasMore: true } }],
     )
     vi.stubGlobal('fetch', stub.impl)
 
@@ -289,7 +289,7 @@ describe('billing-reconcile runner', () => {
         ['/v1/customers', [{ data: [customer('cus_1', 'subscriber@example.com')], has_more: false }]],
         ['/v1/subscriptions', [{ data: [], has_more: false }]],
       ]),
-      [{ body: { success: true, due: 0, locked: 0, hasMore: false } }],
+      [{ body: { success: true, due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false } }],
     )
     vi.stubGlobal('fetch', stub.impl)
 

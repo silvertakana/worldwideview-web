@@ -19,6 +19,9 @@ import {
  *   2. Its signature is byte-identical to the hub's own signer, which is the
  *      only thing standing between a scheduled run and a 401 at 6am.
  *   3. It sends no payload. The account emails exist for the log line only.
+ *   4. It reads the globe's four counts and refuses to turn an absent one into a
+ *      zero, because "the globe did not say" and "the globe said zero" are the
+ *      same thing to a log reader and opposite things to an operator.
  */
 
 const SECRET = 'test-secret-for-hmac-vitest-2026'
@@ -51,6 +54,12 @@ function sigOf(header: string): string {
 
 type SweepReply = { status?: number; body: unknown }
 
+/**
+ * The reply the real route sends for a sweep that found nothing to do: all four
+ * counts present, because a body without them is now rejected on purpose.
+ */
+const EMPTY_SWEEP = { success: true, due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false }
+
 /** Serves a queued reply per call and records the exact request. */
 function sweepStub(replies: SweepReply[]) {
   const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: unknown }> = []
@@ -65,9 +74,7 @@ function sweepStub(replies: SweepReply[]) {
       headers: init?.headers ?? {},
       body: init?.body,
     })
-    const reply = replies[index] ?? replies[replies.length - 1] ?? {
-      body: { success: true, due: 0, locked: 0, hasMore: false },
-    }
+    const reply = replies[index] ?? replies[replies.length - 1] ?? { body: EMPTY_SWEEP }
     index += 1
     const status = reply.status ?? 200
     return { ok: status === 200, status, text: async () => JSON.stringify(reply.body) }
@@ -227,7 +234,9 @@ describe('requestTierLockSweep', () => {
   it('sends a signed POST with an empty body when the configuration is complete', async () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
-    const stub = sweepStub([{ body: { success: true, due: 2, locked: 2, hasMore: false } }])
+    const stub = sweepStub([
+      { body: { success: true, due: 2, locked: 2, unapplied: 0, failed: 0, hasMore: false } },
+    ])
     vi.stubGlobal('fetch', stub.impl)
 
     const result = await requestTierLockSweep({ emails: ['a@example.com'] })
@@ -241,13 +250,13 @@ describe('requestTierLockSweep', () => {
     expect(call.headers['X-Service-Timestamp']).toMatch(/^\d{10}$/)
     expect(call.headers['X-Service-Nonce']).toMatch(/^[0-9a-f-]{36}$/)
     expect(call.body).toBe('')
-    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, hasMore: false })
+    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, unapplied: 0, failed: 0, hasMore: false })
   })
 
   it('emits a signature the hub signer can reproduce for the same request', async () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
-    const stub = sweepStub([{ body: { success: true, due: 0, locked: 0, hasMore: false } }])
+    const stub = sweepStub([{ body: EMPTY_SWEEP }])
     vi.stubGlobal('fetch', stub.impl)
 
     await requestTierLockSweep({ emails: [] })
@@ -263,7 +272,9 @@ describe('requestTierLockSweep', () => {
   it('never puts the account emails in the request', async () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
-    const stub = sweepStub([{ body: { success: true, due: 1, locked: 1, hasMore: false } }])
+    const stub = sweepStub([
+      { body: { success: true, due: 1, locked: 1, unapplied: 0, failed: 0, hasMore: false } },
+    ])
     vi.stubGlobal('fetch', stub.impl)
 
     await requestTierLockSweep({ emails: ['lapsed@example.com', 'also@example.com'] })
@@ -280,21 +291,23 @@ describe('requestTierLockSweep', () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
     const stub = sweepStub([
-      { body: { success: true, due: 500, locked: 500, hasMore: true } },
-      { body: { success: true, due: 3, locked: 3, hasMore: false } },
+      { body: { success: true, due: 500, locked: 500, unapplied: 0, failed: 0, hasMore: true } },
+      { body: { success: true, due: 3, locked: 3, unapplied: 0, failed: 0, hasMore: false } },
     ])
     vi.stubGlobal('fetch', stub.impl)
 
     const result = await requestTierLockSweep({ emails: [] })
 
     expect(stub.calls).toHaveLength(2)
-    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, hasMore: false })
+    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, unapplied: 0, failed: 0, hasMore: false })
   })
 
   it('reports loudly rather than dropping the remainder when hasMore never clears', async () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
-    const stub = sweepStub([{ body: { success: true, due: 500, locked: 0, hasMore: true } }])
+    const stub = sweepStub([
+      { body: { success: true, due: 500, locked: 0, unapplied: 0, failed: 0, hasMore: true } },
+    ])
     vi.stubGlobal('fetch', stub.impl)
 
     await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/still reports hasMore/)
@@ -317,5 +330,60 @@ describe('requestTierLockSweep', () => {
     vi.stubGlobal('fetch', stub.impl)
 
     await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/reported failure/)
+  })
+
+  it('refuses to read an absent count as a clean zero', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    // The exact body this runner used to accept: no `unapplied`, so the old
+    // `Number(parsed.unapplied ?? 0)` reported a tidy zero for a number the
+    // globe never sent.
+    const stub = sweepStub([{ body: { success: true, due: 4, locked: 4, hasMore: false } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(
+      /unapplied as null instead of a number/,
+    )
+  })
+
+  it('refuses a count that arrived as something other than a number', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    // `Number("0")` is 0, so the old code read a stringified count as a healthy
+    // one. A count this runner cannot trust is reported, not coerced.
+    const stub = sweepStub([
+      { body: { success: true, due: 4, locked: 4, unapplied: 0, failed: '0', hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(
+      /failed as "0" instead of a number/,
+    )
+  })
+
+  it('fails the run when the body reports deadlines it could not apply', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    // The globe derives its own `success` flag from `failed`, so this body is
+    // what a half-done sweep used to look like from here: a flag saying fine.
+    const stub = sweepStub([
+      { body: { success: true, due: 4, locked: 2, unapplied: 0, failed: 2, hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/2 of 4 due deadline/)
+  })
+
+  it('surfaces unapplied deadlines without failing the run', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([
+      { body: { success: true, due: 4, locked: 3, unapplied: 1, failed: 0, hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    expect(result).toEqual({ rounds: 1, due: 4, locked: 3, unapplied: 1, failed: 0, hasMore: false })
   })
 })
