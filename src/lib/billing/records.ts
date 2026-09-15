@@ -129,7 +129,9 @@ async function findSubscriptionRow(email: string, stripeSubscriptionId: string |
  *    deliberate act, and a webhook replay must not silently undo it. Reported as
  *    `manual-protected` so the caller can surface it instead of assuming success.
  *  - An event older than the row's own updated_at is ignored, so a delayed or
- *    out-of-order delivery cannot roll a live subscription backwards.
+ *    out-of-order delivery cannot roll a live subscription backwards. Checked
+ *    against the row the initial read found AND against the row a lost insert
+ *    race is re-read from, so racing the insert is not a way around the guard.
  *
  * `source` is forced to 'stripe' and `updated_at` to now, so a caller cannot
  * fabricate a manual row or backdate a write.
@@ -139,7 +141,8 @@ async function findSubscriptionRow(email: string, stripeSubscriptionId: string |
  * fails with 23505 from UNIQUE(email). That is the losing side of a normal race,
  * not a failure: the row is re-read and updated, which is also why a lost race
  * returns `updated` with a detail instead of `error` - or `manual-protected`
- * when the row it lost to is the operator grant guarded above.
+ * when the row it lost to is the operator grant guarded above, or `ignored`
+ * when that row is already newer than the event we hold.
  *
  * CONSEQUENCE: while a manual row stands for an email, Stripe events for that
  * email keep being reported as `manual-protected` instead of applied. An
@@ -153,8 +156,7 @@ export async function upsertSubscriptionFromStripe(input: StripeSubscriptionInpu
       if (existing.source === "manual") {
         return { ok: false, action: "manual-protected", detail: `row ${existing.id} is source=manual` };
       }
-      const stored = Date.parse(existing.updated_at);
-      if (input.eventCreated != null && Number.isFinite(stored) && input.eventCreated * 1000 < stored) {
+      if (isStaleEvent(input.eventCreated, existing.updated_at)) {
         return { ok: true, action: "ignored", detail: "event older than stored record" };
       }
     }
@@ -178,12 +180,35 @@ export async function upsertSubscriptionFromStripe(input: StripeSubscriptionInpu
       updated_at: new Date().toISOString(),
     };
 
-    return existing ? await updateRow(existing.id, payload) : await insertRow(input.email, payload);
+    return existing
+      ? await updateRow(existing.id, payload)
+      : await insertRow(input.email, payload, input.eventCreated);
   } catch (err) {
     const detail = asMessage(err);
     console.error(`[billing] upsertSubscriptionFromStripe failed for ${input.email}: ${detail}`);
     return { ok: false, action: "error", detail };
   }
+}
+
+/**
+ * True when a Stripe event describes a state older than the row it would
+ * overwrite. Used by BOTH paths below - the row the initial read found, and the
+ * row a lost insert race is re-read from - so the two cannot drift apart.
+ *
+ * The comparison is the event's own occurrence time (`eventCreated`, Stripe's
+ * `event.created`, in Unix seconds) against the row's `updated_at`: not arrival
+ * order, and not our insert order. A webhook redelivered hours late still
+ * carries the time the event happened, which is the only thing that says
+ * whether it is newer than what the row already records.
+ *
+ * Uncomparable values FAIL OPEN - a missing `eventCreated`, or an `updated_at`
+ * that does not parse, counts as "not stale" and the write proceeds. Dropping a
+ * legitimate update on a bad timestamp would be worse than applying a stale one.
+ */
+function isStaleEvent(eventCreated: number | null | undefined, rowUpdatedAt: string): boolean {
+  if (eventCreated == null) return false;
+  const stored = Date.parse(rowUpdatedAt);
+  return Number.isFinite(stored) && eventCreated * 1000 < stored;
 }
 
 function isUniqueViolation(error: { code?: string; message?: string }): boolean {
@@ -199,12 +224,17 @@ async function updateRow(id: string, payload: Record<string, unknown>): Promise<
 /**
  * Loses the race deliberately: another process inserted the same email between
  * our SELECT and our INSERT, so the row exists now. Re-read it and update it -
- * unless the winner is a manual row. The concurrent writer may have been
- * recordManualSubscription, and an operator grant must not be overwritten just
- * because it landed after our SELECT, so the winner faces the same guard the
- * initial read applies.
+ * unless the winner is a manual row, or is already newer than the event we hold.
+ * The concurrent writer may have been recordManualSubscription (an operator
+ * grant must not be overwritten just because it landed after our SELECT), or a
+ * newer Stripe event (which ours must not roll back), so the winner faces both
+ * guards the initial read applies.
  */
-async function insertRow(email: string, payload: Record<string, unknown>): Promise<SubscriptionWriteResult> {
+async function insertRow(
+  email: string,
+  payload: Record<string, unknown>,
+  eventCreated: number | null | undefined,
+): Promise<SubscriptionWriteResult> {
   const { error } = await createAdminClient().from("billing_subscriptions").insert(payload);
   if (!error) return { ok: true, action: "created" };
   if (!isUniqueViolation(error)) return { ok: false, action: "error", detail: error.message };
@@ -213,6 +243,9 @@ async function insertRow(email: string, payload: Record<string, unknown>): Promi
   if (!winner) return { ok: false, action: "error", detail: `insert lost the race but no row for ${email}` };
   if (winner.source === "manual") {
     return { ok: false, action: "manual-protected", detail: `row ${winner.id} is source=manual` };
+  }
+  if (isStaleEvent(eventCreated, winner.updated_at)) {
+    return { ok: true, action: "ignored", detail: "event older than stored record" };
   }
   return { ...(await updateRow(winner.id, payload)), detail: "lost the insert race; updated the winning row" };
 }

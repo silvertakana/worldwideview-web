@@ -234,6 +234,62 @@ describe("upsertSubscriptionFromStripe", () => {
     expect(callsFor("update")).toHaveLength(0);
   });
 
+  it("ignores an event older than the row it lost the insert race to (23505 on email)", async () => {
+    // Stripe delivers webhooks out of order, so losing the race to a row that is
+    // already NEWER than this event is the case the stale-event guard exists
+    // for. The winner is compared against the same field the initial read uses,
+    // otherwise a racing writer is a way around the guard.
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-winner-newer", source: "stripe", updated_at: "2026-09-15T12:00:00.000Z" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({
+      data: null,
+      error: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "idx_billing_subscriptions_email_unique"',
+      },
+    });
+
+    const result = await upsertSubscriptionFromStripe({ ...base, eventCreated: 1757900000 });
+
+    expect(result).toEqual({ ok: true, action: "ignored", detail: "event older than stored record" });
+    expect(callsFor("insert")).toHaveLength(1);
+    expect(callsFor("update")).toHaveLength(0);
+  });
+
+  it("still updates when the event is newer than the row it lost the race to", async () => {
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-winner-older", source: "stripe", updated_at: "2026-09-01T00:00:00.000Z" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+    respondWrite({ data: null, error: null });
+
+    const result = await upsertSubscriptionFromStripe({ ...base, eventCreated: 1800000000 });
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe("updated");
+    expect(result.detail).toContain("lost the insert race");
+    expect(callsFor("insert")).toHaveLength(1);
+    expect(callsFor("update")).toHaveLength(1);
+    expect(callsFor("eq").some((c) => c.args[0] === "id" && c.args[1] === "row-winner-older")).toBe(true);
+  });
+
+  it("fails open when the winning row's timestamp cannot be parsed", async () => {
+    // An unreadable timestamp must not silently drop a legitimate update, so the
+    // guard reports "not stale" and the write proceeds. The absent-timestamp
+    // case is the plain lost-race test above, which passes no eventCreated.
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-winner-unparsable", source: "stripe", updated_at: "not-a-date" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+    respondWrite({ data: null, error: null });
+
+    const result = await upsertSubscriptionFromStripe({ ...base, eventCreated: 1757900000 });
+
+    expect(result.action).toBe("updated");
+    expect(callsFor("update")).toHaveLength(1);
+  });
+
   it("recognises the duplicate from the SQLSTATE alone, without a matching message", async () => {
     const miss = { data: null, error: null };
     const winner = { data: { id: "row-winner-2", source: "stripe", updated_at: "2026-09-15T00:00:00.000Z" }, error: null };
