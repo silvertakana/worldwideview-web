@@ -64,6 +64,22 @@ export interface WorkspaceRow {
   lockedReason: string | null;
 }
 
+/**
+ * The deferred-lock half of an org's tier row.
+ *
+ * A tier downgrade no longer locks the workspace on arrival: the globe releases
+ * it and arms `pendingLockAt` instead (worldwideview src/lib/org-tier-policy.ts,
+ * TIER_DOWNGRADE_GRACE_MS, on main since PR #504). Asserting the cancel
+ * contract therefore means reading these columns, not just `workspaces.locked`.
+ */
+export interface OrgTierLockRow {
+  tier: string;
+  status: string;
+  periodEndsAt: Date | null;
+  pendingLockAt: Date | null;
+  pendingLockReason: string | null;
+}
+
 export class GlobeDb {
   private pool: Pool;
 
@@ -109,6 +125,31 @@ export class GlobeDb {
       [ownerId],
     );
     return res.rows[0] ?? null;
+  }
+
+  /** The stored tier state plus the armed (or absent) lock deadline. */
+  async getOrgTierLockState(organizationId: string): Promise<OrgTierLockRow | null> {
+    const res = await this.pool.query<OrgTierLockRow>(
+      'SELECT tier, status, "periodEndsAt", "pendingLockAt", "pendingLockReason" FROM "org_tiers" WHERE "organizationId" = $1 LIMIT 1',
+      [organizationId],
+    );
+    return res.rows[0] ?? null;
+  }
+
+  /**
+   * Move an armed lock deadline into the past so the globe's own sweep
+   * (POST /api/service/tier-lock-sweep) finds it due.
+   *
+   * This is the only way to observe the lock a deferral eventually applies
+   * without waiting out the 14-day grace window. Returns the rows changed, so a
+   * caller can tell "nothing armed" from "armed and now due".
+   */
+  async backdatePendingLockAt(organizationId: string, when: Date): Promise<number> {
+    const res = await this.pool.query(
+      'UPDATE "org_tiers" SET "pendingLockAt" = $2 WHERE "organizationId" = $1',
+      [organizationId, when],
+    );
+    return res.rowCount ?? 0;
   }
 
   /**
