@@ -271,6 +271,7 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
       tier: "pro",
       status: "trialing",
       trialEndsAt: new Date(TRIAL_END * 1000).toISOString(),
+      periodEndsAt: new Date(PERIOD_END * 1000).toISOString(),
     });
   });
 
@@ -549,6 +550,7 @@ describe("POST /api/billing/webhook — customer.subscription.created", () => {
       tier: "pro",
       status: "trialing",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
     expect(mockRetrieveCustomer).not.toHaveBeenCalled();
   });
@@ -575,6 +577,7 @@ describe("POST /api/billing/webhook — customer.subscription.updated (status ma
       tier: expectedTier,
       status: expectedStatus,
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -599,6 +602,7 @@ describe("POST /api/billing/webhook — customer.subscription.updated (status ma
       tier: "free",
       status: "canceled",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -637,6 +641,7 @@ describe("POST /api/billing/webhook — customer.subscription.deleted", () => {
       tier: "free",
       status: "canceled",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -676,6 +681,23 @@ describe("POST /api/billing/webhook — customer.subscription.deleted", () => {
       expect.stringContaining("could not retrieve Stripe customer cus_gone"),
     );
   });
+
+  it("carries the paid-through date to the globe, so a cancellation cannot lock them early", async () => {
+    const event = buildEvent("customer.subscription.deleted", {
+      id: "sub_paid",
+      customer: "cus_paid",
+      customer_email: "paid@example.com",
+      current_period_end: PERIOD_END,
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    // D2: without a real paid-through date the globe falls back to its fixed
+    // window, so a monthly subscriber who cancels just after a renewal is locked
+    // roughly two weeks before the period they already paid for ends.
+    expect(tierSyncCall(0).periodEndsAt).toBe(new Date(PERIOD_END * 1000).toISOString());
+  });
 });
 
 describe("POST /api/billing/webhook — invoice.payment_failed", () => {
@@ -701,7 +723,29 @@ describe("POST /api/billing/webhook — invoice.payment_failed", () => {
       tier: "pro",
       status: "past_due",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
+  });
+
+  it("sends no paid-through date on a failed payment, where nothing was paid", async () => {
+    const event = buildEvent("invoice.payment_failed", {
+      customer: "cus_fail",
+      customer_email: "fail@example.com",
+      subscription: "sub_fail",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveSubscription.mockResolvedValue({
+      current_period_end: PERIOD_END,
+      items: { data: [{ price: { id: "price_pro_monthly" } }] },
+    });
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    // The period that just failed is the one that was NOT paid, so claiming it as
+    // paid-through would hold the workspace unlocked for a period nobody bought.
+    // Null lets the globe apply its own dunning grace window instead.
+    expect(tierSyncCall(0).periodEndsAt).toBeNull();
+    expect(tierSyncCall(0).trialEndsAt).toBeNull();
   });
 
   it("resolves the team tier from the subscription price ID", async () => {

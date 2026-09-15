@@ -40,11 +40,36 @@ const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   paused: "suspended",
 };
 
-async function syncTierToGlobe(email: string, tier: string, status: string, trialEndsAt?: number | null): Promise<TierSyncResult> {
+/**
+ * Pushes the tier to the globe.
+ *
+ * Two dates travel with it, and they answer different questions. `trialEndsAt` is
+ * when a trial runs out. `periodEndsAt` is the date the customer has ALREADY PAID
+ * THROUGH - the input the globe's lock policy needs so it does not lock someone
+ * before the period they paid for ends. The hub never read `current_period_end`
+ * before this, so the globe could only fall back to a fixed grace window and a
+ * monthly subscriber who cancelled just after a renewal was locked about two
+ * weeks early. Both are optional and explicitly nullable, so sending them is
+ * backwards compatible with a globe that does not read them yet: an old globe
+ * ignores the new field, and nothing degrades while the two ship out of step.
+ */
+async function syncTierToGlobe(
+    email: string,
+    tier: string,
+    status: string,
+    trialEndsAt: number | null,
+    periodEndsAt: number | null,
+): Promise<TierSyncResult> {
     try {
         const res = await crossServiceFetch("/api/service/tier-sync", {
             method: "POST",
-            body: { email, tier, status, trialEndsAt: trialEndsAt ? new Date(trialEndsAt * 1000).toISOString() : null },
+            body: {
+                email,
+                tier,
+                status,
+                trialEndsAt: epochSecondsToIso(trialEndsAt),
+                periodEndsAt: epochSecondsToIso(periodEndsAt),
+            },
         });
         if (!res.ok) {
             const detail = (await res.text().catch(() => "")).slice(0, 160);
@@ -74,10 +99,11 @@ async function syncTierWithRetry(
     tier: string,
     status: string,
     eventType: string,
-    trialEndsAt?: number | null,
+    trialEndsAt: number | null,
+    periodEndsAt: number | null,
 ): Promise<TierSyncResult> {
     const label = `${tier}/${status}`;
-    const first = await syncTierToGlobe(email, tier, status, trialEndsAt);
+    const first = await syncTierToGlobe(email, tier, status, trialEndsAt, periodEndsAt);
     if (first.ok) {
         console.log(`[webhook] Tier synced for ${email}: ${eventType} (${label})`);
         return first;
@@ -86,7 +112,7 @@ async function syncTierWithRetry(
         `[webhook] Tier sync FAILED for ${email}: ${eventType} (${label}) attempt 1/2 - globe returned ${first.status ?? "transport error"}${first.detail ? ` (${first.detail})` : ""}; retrying in ${SYNC_RETRY_DELAY_MS}ms`,
     );
     await sleep(SYNC_RETRY_DELAY_MS);
-    const second = await syncTierToGlobe(email, tier, status, trialEndsAt);
+    const second = await syncTierToGlobe(email, tier, status, trialEndsAt, periodEndsAt);
     if (!second.ok) {
         console.error(
             `[webhook] Tier sync FAILED for ${email}: ${eventType} (${label}) attempt 2/2 - globe returned ${second.status ?? "transport error"}${second.detail ? ` (${second.detail})` : ""}. Final failure; tier remains correct at hub level via tier-fallback.`,
@@ -108,6 +134,12 @@ interface SubscriptionEventFacts {
     stripeStatus: string | null;
     /** Epoch seconds for the globe payload; the checkout path fabricates a trial end when Stripe has none. */
     trialEndsAt: number | null;
+    /**
+     * Epoch seconds of `current_period_end` - the date already paid through.
+     * Null means "nothing has been paid through", which is the honest answer on a
+     * failed payment and lets the globe apply its own grace window.
+     */
+    periodEndsAt: number | null;
 }
 
 /**
@@ -155,7 +187,14 @@ async function applySubscriptionEvent(facts: SubscriptionEventFacts): Promise<Ti
         });
     }
 
-    return syncTierWithRetry(facts.email, facts.plan, facts.status, facts.eventType, facts.trialEndsAt);
+    return syncTierWithRetry(
+        facts.email,
+        facts.plan,
+        facts.status,
+        facts.eventType,
+        facts.trialEndsAt,
+        facts.periodEndsAt,
+    );
 }
 
 export async function POST(req: Request) {
@@ -237,6 +276,9 @@ export async function POST(req: Request) {
         const { email, userId } = identity;
 
         const subscription = session.subscription as StripeSubscriptionLike | null;
+        // The 7-day default is a TRIAL length, not a stand-in for a paid-through
+        // date: the real paid-through date is periodEndsAt below, read from
+        // Stripe. Conflating the two is why the globe had to guess.
         const trialEndsAt = subscription?.trial_end ?? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
 
         const priceId = priceIdOf(subscription);
@@ -315,6 +357,7 @@ export async function POST(req: Request) {
             status: "trialing",
             stripeStatus: subscription?.status ?? null,
             trialEndsAt,
+            periodEndsAt: subscription?.current_period_end ?? null,
           }),
         );
         break;
@@ -356,6 +399,7 @@ export async function POST(req: Request) {
             // `trial_end` is carried through so the globe keeps seeing an
             // expired trial as an expired trial rather than as "no trial".
             trialEndsAt: subscription.trial_end ?? null,
+            periodEndsAt: subscription.current_period_end ?? null,
           }),
         );
         break;
@@ -380,6 +424,10 @@ export async function POST(req: Request) {
             status: "canceled",
             stripeStatus: deletedSub.status ?? "canceled",
             trialEndsAt: deletedSub.trial_end ?? null,
+            // The case D2 exists for: a cancellation still carries the date the
+            // customer already paid through, and without it the globe locks on
+            // its fixed fallback window instead.
+            periodEndsAt: deletedSub.current_period_end ?? null,
           }),
         );
         break;
@@ -436,6 +484,12 @@ export async function POST(req: Request) {
             status: "past_due",
             stripeStatus: subscription?.status ?? null,
             trialEndsAt: null,
+            // Deliberately null, and NOT the subscription's current_period_end:
+            // this period is the one that was not paid, so claiming it as paid-
+            // through would hold the workspace unlocked for a period nobody
+            // bought. No paid-through date means the globe's own grace window
+            // applies, which is the right treatment for dunning.
+            periodEndsAt: null,
           }),
         );
         break;
