@@ -1,6 +1,10 @@
-import type { StripeSubscriptionInput, SubscriptionWriteResult } from "@/lib/billing/billing-tables";
+import type {
+  BillingFailureInput,
+  StripeSubscriptionInput,
+  SubscriptionWriteResult,
+} from "@/lib/billing/billing-tables";
 import { asMessage } from "@/lib/billing/billing-tables";
-import { upsertSubscriptionFromStripe } from "@/lib/billing/records";
+import { recordFailure, upsertSubscriptionFromStripe } from "@/lib/billing/records";
 
 /**
  * The webhook's view of a Stripe Subscription (and of the `subscription` object
@@ -71,4 +75,27 @@ export async function writeSubscriptionRecord(input: StripeSubscriptionInput): P
     console.error(`[webhook] Durable subscription record write THREW for ${input.email}: ${detail}`);
     return { ok: false, action: "error", detail };
   }
+}
+
+/**
+ * Records a stage the delivery failed at, for an operator to work from.
+ *
+ * This complements the idempotency ledger rather than duplicating it: the ledger
+ * row keeps the event unfinished and carries `last_error`, while this row carries
+ * `attempts` and a `resolved_at` an operator can close. The two answer different
+ * questions ("was this event handled?" and "is anyone still on the hook for it?"),
+ * which is why a delivery that fails a stage gets both.
+ *
+ * A failure to record a failure is worth its own line: at that point the
+ * operator's only remaining evidence is application logs, and pretending
+ * otherwise is how a paid user ends up with no workspace and no trace.
+ */
+export async function recordStageFailure(input: BillingFailureInput): Promise<boolean> {
+  const recorded = await recordFailure(input);
+  if (!recorded) {
+    console.error(
+      `[webhook] Could not record the ${input.stage} failure for event ${input.eventId ?? "unknown"} (${input.email ?? "no customer email"}); it exists only in this log`,
+    );
+  }
+  return recorded;
 }

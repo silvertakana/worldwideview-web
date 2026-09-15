@@ -161,6 +161,10 @@ function subscriptionWrites() {
   return dbWritesFor("billing_subscriptions");
 }
 
+function failureWrites() {
+  return dbWritesFor("billing_failures");
+}
+
 // ── Setup ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -330,19 +334,67 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     expect(logMsg).toContain("eventId=");
   });
 
-  it("breaks without syncing when no email is resolvable (deleted customer)", async () => {
-    const event = buildEvent("checkout.session.completed", {
-      id: "cs_test_123",
-      customer: "cus_abc",
-    });
+  it("fails the delivery and files a durable failure when the customer has no email (permanent absence)", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer: "cus_abc" },
+      "evt_no_email",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    // Stripe answers, and the customer genuinely has no email to be found.
     mockRetrieveCustomer.mockResolvedValue({ id: "cus_abc", deleted: true });
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
-    expect(res.status).toBe(200);
+    // A1: this used to be a 200 with no work done at all - no provisioning, no
+    // tier sync, and the event marked complete.
+    expect(res.status).toBe(500);
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_no_email",
+      expect.stringContaining("no usable customer email"),
+    );
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "resolve",
+          event_id: "evt_no_email",
+          event_type: "checkout.session.completed",
+          email: null,
+          attempts: 1,
+          error: expect.stringContaining("no usable customer email"),
+        }),
+      },
+    ]);
+  });
+
+  it("fails the delivery but files NO durable failure when the lookup itself fails (transient)", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer: "cus_abc" },
+      "evt_blip",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockRetrieveCustomer.mockRejectedValue(new Error("429 Too Many Requests"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_blip",
+      expect.stringContaining("could not retrieve Stripe customer cus_abc"),
+    );
+    // The two categories are kept deliberately apart. A blip's durable record is
+    // the unfinished ledger row above; the operator's queue is for failures a
+    // retry will never fix, and filling it with 429s would bury the rows that
+    // need a human.
+    expect(failureWrites()).toEqual([]);
   });
 
   it("falls back to an outbound customer retrieve when the payload carries no email", async () => {
@@ -540,6 +592,29 @@ describe("POST /api/billing/webhook — customer.subscription.deleted", () => {
 
     expect(mockRetrieveCustomer).toHaveBeenCalledWith("cus_del");
     expect(tierSyncCall(0).email).toBe("outbound@example.com");
+  });
+
+  it("never swallows a cancellation: a transient lookup failure is a 500, not a lost lock", async () => {
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_gone", customer: "cus_gone" },
+      "evt_deleted_blip",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCustomer.mockRejectedValue(new Error("Stripe 503"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // A1's motivating scenario. The old handler returned 200 here, marked the
+    // event complete, absorbed every redelivery as a duplicate and never armed a
+    // lock, so the cancellation vanished and the customer kept free access with
+    // nothing anywhere recording why.
+    expect(res.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_deleted_blip",
+      expect.stringContaining("could not retrieve Stripe customer cus_gone"),
+    );
   });
 });
 

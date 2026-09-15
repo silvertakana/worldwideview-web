@@ -57,7 +57,7 @@ with `WEBHOOK_TARGET_URL`.
 | `customer.subscription.deleted.json` | `customer.subscription.deleted` | Cancel → sync `free/canceled` |
 | `invoice.payment_failed.json` | `invoice.payment_failed` | Dunning → sync `past_due` |
 | `customer.subscription.updated.past_due.json` | `customer.subscription.updated` | Edge: status `past_due` mapping |
-| `checkout.session.completed.no_email.json` | `checkout.session.completed` | Edge: missing email → handler warns and skips |
+| `checkout.session.completed.no_email.json` | `checkout.session.completed` | Edge: no email anywhere on the event -> handler fails the delivery (500) and records a durable failure |
 
 Price IDs used are the sandbox test prices (e.g. Pro monthly
 `price_1TiVzJCnLxBZfLqIEC3gKEOi`), matching the hub's `.env.local`; canonical

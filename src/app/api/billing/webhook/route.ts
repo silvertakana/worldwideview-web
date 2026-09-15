@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
@@ -9,9 +8,15 @@ import {
   epochSecondsToIso,
   intervalOf,
   priceIdOf,
+  recordStageFailure,
   writeSubscriptionRecord,
   type StripeSubscriptionLike,
 } from "@/lib/billing/webhook-record";
+import {
+  UnresolvedIdentityError,
+  resolveIdentity,
+  type PayloadEmailFields,
+} from "@/lib/billing/webhook-identity";
 import {
   claimWebhookEvent,
   completeWebhookEvent,
@@ -88,92 +93,6 @@ async function syncTierWithRetry(
         );
     }
     return second;
-}
-
-interface PayloadEmailFields {
-    customer_email?: string | null;
-    customer_details?: { email?: string | null } | null;
-    customer?: string | { email?: string | null } | null;
-    metadata?: { email?: string | null; userId?: string | null } | null;
-}
-
-/**
- * Payload-first email resolution (PMT-009). Stripe webhook payloads already
- * carry the customer's email (customer_email top-level, customer_details.email,
- * or an expanded customer object). Prefer those before calling out to Stripe,
- * so stateless stripe-mock / the offline webhook simulator can drive tier-sync
- * assertions. `customer` is usually a string ID — only an object carries an
- * inline email. Returns null when the payload has no email; callers keep the
- * outbound retrieve fallback.
- */
-function emailFromPayload(obj: PayloadEmailFields): string | null {
-    if (obj.customer_email) return obj.customer_email;
-    if (obj.customer_details?.email) return obj.customer_details.email;
-    if (typeof obj.customer === "object" && obj.customer !== null && obj.customer.email) {
-        return obj.customer.email;
-    }
-    return null;
-}
-
-interface CustomerContext {
-    email: string | null;
-    userId: string | null;
-}
-
-/**
- * Outbound fallback when the payload carries no email: retrieve the customer and
- * read BOTH facts this route wants off that one object — the email and the
- * `metadata.userId` candidate the hub writes when it creates the customer
- * (checkout/route.ts:90). One retrieve serves both, so resolving the hub user id
- * costs no extra API call. Deleted customers have neither. Never throws — a
- * retrieve failure logs and yields two nulls so the handler proceeds without
- * syncing.
- */
-async function resolveCustomerContext(stripe: Stripe, customerId: string): Promise<CustomerContext> {
-    try {
-        const customer = await stripe.customers.retrieve(customerId);
-        if (customer.deleted) return { email: null, userId: null };
-        return { email: customer.email, userId: customer.metadata?.userId ?? null };
-    } catch (err) {
-        console.warn(
-            `[webhook] Could not retrieve customer ${customerId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return { email: null, userId: null };
-    }
-}
-
-interface ResolvedIdentity {
-    email: string;
-    userId: string | null;
-    customerId: string | null;
-}
-
-/**
- * Who this event is about: an email, and a hub user id that has been PROVEN to
- * exist (see hub-user.ts — `metadata.userId` is written by the hub and by the
- * marketplace, so an unvalidated candidate may be a Prisma cuid).
- *
- * Returns null when no email can be found: email is the record's identity
- * (UNIQUE(email)) and the tier sync's key, so without it there is nothing to
- * record and nothing to sync.
- */
-async function resolveIdentity(
-    stripe: Stripe,
-    payload: PayloadEmailFields,
-    hubUserIdCandidates: Array<string | null | undefined>,
-): Promise<ResolvedIdentity | null> {
-    const payloadEmail = emailFromPayload(payload) || payload.metadata?.email || null;
-    const customerId = typeof payload.customer === "string" ? payload.customer : null;
-    const outbound = payloadEmail === null && customerId ? await resolveCustomerContext(stripe, customerId) : null;
-
-    const email = payloadEmail ?? outbound?.email ?? null;
-    if (!email) return null;
-
-    return {
-        email,
-        userId: await firstVerifiedHubUserId([...hubUserIdCandidates, outbound?.userId]),
-        customerId,
-    };
 }
 
 interface SubscriptionEventFacts {
@@ -296,15 +215,16 @@ export async function POST(req: Request) {
         // (checkout/route.ts sets session metadata and client_reference_id to the
         // Supabase uid), then from the Stripe customer object if the retrieve
         // above had to happen anyway.
+        //
+        // Both ways of failing to resolve throw (webhook-identity.ts), so this
+        // event can no longer fall through to a 200 that claims the payment was
+        // delivered: a Stripe blip becomes a 500 Stripe retries, and a genuinely
+        // email-less event is recorded as an operator's problem.
         const payload = event.data.object as PayloadEmailFields;
         const identity = await resolveIdentity(stripe, payload, [
           session.metadata?.userId,
           session.client_reference_id,
         ]);
-        if (!identity) {
-          console.warn("[webhook] checkout.session.completed missing email");
-          break;
-        }
         const { email, userId } = identity;
 
         const subscription = session.subscription as StripeSubscriptionLike | null;
@@ -385,23 +305,21 @@ export async function POST(req: Request) {
         // Payload-first email (PMT-009); subscriptions rarely carry one, so the
         // outbound customer retrieve remains the primary path here.
         const identity = await resolveIdentity(stripe, subscription, [subscription.metadata?.userId]);
-        if (identity) {
-          await applySubscriptionEvent({
-            eventId: event.id,
-            eventType: event.type,
-            eventCreated,
-            email: identity.email,
-            userId: identity.userId,
-            customerId: identity.customerId,
-            subscription,
-            plan,
-            status,
-            stripeStatus: subscription.status,
-            // `trial_end` is carried through so the globe keeps seeing an
-            // expired trial as an expired trial rather than as "no trial".
-            trialEndsAt: subscription.trial_end ?? null,
-          });
-        }
+        await applySubscriptionEvent({
+          eventId: event.id,
+          eventType: event.type,
+          eventCreated,
+          email: identity.email,
+          userId: identity.userId,
+          customerId: identity.customerId,
+          subscription,
+          plan,
+          status,
+          stripeStatus: subscription.status,
+          // `trial_end` is carried through so the globe keeps seeing an
+          // expired trial as an expired trial rather than as "no trial".
+          trialEndsAt: subscription.trial_end ?? null,
+        });
         break;
       }
 
@@ -409,21 +327,19 @@ export async function POST(req: Request) {
         const deletedSub = event.data.object as unknown as StripeSubscriptionLike;
 
         const identity = await resolveIdentity(stripe, deletedSub, [deletedSub.metadata?.userId]);
-        if (identity) {
-          await applySubscriptionEvent({
-            eventId: event.id,
-            eventType: event.type,
-            eventCreated,
-            email: identity.email,
-            userId: identity.userId,
-            customerId: identity.customerId,
-            subscription: deletedSub,
-            plan: "free",
-            status: "canceled",
-            stripeStatus: deletedSub.status ?? "canceled",
-            trialEndsAt: deletedSub.trial_end ?? null,
-          });
-        }
+        await applySubscriptionEvent({
+          eventId: event.id,
+          eventType: event.type,
+          eventCreated,
+          email: identity.email,
+          userId: identity.userId,
+          customerId: identity.customerId,
+          subscription: deletedSub,
+          plan: "free",
+          status: "canceled",
+          stripeStatus: deletedSub.status ?? "canceled",
+          trialEndsAt: deletedSub.trial_end ?? null,
+        });
         break;
       }
 
@@ -433,12 +349,13 @@ export async function POST(req: Request) {
           subscription: string;
           customer_email?: string | null;
           customer_details?: { email?: string | null } | null;
+          metadata?: { email?: string | null } | null;
         };
 
-        // Payload-first email (PMT-009): invoices carry customer_email, so the
-        // offline stack can assert tier-sync without an outbound retrieve.
+        // Payload-first email (PMT-009): invoices carry customer_email, and the
+        // simulator fixtures carry metadata.email, so the offline stack asserts
+        // tier-sync without an outbound retrieve.
         const identity = await resolveIdentity(stripe, failedInvoice, []);
-        if (!identity) break;
 
         // PMT-002: resolve the tier from the subscription's price ID instead
         // of sending an empty string — the globe's tier-sync rejects an
@@ -482,6 +399,20 @@ export async function POST(req: Request) {
     // into a 200 told Stripe the event was handled, so Stripe never retried and
     // the only trace of a lost payment was this log line.
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof UnresolvedIdentityError && err.kind === "absent") {
+      // A permanent absence is a business failure no Stripe retry will fix, so it
+      // goes on the operator's queue under its own stage. The retryable case
+      // ("unavailable") is deliberately NOT queued there: its durable record is
+      // the unfinished ledger row written below, and Stripe's redelivery is the
+      // response. One queue for both would fill with blips nobody can act on and
+      // bury the rows they can.
+      await recordStageFailure({
+        stage: "resolve",
+        eventId: event.id,
+        eventType: event.type,
+        error: message,
+      });
+    }
     console.error(
       `[webhook] Handling FAILED for ${event.id} (${event.type}); answering 500 so Stripe redelivers:`,
       err,
