@@ -11,6 +11,7 @@ import {
   provisionGlobeUser,
   signCrossServiceRequest,
 } from './lib/globe-sync';
+import { deleteSupabaseUserByEmail, ensureSupabaseUser, supabaseAdmin } from './lib/supabase-admin';
 
 /**
  * E2E coverage for the REAL UI create-instance / provisioning flow
@@ -83,76 +84,7 @@ const USERS = {
 // ---------------------------------------------------------------------------
 loadHubEnv();
 
-const SUPABASE_BASE = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WORKSPACE_DOMAIN = process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'wwv.local';
-
-function requireSupabaseEnv(): void {
-  if (!SUPABASE_BASE || !SERVICE_ROLE) {
-    throw new Error('[billing-provisioning-create] NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing from hub .env.local');
-  }
-}
-
-/** Service-role call to the hub's Supabase (admin users + PostgREST tables). */
-async function supabaseAdmin(path: string, init?: RequestInit): Promise<Response> {
-  requireSupabaseEnv();
-  return fetch(`${SUPABASE_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.headers || {}),
-      apikey: SERVICE_ROLE,
-      Authorization: `Bearer ${SERVICE_ROLE}`,
-    },
-  });
-}
-
-async function deleteSupabaseUser(email: string): Promise<void> {
-  try {
-    const listRes = await supabaseAdmin(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
-    if (listRes.ok) {
-      const list = await listRes.json();
-      for (const user of list.users || []) {
-        if (user.email === email) {
-          await supabaseAdmin(`/auth/v1/admin/users/${user.id}`, { method: 'DELETE' });
-          console.log(`[provisioning-create] Deleted Supabase user ${email}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.log(`[provisioning-create] Supabase cleanup error: ${e}`);
-  }
-}
-
-/** Ensure the hub auth user exists; returns its Supabase UUID. */
-async function ensureSupabaseUser(email: string, password: string): Promise<string> {
-  const res = await supabaseAdmin('/auth/v1/admin/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name: 'Provisioning E2E Tester' },
-    }),
-  });
-  if (res.ok) {
-    const created = await res.json();
-    console.log(`[provisioning-create] Supabase user ensured: ${email} (id ${created.id?.slice(0, 8)})`);
-    return created.id;
-  }
-  const body = await res.text();
-  if (res.status === 409 || body.includes('already exists') || body.includes('already registered')) {
-    // Re-list to fetch the existing user's id.
-    const listRes = await supabaseAdmin(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
-    const list = await listRes.json();
-    const existing = (list.users || []).find((u: { email: string }) => u.email === email);
-    if (existing) {
-      console.log(`[provisioning-create] Supabase user already exists: ${email} (id ${existing.id?.slice(0, 8)})`);
-      return existing.id;
-    }
-  }
-  throw new Error(`[provisioning-create] Supabase admin create user failed (${res.status}): ${body}`);
-}
 
 /**
  * Grant a pro entitlement by inserting a user_entitlements row through the
@@ -230,9 +162,9 @@ const registered: TestUser[] = [];
 async function setupUser(email: string, opts: { entitlement?: boolean } = {}): Promise<TestUser> {
   // Fresh state on every side: no globe rows, no hub auth user, no live subs.
   await globeDb.purgeTestUser(email);
-  await deleteSupabaseUser(email);
+  await deleteSupabaseUserByEmail(email);
   await cancelStaleSubscriptions(email);
-  const supabaseId = await ensureSupabaseUser(email, PASSWORD);
+  const supabaseId = await ensureSupabaseUser(email, PASSWORD, 'Provisioning E2E Tester');
   const user: TestUser = { email, supabaseId, entitled: !!opts.entitlement };
   registered.push(user);
   if (opts.entitlement) await grantProEntitlement(supabaseId);
@@ -303,7 +235,7 @@ test.afterAll(async () => {
   try {
     for (const u of registered) {
       if (u.supabaseId) await revokeEntitlements(u.supabaseId);
-      await deleteSupabaseUser(u.email);
+      await deleteSupabaseUserByEmail(u.email);
       await cancelStaleSubscriptions(u.email);
       await globeDb.purgeTestUser(u.email);
     }
