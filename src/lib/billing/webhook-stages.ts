@@ -1,3 +1,4 @@
+import { notify } from "@/lib/alerts/notify";
 import type { BillingFailureInput, FailureStage } from "@/lib/billing/billing-tables";
 import { recordStageFailure } from "@/lib/billing/webhook-record";
 import { failWebhookEvent } from "@/lib/billing/webhook-idempotency";
@@ -146,6 +147,39 @@ export function noteTierSyncFailure(
 }
 
 /**
+ * Raises the operator alert for one stage failure, right where it is filed.
+ *
+ * The failure row is durable but passive: it waits for someone to open the table.
+ * A provisioning failure or a failed tier push means a paying customer has no
+ * workspace, or is billed for a tier their globe is not running, and that cannot
+ * wait for a human to go looking - so the same failure that is recorded is also
+ * pushed out.
+ *
+ * The LEVEL is the retry verdict and nothing else. A retryable failure (globe
+ * silent or 5xx) is a warning: Stripe is about to redeliver it and it very often
+ * just fixes itself. A permanent one is critical: nothing but a human editing the
+ * checkout metadata or the globe's state will ever resolve it.
+ *
+ * Only identifiers travel. `email` is on the context the queue carries and is
+ * deliberately left out of the alert - it is the one field that identifies a real
+ * person, and notify() would strip it anyway.
+ */
+async function alertStageFailure({ failure, retryable }: StageFailure): Promise<void> {
+  await notify(
+    retryable ? "warning" : "critical",
+    `Billing stage failure: ${failure.stage}`,
+    `${failure.eventType ?? "unknown event"} ${failure.eventId ?? "unknown id"}: ${failure.error ?? "no detail"}`,
+    {
+      stage: failure.stage,
+      eventId: failure.eventId ?? null,
+      eventType: failure.eventType ?? null,
+      userId: failure.userId ?? null,
+      retryable,
+    },
+  );
+}
+
+/**
  * Closes out a delivery that ran but did not do its work.
  *
  * Files one durable failure per stage, and leaves the EVENT UNFINISHED - that is
@@ -162,8 +196,9 @@ export async function abandonIncompleteDelivery(
   eventType: string,
   failures: StageFailure[],
 ): Promise<void> {
-  for (const { failure } of failures) {
-    await recordStageFailure(failure);
+  for (const stageFailure of failures) {
+    await recordStageFailure(stageFailure.failure);
+    await alertStageFailure(stageFailure);
   }
   const summary = failures.map(({ failure }) => `${failure.stage}: ${failure.error}`).join("; ");
   const retry = shouldAskStripeToRetry(failures);
