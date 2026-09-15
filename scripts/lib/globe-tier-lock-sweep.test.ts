@@ -1,23 +1,79 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { signCrossServiceRequest as signReference } from '../../src/lib/cross-service/sign'
 import {
+  GLOBE_URL_VAR,
+  MAX_SWEEP_ROUNDS,
   TIER_LOCK_SWEEP_PATH,
   requireCrossServiceSecret,
+  requireGlobeUrl,
+  signCrossServiceRequest,
   requestTierLockSweep,
 } from './globe-tier-lock-sweep.mjs'
 
 /**
- * The lock sweep is the one part of the reconciler that could change state on
- * the globe, so its two guarantees are pinned here: it refuses to run without
- * its secret, and it never sends a request it cannot justify.
+ * The lock sweep is the one part of the reconciler that is not a read, so its
+ * guarantees are pinned here rather than reasoned about:
+ *
+ *   1. It refuses to run without its secret or without the globe's address, and
+ *      refuses BEFORE any network call.
+ *   2. Its signature is byte-identical to the hub's own signer, which is the
+ *      only thing standing between a scheduled run and a 401 at 6am.
+ *   3. It sends no payload. The account emails exist for the log line only.
  */
 
-const ORIGINAL = process.env.CROSS_SERVICE_SECRET
+const SECRET = 'test-secret-for-hmac-vitest-2026'
+const GLOBE = 'https://globe.test'
+/** Fixed so signatures are comparable; the cannonical string signs seconds. */
+const FIXED_TIMESTAMP = 1234567890
+
+const ORIGINAL_SECRET = process.env.CROSS_SERVICE_SECRET
+const ORIGINAL_URL = process.env.WWV_GLOBE_URL
+
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+})
 
 afterEach(() => {
-  if (ORIGINAL === undefined) delete process.env.CROSS_SERVICE_SECRET
-  else process.env.CROSS_SERVICE_SECRET = ORIGINAL
+  if (ORIGINAL_SECRET === undefined) delete process.env.CROSS_SERVICE_SECRET
+  else process.env.CROSS_SERVICE_SECRET = ORIGINAL_SECRET
+  if (ORIGINAL_URL === undefined) delete process.env.WWV_GLOBE_URL
+  else process.env.WWV_GLOBE_URL = ORIGINAL_URL
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+
+/** Pulls the sig= component out of a signature header. */
+function sigOf(header: string): string {
+  const match = header.match(/sig=([0-9a-f]+)/)
+  if (!match) throw new Error(`no sig= component in ${header}`)
+  return match[1]
+}
+
+type SweepReply = { status?: number; body: unknown }
+
+/** Serves a queued reply per call and records the exact request. */
+function sweepStub(replies: SweepReply[]) {
+  const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: unknown }> = []
+  let index = 0
+  const impl = async (
+    input: string | URL,
+    init?: { method?: string; headers?: Record<string, string>; body?: unknown },
+  ) => {
+    calls.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: init?.headers ?? {},
+      body: init?.body,
+    })
+    const reply = replies[index] ?? replies[replies.length - 1] ?? {
+      body: { success: true, due: 0, locked: 0, hasMore: false },
+    }
+    index += 1
+    const status = reply.status ?? 200
+    return { ok: status === 200, status, text: async () => JSON.stringify(reply.body) }
+  }
+  return { impl, calls }
+}
 
 describe('requireCrossServiceSecret', () => {
   it('names the missing variable when it is absent', () => {
@@ -36,29 +92,230 @@ describe('requireCrossServiceSecret', () => {
   })
 })
 
+describe('requireGlobeUrl', () => {
+  it('names the missing variable when it is absent', () => {
+    delete process.env.WWV_GLOBE_URL
+    expect(() => requireGlobeUrl()).toThrow(/WWV_GLOBE_URL is not set/)
+  })
+
+  it('says it will not read PROVISIONING_API_URL or guess a default', () => {
+    delete process.env.WWV_GLOBE_URL
+    expect(() => requireGlobeUrl()).toThrow(/does not read it and does not guess a default/)
+  })
+
+  it('returns the configured base URL with no trailing slash', () => {
+    process.env.WWV_GLOBE_URL = 'https://globe.test/'
+    expect(requireGlobeUrl()).toBe('https://globe.test')
+  })
+
+  it('is documented under the name the workflow sets', () => {
+    expect(GLOBE_URL_VAR).toBe('WWV_GLOBE_URL')
+  })
+})
+
+describe('signCrossServiceRequest', () => {
+  // The hub signer reads the secret from the environment rather than taking it
+  // as an argument, so the differential cases below need it set.
+  beforeEach(() => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+  })
+
+  it.each([
+    ['an empty body', { method: 'POST', path: TIER_LOCK_SWEEP_PATH }],
+    ['a JSON body', { method: 'POST', path: '/api/test', body: { key: 'value' } }],
+    ['a path carrying a query string', { method: 'POST', path: '/api/test?a=1', body: { key: 'value' } }],
+  ])('produces the same signature as the hub signer for %s', (_name, opts) => {
+    const mine = signCrossServiceRequest({ ...opts, timestamp: FIXED_TIMESTAMP, secret: SECRET })
+    const theirs = signReference({ ...opts, timestamp: FIXED_TIMESTAMP })
+
+    expect(sigOf(mine['X-Service-Signature'])).toBe(sigOf(theirs['X-Service-Signature']))
+    expect(mine['X-Service-Timestamp']).toBe(theirs['X-Service-Timestamp'])
+  })
+
+  it('reproduces the vector pinned by src/lib/cross-service/sign.test.ts', () => {
+    // Copied from that file's "produces same HMAC as globe-side sign" test.
+    const headers = signCrossServiceRequest({
+      method: 'POST',
+      path: '/api/test',
+      body: { key: 'value' },
+      timestamp: FIXED_TIMESTAMP,
+      secret: SECRET,
+    })
+    expect(sigOf(headers['X-Service-Signature'])).toBe(
+      'ed04b8ed50e9b2a95e532434456b319ec6c63cf82660ed363043aea6a57ae33b',
+    )
+  })
+
+  it('signs sha256("") for the bodiless request this sweep actually sends', () => {
+    // The pinned digest below is an independent HMAC over the literal canonical
+    // string, with the empty-body hash spelled out. If the canonical shape ever
+    // drifts, this test fails with a number instead of a 401 in production.
+    const emptyBodyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    const headers = signCrossServiceRequest({
+      method: 'POST',
+      path: TIER_LOCK_SWEEP_PATH,
+      timestamp: FIXED_TIMESTAMP,
+      secret: SECRET,
+    })
+    expect(sigOf(headers['X-Service-Signature'])).toBe(
+      '630c4046fe69c7ee7c49b54a0603429f98523ba8bbe9c819bd00083d681053a5',
+    )
+    expect(
+      `POST\n${TIER_LOCK_SWEEP_PATH}\n${FIXED_TIMESTAMP}\n${emptyBodyHash}`,
+    ).toBe('POST\n/api/service/tier-lock-sweep\n1234567890\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+  })
+
+  it('normalizes a millisecond timestamp to seconds, as the globe requires', () => {
+    const seconds = signCrossServiceRequest({
+      method: 'POST',
+      path: '/api/test',
+      body: { key: 'value' },
+      timestamp: FIXED_TIMESTAMP,
+      secret: SECRET,
+    })
+    const millis = signCrossServiceRequest({
+      method: 'POST',
+      path: '/api/test',
+      body: { key: 'value' },
+      timestamp: FIXED_TIMESTAMP * 1000,
+      secret: SECRET,
+    })
+
+    expect(millis['X-Service-Timestamp']).toBe('1234567890')
+    expect(millis['X-Service-Signature']).toContain('t=1234567890,')
+    expect(sigOf(millis['X-Service-Signature'])).toBe(sigOf(seconds['X-Service-Signature']))
+  })
+
+  it('emits the header shape the globe parses', () => {
+    const headers = signCrossServiceRequest({
+      method: 'POST',
+      path: TIER_LOCK_SWEEP_PATH,
+      timestamp: FIXED_TIMESTAMP,
+      secret: SECRET,
+    })
+    expect(headers['X-Service-Signature']).toMatch(/^t=\d{10},n=[0-9a-f-]{36},sig=[0-9a-f]{64}$/)
+    expect(headers['X-Service-Timestamp']).toBe('1234567890')
+    expect(headers['X-Service-Nonce']).toMatch(/^[0-9a-f-]{36}$/)
+  })
+})
+
 describe('requestTierLockSweep', () => {
   it('fails on the missing secret rather than skipping the phase silently', async () => {
+    process.env.WWV_GLOBE_URL = GLOBE
     delete process.env.CROSS_SERVICE_SECRET
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
     await expect(requestTierLockSweep({ emails: ['a@example.com'] })).rejects.toThrow(
       /CROSS_SERVICE_SECRET is not set/,
     )
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('refuses to send an unagreed payload even when the secret is present', async () => {
-    process.env.CROSS_SERVICE_SECRET = 'test-secret'
-    await expect(requestTierLockSweep({ emails: ['a@example.com'] })).rejects.toThrow(
-      `POST ${TIER_LOCK_SWEEP_PATH} is not implemented`,
-    )
-  })
-
-  it('never issues a network call, so no workspace can be locked by accident', async () => {
+  it('fails on the missing globe URL rather than guessing an address', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    delete process.env.WWV_GLOBE_URL
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
-    process.env.CROSS_SERVICE_SECRET = 'test-secret'
 
-    await expect(
-      requestTierLockSweep({ emails: ['a@example.com', 'b@example.com'] }),
-    ).rejects.toThrow(/NOT locked: a@example.com, b@example.com/)
+    await expect(requestTierLockSweep({ emails: ['a@example.com'] })).rejects.toThrow(
+      /WWV_GLOBE_URL is not set/,
+    )
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends a signed POST with an empty body when the configuration is complete', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ body: { success: true, due: 2, locked: 2, hasMore: false } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: ['a@example.com'] })
+
+    expect(stub.calls).toHaveLength(1)
+    const call = stub.calls[0]
+    expect(call.url).toBe(`${GLOBE}${TIER_LOCK_SWEEP_PATH}`)
+    expect(call.method).toBe('POST')
+    expect(call.headers['Content-Type']).toBe('application/json')
+    expect(call.headers['X-Service-Signature']).toMatch(/^t=\d{10},n=[0-9a-f-]{36},sig=[0-9a-f]{64}$/)
+    expect(call.headers['X-Service-Timestamp']).toMatch(/^\d{10}$/)
+    expect(call.headers['X-Service-Nonce']).toMatch(/^[0-9a-f-]{36}$/)
+    expect(call.body).toBe('')
+    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, hasMore: false })
+  })
+
+  it('emits a signature the hub signer can reproduce for the same request', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ body: { success: true, due: 0, locked: 0, hasMore: false } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await requestTierLockSweep({ emails: [] })
+
+    const sent = stub.calls[0].headers
+    const timestamp = Number(sent['X-Service-Timestamp'])
+    // The nonce is random and is not part of the canonical string, so the
+    // reference signer must produce the identical signature for this timestamp.
+    const reference = signReference({ method: 'POST', path: TIER_LOCK_SWEEP_PATH, timestamp })
+    expect(sigOf(sent['X-Service-Signature'])).toBe(sigOf(reference['X-Service-Signature']))
+  })
+
+  it('never puts the account emails in the request', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ body: { success: true, due: 1, locked: 1, hasMore: false } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await requestTierLockSweep({ emails: ['lapsed@example.com', 'also@example.com'] })
+
+    const call = stub.calls[0]
+    expect(call.body).toBe('')
+    expect(call.url).not.toContain('@')
+    // The whole request, headers included, must be free of them.
+    expect(JSON.stringify(call)).not.toContain('lapsed@example.com')
+    expect(JSON.stringify(call)).not.toContain('also@example.com')
+  })
+
+  it('re-asks while the globe reports more work waiting', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([
+      { body: { success: true, due: 500, locked: 500, hasMore: true } },
+      { body: { success: true, due: 3, locked: 3, hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    expect(stub.calls).toHaveLength(2)
+    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, hasMore: false })
+  })
+
+  it('reports loudly rather than dropping the remainder when hasMore never clears', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ body: { success: true, due: 500, locked: 0, hasMore: true } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/still reports hasMore/)
+    expect(stub.calls).toHaveLength(MAX_SWEEP_ROUNDS)
+  })
+
+  it('fails the run when the globe rejects the signature', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ status: 401, body: { error: 'invalid signature' } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/HTTP 401/)
+  })
+
+  it('fails the run when the globe reports success false', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ body: { success: false, error: 'sweep unavailable' } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/reported failure/)
   })
 })

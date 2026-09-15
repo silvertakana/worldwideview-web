@@ -34,11 +34,21 @@ Rows an operator entered by hand are never compared. They are listed separately 
 
 ## What it does about a problem
 
-**Nothing.** It reports the problem and exits. It then fails, which is what sends the email.
+It reports, and then it does exactly one thing.
 
-It cannot cancel a subscription, change a plan, extend a trial, or lock a workspace. Every action it
-takes - against Stripe and against the database - is a read. There is no code path in this check
-that alters production data.
+1. **It fails**, which is what sends the email.
+2. **If the disagreement is about payment stopping** - our record grants something Stripe no longer
+   backs, or a status has lapsed - it asks the globe to run its own lock sweep. That is a single
+   signed request with no payload at all. The globe then enforces the lock deadlines it has already
+   armed on itself, from normal tier-sync traffic.
+
+That second step is worth being precise about, because it sounds bigger than it is. The check does
+not decide who gets locked, does not name any account, and does not send a list. It cannot: the
+globe's endpoint takes no payload. The check's only power is to make the globe look at its own
+books.
+
+Everything else the check does is a read. It cannot cancel a subscription, change a plan, extend a
+trial, or alter any production record.
 
 ## When it emails you
 
@@ -58,17 +68,21 @@ that alters production data.
 ## Running it yourself
 
 ```
-SUPABASE_DB_URL=... STRIPE_SECRET_KEY=... node scripts/billing-reconcile.mjs
+SUPABASE_DB_URL=... STRIPE_SECRET_KEY=... CROSS_SERVICE_SECRET=... WWV_GLOBE_URL=... \
+  node scripts/billing-reconcile.mjs
 ```
 
 Exit code `0` means the two lists agree. `1` means they do not. It prints the same report the
 scheduled job emails you.
 
-## If it fails saying CROSS_SERVICE_SECRET is not set
+## If it fails about a missing setting
 
-That is expected until someone adds the secret. It means the check found an account whose payment
-stopped and wanted to ask the globe to lock that workspace - a step that is not wired up yet, and
-that deliberately refuses to send anything until the globe's request format is confirmed. Add
-`CROSS_SERVICE_SECRET` under **Settings -> Secrets and variables -> Actions** using the same value
-the globe verifies with, then ask a developer to finish the integration point in
-`scripts/lib/globe-tier-lock-sweep.mjs`.
+Each of these names the setting and says what to do. None of them is a code bug.
+
+| The message says | What it means |
+|---|---|
+| `SUPABASE_DB_URL is not set` | The check cannot read our record. Add the database connection string. |
+| `STRIPE_SECRET_KEY is not set` | The check cannot read Stripe. Add the key. |
+| `CROSS_SERVICE_SECRET is not set` | The check found an unpaid account and wanted to ask the globe for a lock sweep, but cannot sign the request. Add the secret under **Settings -> Secrets and variables -> Actions**, using the same value the globe verifies with. This is a **human step**, and until it is done every run that finds unpaid drift will fail here on purpose. |
+| `WWV_GLOBE_URL is not set` | Same situation, but the globe's address is missing. The scheduled workflow supplies it; a manual run must pass it (for example `https://cloud-wwv.dev`). The script never guesses a URL. |
+| `the globe still reports hasMore` | The globe had more armed deadlines than one run sweeps (500 per call, 3 calls). Nothing was dropped silently: this is a backlog to investigate on the globe. |

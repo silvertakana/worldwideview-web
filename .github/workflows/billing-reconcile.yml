@@ -10,9 +10,12 @@
 #   failure - removing the failure removes the alert. A red run is the feature.
 #   What to do about one is in docs/billing-reconciliation.md.
 #
-# READ-ONLY
-#   The job issues Stripe GETs and Postgres SELECTs and nothing else. It cannot
-#   cancel a subscription, change a grant, or lock a workspace.
+# READ-ONLY EXCEPT FOR ONE DELIBERATE STEP
+#   The job issues Stripe GETs and Postgres SELECTs, and then - only when a
+#   grant has lapsed - one signed, bodiless POST to the globe's own tier-lock
+#   sweep. That POST carries no payload and names no account: the globe enforces
+#   the deadlines it has already armed on itself. Nothing here can cancel a
+#   subscription, change a grant, or choose who gets locked.
 #
 # WHY schedule AND workflow_dispatch
 #   A scheduled workflow only runs from the default branch, and GitHub disables
@@ -20,16 +23,25 @@
 #   manual trigger available across such a gap, and for an on-demand check right
 #   after a billing incident.
 #
-# SECRETS
+# SECRETS AND VARIABLES
 #   SUPABASE_DB_URL   the only credential that reaches the hub database from a
 #                     runner. There is no Supabase URL secret and no
 #                     service-role-key secret, and no environment-scoped
 #                     secrets exist, so PostgREST is not an option here.
 #   STRIPE_SECRET_KEY used read-only; the script only ever issues GET requests.
 #   CROSS_SERVICE_SECRET is NOT a repository secret. Adding it is a human step,
-#   and until it exists a run that finds unpaid-but-granted drift fails loudly on
-#   that specific missing variable instead of silently skipping the globe lock
-#   sweep. That is deliberate: a skipped lock phase looks like a healthy system.
+#                     and until it exists a run that finds unpaid-but-granted
+#                     drift fails loudly on that specific missing variable
+#                     instead of silently skipping the globe lock sweep. That is
+#                     deliberate: a skipped lock phase looks like a healthy
+#                     system. Wiring it here means the sweep starts working the
+#                     moment the secret is added, with no code change.
+#   WWV_GLOBE_URL     the globe's base URL, the other half of the sweep's
+#                     configuration. Not a secret, so it is a repository
+#                     variable with an explicit default here rather than a
+#                     hidden fallback in the script. Set the variable to point
+#                     a run somewhere else (staging); the script itself never
+#                     invents a URL and fails if this is empty.
 # =============================================================================
 
 name: Billing reconciliation
@@ -63,4 +75,6 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          CROSS_SERVICE_SECRET: ${{ secrets.CROSS_SERVICE_SECRET }}
+          WWV_GLOBE_URL: ${{ vars.WWV_GLOBE_URL || 'https://cloud-wwv.dev' }}
         run: node scripts/billing-reconcile.mjs

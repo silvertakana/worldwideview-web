@@ -7,11 +7,13 @@
  * disagree. Run by .github/workflows/billing-reconcile.yml on a schedule; the
  * exit code is what raises the alert.
  *
- * READ-ONLY BY CONSTRUCTION. Every Stripe call is a GET and every database
- * statement is a SELECT. This script cannot cancel a subscription, change a
- * grant, or lock a workspace. The one place that could ever write to another
- * service is scripts/lib/globe-tier-lock-sweep.mjs, which refuses to send
- * anything (see its header).
+ * READ-ONLY EXCEPT FOR ONE DELIBERATE STEP. Every Stripe call is a GET and every
+ * database statement is a SELECT. This script cannot cancel a subscription or
+ * change a grant. The one thing it asks for is the globe's own tier-lock sweep
+ * (scripts/lib/globe-tier-lock-sweep.mjs): a signed, bodiless POST telling the
+ * globe to enforce the deadlines it has already armed on itself. It carries no
+ * payload and names no account, so this runner decides nothing about who gets
+ * locked.
  *
  * The comparison itself lives in scripts/lib/billing-reconcile-core.mjs and is
  * pure; this file is only the I/O around it.
@@ -91,6 +93,11 @@ function loadEnvFiles() {
   if (crossService && process.env.CROSS_SERVICE_SECRET === undefined) process.env.CROSS_SERVICE_SECRET = crossService
   const provisioning = fromFile.get('PROVISIONING_API_URL')
   if (provisioning && process.env.PROVISIONING_API_URL === undefined) process.env.PROVISIONING_API_URL = provisioning
+  // Deliberately the runner's own variable rather than PROVISIONING_API_URL:
+  // that one is a deployment variable and is not guaranteed to exist on a
+  // runner, and the sweep must never fall back to a guessed address.
+  const globeUrl = fromFile.get('WWV_GLOBE_URL')
+  if (globeUrl && process.env.WWV_GLOBE_URL === undefined) process.env.WWV_GLOBE_URL = globeUrl
 }
 
 /** pg hands back a Date for timestamptz; the core compares ISO instants. */
@@ -246,7 +253,10 @@ async function runSweepPhase(sweepTargets) {
   console.log('')
   console.log(`[reconcile] sweep phase: ${sweepTargets.length} drift item(s) say payment has stopped.`)
   console.log(`[reconcile] accounts affected: ${emails.join(', ') || '(no email on the drift items)'}`)
-  await requestTierLockSweep({ emails })
+  const result = await requestTierLockSweep({ emails })
+  console.log(
+    `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked}`,
+  )
 }
 
 /**
