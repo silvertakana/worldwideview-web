@@ -312,7 +312,7 @@ describe('requestTierLockSweep', () => {
     expect(call.headers['X-Service-Timestamp']).toMatch(/^\d{10}$/)
     expect(call.headers['X-Service-Nonce']).toMatch(/^[0-9a-f-]{36}$/)
     expect(call.body).toBe('')
-    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, unapplied: 0, failed: 0, hasMore: false })
+    expect(result).toEqual({ notDeployed: false, rounds: 1, due: 2, locked: 2, unapplied: 0, failed: 0, hasMore: false })
   })
 
   it('emits a signature the hub signer can reproduce for the same request', async () => {
@@ -361,7 +361,7 @@ describe('requestTierLockSweep', () => {
     const result = await requestTierLockSweep({ emails: [] })
 
     expect(stub.calls).toHaveLength(2)
-    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, unapplied: 0, failed: 0, hasMore: false })
+    expect(result).toEqual({ notDeployed: false, rounds: 2, due: 3, locked: 3, unapplied: 0, failed: 0, hasMore: false })
   })
 
   it('reports loudly rather than dropping the remainder when hasMore never clears', async () => {
@@ -383,6 +383,50 @@ describe('requestTierLockSweep', () => {
     vi.stubGlobal('fetch', stub.impl)
 
     await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/HTTP 401/)
+  })
+
+  it('reports an undeployed endpoint loudly without failing the run', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    // Globe PR #511 ships this route. Before it is deployed the globe answers
+    // 404, which is a deploy that is behind - not a customer who paid and got
+    // nothing. It must be visible in the log and must NOT redden the schedule.
+    const stub = sweepStub([{ status: 404, raw: 'Not Found' }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    expect(result.notDeployed).toBe(true)
+    const banner = loggedLines().find((line) => line.includes('NOT DEPLOYED'))
+    expect(banner).toBeDefined()
+    expect(banner).toContain(TIER_LOCK_SWEEP_PATH)
+    expect(banner).toContain('#511')
+    // It is explicitly neither a red run nor a clean sweep.
+    expect(banner).toMatch(/NOT a red run and NOT a clean sweep/)
+  })
+
+  it('never reports an undeployed endpoint as a sweep of zeroes', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ status: 404, raw: 'Not Found' }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    // `due=0 locked=0` is the exact line a healthy sweep prints, so no per-round
+    // count line may be written and only one request may be attempted.
+    expect(loggedLines().some((line) => line.includes('sweep round'))).toBe(false)
+    expect(result.notDeployed).toBe(true)
+    expect(stub.calls).toHaveLength(1)
+  })
+
+  it('still fails on a 5xx, which is a broken globe rather than a missing deploy', async () => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+    const stub = sweepStub([{ status: 503, raw: 'Service Unavailable' }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/HTTP 503/)
   })
 
   it('fails the run when the globe reports success false', async () => {
@@ -469,7 +513,7 @@ describe('requestTierLockSweep', () => {
 
     const result = await requestTierLockSweep({ emails: [] })
 
-    expect(result).toEqual({ rounds: 1, due: 4, locked: 3, unapplied: 1, failed: 0, hasMore: false })
+    expect(result).toEqual({ notDeployed: false, rounds: 1, due: 4, locked: 3, unapplied: 1, failed: 0, hasMore: false })
   })
 })
 

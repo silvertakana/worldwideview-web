@@ -291,6 +291,18 @@ async function runSweepPhase(sweepTargets) {
   console.log(`[reconcile] sweep phase: ${sweepTargets.length} drift item(s) say payment has stopped.`)
   console.log(`[reconcile] accounts affected: ${emails.join(', ') || '(no email on the drift items)'}`)
   const result = await requestTierLockSweep({ emails })
+
+  // An undeployed endpoint is not a sweep: reporting its zeroes would print the
+  // exact line a healthy sweep prints and bury the banner the module just wrote.
+  if (result.notDeployed) {
+    console.log(
+      `[reconcile] sweep NOT DEPLOYED after ${result.rounds} attempt(s): no deadline was enforced. ` +
+        'The drift itself is reported above and is still what makes this run red; the missing ' +
+        'deploy is the separate, non-alerting fact named on the line above.',
+    )
+    return
+  }
+
   console.log(
     `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked} ` +
       `unapplied=${result.unapplied} failed=${result.failed}`,

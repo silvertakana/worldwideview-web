@@ -38,6 +38,24 @@
  *   whitespace-only body, a body that is not JSON, and valid JSON that is not an
  *   object all fail the run rather than being skipped.
  *
+ * AN ABSENT ENDPOINT IS NOT A RED RUN
+ *   The globe this runner calls is PR #511 `fix/billing-tier-lock-policy-defects`.
+ *   Until that PR is deployed, `POST /api/service/tier-lock-sweep` does not exist
+ *   and the globe answers 404. That is a deploy that is behind, not a customer
+ *   who paid and got nothing, and the two must not share an alert: a nightly job
+ *   that reddens every night until an unrelated deploy lands is a job whose red
+ *   stops meaning anything, and the whole point of this runner is that its red
+ *   means something.
+ *
+ *   So a 404 is reported LOUDLY and returned as `notDeployed: true` instead of
+ *   thrown: the run prints a NOT DEPLOYED banner naming the endpoint and keeps
+ *   exit code 0. Every other non-2xx is still a thrown failure - a 401 means the
+ *   signature is wrong, a 500 means the globe broke, and both are real.
+ *
+ *   `notDeployed` is a distinct flag rather than a pair of zero counts. A sweep
+ *   that never reached the endpoint must never be visible as `due=0 locked=0`,
+ *   because that reads exactly like a healthy sweep that found nothing to do.
+ *
  * TWO VARIABLES, NOT ONE
  *   CROSS_SERVICE_SECRET is half the configuration; the globe's base URL is the
  *   other half. The hub reaches this same service through PROVISIONING_API_URL,
@@ -65,6 +83,12 @@ import crypto from 'node:crypto'
 
 /** The globe endpoint this module exists to call. */
 export const TIER_LOCK_SWEEP_PATH = '/api/service/tier-lock-sweep'
+
+/**
+ * The status the globe answers while the sweep route is not deployed yet. It is
+ * read as "the deploy is behind", which is loud but is NOT a red run.
+ */
+export const SWEEP_NOT_DEPLOYED_STATUS = 404
 
 /** The globe's base URL. Read from here and nowhere else. */
 export const GLOBE_URL_VAR = 'WWV_GLOBE_URL'
@@ -244,8 +268,13 @@ export function describeSweepCounts(counts) {
 
 /**
  * One signed sweep request. Carries no payload.
+ *
+ * Returns `{notDeployed: true}` when the endpoint is absent, otherwise the four
+ * counts. Fails (throws) on every other non-2xx and on any body it cannot read.
+ *
  * @param {string} baseUrl
  * @param {string} secret
+ * @returns {Promise<{notDeployed: true} | {notDeployed: false, due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}>}
  */
 async function sweepOnce(baseUrl, secret) {
   const response = await fetch(`${baseUrl}${TIER_LOCK_SWEEP_PATH}`, {
@@ -262,7 +291,19 @@ async function sweepOnce(baseUrl, secret) {
 
   const text = await response.text()
   if (!response.ok) {
-    throw new Error(
+    // 404 is the ONE status that is not an alert. The route this runner calls
+    // ships with the globe's PR #511, so until that PR is deployed the globe
+    // answers 404 for a path that does not exist yet - a deploy that is behind,
+    // not a billing incident. Reddening the schedule for it would make the red
+    // mean "a deploy is behind" as often as it means "a customer paid and got
+    // nothing", and an alert that means two things means nothing.
+    //
+    // Reported loudly and returned, never swallowed: the caller prints a NOT
+    // DEPLOYED banner and the run keeps exit code 0. Every other non-2xx still
+    // throws - a 401 is a wrong signature and a 500 is a broken globe.
+    if (response.status === SWEEP_NOT_DEPLOYED_STATUS) {
+      return { notDeployed: true }
+    }    throw new Error(
       `globe lock sweep failed with HTTP ${response.status}: ${text.slice(0, 300)}`,
     )
   }
@@ -296,7 +337,7 @@ async function sweepOnce(baseUrl, secret) {
   // A nonzero `unapplied` is NOT a failure: a deadline can come due and need no
   // action taken on it. It is still never rounded away - the caller logs it and
   // returns it, so the run shows what the sweep actually did.
-  return { due, locked, unapplied, failed, hasMore: parsed.hasMore === true }
+  return { notDeployed: false, due, locked, unapplied, failed, hasMore: parsed.hasMore === true }
 }
 
 /**
@@ -313,9 +354,13 @@ async function sweepOnce(baseUrl, secret) {
  * call reports on the batch it was handed, and every round is logged as it
  * happens, so nothing is lost by not adding them up.
  *
+ * When the endpoint is not deployed the run returns `notDeployed: true` with no
+ * counts, having printed the banner: there is no verdict to report, and zeroes
+ * would read as one.
+ *
  * @param {{emails?: string[]}} [input] accounts that motivated the sweep - for
  *   the log line only, and never part of the request
- * @returns {Promise<{rounds: number, due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}>}
+ * @returns {Promise<{notDeployed: boolean, rounds: number, due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}>}
  */
 export async function requestTierLockSweep({ emails = [] } = {}) {
   // Both checked before anything else so a missing setting is reported by name,
@@ -333,11 +378,37 @@ export async function requestTierLockSweep({ emails = [] } = {}) {
   )
 
   let rounds = 0
+  /** @type {{due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}} */
   let last = { due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false }
 
   for (;;) {
     rounds += 1
-    last = await sweepOnce(baseUrl, secret)
+    const attempt = await sweepOnce(baseUrl, secret)
+
+    if (attempt.notDeployed) {
+      // The warning names the endpoint and the deploy it waits on, so the log
+      // line is actionable without the reader knowing the hub's PR numbers.
+      console.log(
+        `[reconcile] sweep NOT DEPLOYED: the globe answered HTTP ${SWEEP_NOT_DEPLOYED_STATUS} for ` +
+          `POST ${baseUrl}${TIER_LOCK_SWEEP_PATH}, so no lock deadline was enforced on this run. ` +
+          'That endpoint ships with globe PR #511 fix/billing-tier-lock-policy-defects; until it is ' +
+          'deployed, the sweep cannot run. This is NOT a red run and NOT a clean sweep: nothing ' +
+          'here says the armed deadlines were enforced, so lapsed free-plan grants stay unlocked ' +
+          'until the deploy lands. It is not reported as drift because a deploy that is behind is ' +
+          'not a customer who paid and got nothing, and the alert must keep meaning the second thing.',
+      )
+      return {
+        notDeployed: true,
+        rounds,
+        due: 0,
+        locked: 0,
+        unapplied: 0,
+        failed: 0,
+        hasMore: false,
+      }
+    }
+
+    last = attempt
     console.log(`[reconcile] sweep round ${rounds}: ${describeSweepCounts(last)}`)
     if (last.unapplied > 0) {
       console.log(
@@ -349,6 +420,7 @@ export async function requestTierLockSweep({ emails = [] } = {}) {
 
     if (!last.hasMore) {
       return {
+        notDeployed: false,
         rounds,
         due: last.due,
         locked: last.locked,

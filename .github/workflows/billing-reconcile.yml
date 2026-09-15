@@ -61,11 +61,33 @@
 #   skipped prints a clean report about work nobody did, which is the one outcome
 #   this job exists to prevent.
 #
-# WHY schedule AND workflow_dispatch
-#   A scheduled workflow only runs from the default branch, and GitHub disables
-#   a schedule after 60 days of repository inactivity. workflow_dispatch keeps a
-#   manual trigger available across such a gap, and for an on-demand check right
-#   after a billing incident.
+# WHY THERE IS NO schedule TRIGGER (DELIBERATE, DO NOT "FIX")
+#   The schedule was removed on purpose and this workflow is manual-only until
+#   the launch is complete. Two things are not in place yet:
+#     1. CROSS_SERVICE_SECRET does not exist as a repository secret, so any run
+#        that finds unpaid-but-granted drift FAILS on that missing variable. That
+#        failure is correct - a skipped lock phase looks like a healthy system -
+#        but it means a nightly run would go red for a configuration step rather
+#        than for a customer who paid and got nothing, and an alert that fires
+#        for the wrong reason stops being read.
+#     2. The globe's tier-lock sweep endpoint ships with globe PR #511
+#        fix/billing-tier-lock-policy-defects. Until that PR is deployed the
+#        endpoint answers 404. The runner treats that as NOT DEPLOYED, prints a
+#        banner and keeps exit code 0, but a nightly job that reports an
+#        undeployed dependency every night is still noise nobody should wake up
+#        to before the rest of the launch is ready.
+#
+#   So merging this must not start a nightly job that is guaranteed to fail.
+#   Restore the trigger (a `schedule:` block with `cron: '0 6 * * *'`) only AFTER
+#   the secret exists and the globe PR is deployed - in the same PR that makes
+#   the first scheduled run meaningful. Removing this workflow's failure, or
+#   adding `continue-on-error`, is never the fix: the exit code IS the alert.
+#
+# WHY workflow_dispatch ALONE
+#   A scheduled workflow only runs from the default branch, and GitHub disables a
+#   schedule after 60 days of repository inactivity. Manual dispatch keeps the
+#   check available for an on-demand run right after a billing incident, and it
+#   is what lets this land now without turning on the nightly job.
 #
 # SECRETS AND VARIABLES
 #   SUPABASE_DB_URL   the only credential that reaches the hub database from a
@@ -91,8 +113,6 @@
 name: Billing reconciliation
 
 on:
-  schedule:
-    - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
