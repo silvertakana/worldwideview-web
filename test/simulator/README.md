@@ -84,9 +84,19 @@ fixtures in sync when a price rotates.
 
 - The handler makes outbound Stripe API calls (`checkout.sessions.retrieve`,
   `customers.retrieve`). Without a stripe-mock service in the test stack,
-  those calls fail against the real test API (nonexistent `cus_`/`cs_` ids) —
-  the handler catches the error and logs `[webhook] Error handling ...`. The
-  event is still received, verified, and processed as far as possible; the
-  `{ received: true }` response proves the signature path worked.
+  those calls fail against the real test API (nonexistent `cus_`/`cs_` ids).
+  A throw during handling aborts the event before anything is processed: no
+  provisioning, no tier sync. Under the fail-loud webhook contract the hub
+  logs `[webhook] Handling FAILED ...`, records the failure against the event
+  in the webhook ledger, and answers
+  `500 { received: false, error: "Webhook handling failed" }` so Stripe
+  redelivers and the redelivery is reprocessed (only a delivery that COMPLETED
+  is absorbed as a duplicate). A hub that predates that contract swallows the
+  throw and answers `{ received: true }` instead, which means the event was
+  dropped rather than handled.
+- So a `200 { received: true }` proves the signature path worked (a bad
+  signature is a 400), but it is not proof that the event was processed: a
+  globe-side tier-sync failure also answers 200, because that helper returns
+  `{ ok: false }` instead of throwing.
 - For tier-sync verification you need stripe-mock (separate concern) or real
   sandbox customers whose `email` resolves.
