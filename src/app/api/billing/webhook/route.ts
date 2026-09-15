@@ -17,10 +17,13 @@ import {
   resolveIdentity,
   type PayloadEmailFields,
 } from "@/lib/billing/webhook-identity";
-import type { BillingFailureInput } from "@/lib/billing/billing-tables";
 import {
   abandonIncompleteDelivery,
+  noteMissingHubUserId,
+  noteProvisionFailure,
   noteTierSyncFailure,
+  shouldAskStripeToRetry,
+  type StageFailure,
   type TierSyncResult,
 } from "@/lib/billing/webhook-stages";
 import {
@@ -240,7 +243,7 @@ export async function POST(req: Request) {
   // D8: the stages this delivery failed. Collected rather than thrown, because a
   // stage failure must not become a 500 (see the tail) while still being
   // impossible to miss afterwards.
-  const stageFailures: BillingFailureInput[] = [];
+  const stageFailures: StageFailure[] = [];
 
   try {
     switch (event.type) {
@@ -310,14 +313,11 @@ export async function POST(req: Request) {
           console.error(
             `[webhook] checkout.session.completed: SKIPPED workspace provisioning - no hubUserId on checkout session; account requires manual remediation. sessionId=${session.id} email=${email} customerId=${session.customer ?? "n/a"} eventId=${event.id}`,
           );
-          stageFailures.push({
-            stage: "provision",
-            eventId: event.id,
-            eventType: event.type,
-            email,
-            userId,
-            error: `no hubUserId on checkout session ${session.id}; nothing was provisioned and no redelivery can add one`,
-          });
+          noteMissingHubUserId(
+            stageFailures,
+            { eventId: event.id, eventType: event.type, email, userId },
+            session.id,
+          );
         } else {
           const provision = await provisionWorkspace({
             email,
@@ -331,14 +331,11 @@ export async function POST(req: Request) {
             console.error(
               `[webhook] Workspace provisioning FAILED for ${email} - globe returned ${provision.status ?? "transport error"}${provision.detail ? ` (${provision.detail})` : ""}`,
             );
-            stageFailures.push({
-              stage: "provision",
-              eventId: event.id,
-              eventType: event.type,
-              email,
-              userId,
-              error: `globe provisioning failed: ${provision.status ?? "transport error"}${provision.detail ? ` (${provision.detail})` : ""}`,
-            });
+            noteProvisionFailure(
+              stageFailures,
+              { eventId: event.id, eventType: event.type, email, userId },
+              provision,
+            );
           }
         }
 
@@ -530,9 +527,18 @@ export async function POST(req: Request) {
     // complete here is what let a paid customer sit without a workspace, or at
     // the wrong tier, while the ledger said "handled": the redelivery would be
     // absorbed as a duplicate, so nothing could ever retry it. Leaving the event
-    // unfinished is the whole fix; see webhook-stages.ts for why the status code
-    // stays 200.
+    // unfinished is the whole fix; the status code then follows whether any of
+    // these failures is one a redelivery could still fix (see the rule in
+    // webhook-stages.ts).
     await abandonIncompleteDelivery(event.id, event.type, stageFailures);
+    if (shouldAskStripeToRetry(stageFailures)) {
+      // A globe that is down, restarting or deploying: asking Stripe to send the
+      // event again is the only thing that provisions this customer's workspace.
+      return NextResponse.json(
+        { received: false, error: "Webhook handling failed" },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({ received: true, completed: false });
   }
 

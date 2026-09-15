@@ -332,7 +332,7 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     ]);
   });
 
-  it("files a provisioning failure and leaves the event unfinished when the globe rejects the workspace", async () => {
+  it("answers 500 so Stripe redelivers when the globe 5xxes on provisioning", async () => {
     const event = buildEvent(
       "checkout.session.completed",
       { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
@@ -345,9 +345,17 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ received: true, completed: false });
+    // A globe that is restarting, deploying or cold-starting is exactly what a
+    // redelivery is for: the in-process retry is one attempt 500ms later, and a
+    // container restart is far longer than that. Without the 500 this customer
+    // has paid for a workspace that is never provisioned.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ received: false, error: "Webhook handling failed" });
     expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_provision_failed",
+      expect.stringContaining("globe provisioning failed: 500"),
+    );
     expect(failureWrites()).toEqual([
       {
         table: "billing_failures",
@@ -357,6 +365,38 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
           event_id: "evt_provision_failed",
           email: "pay@example.com",
           error: expect.stringContaining("globe provisioning failed: 500"),
+        }),
+      },
+    ]);
+  });
+
+  it("keeps 200 but leaves the event unfinished when the globe refuses the workspace outright", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_provision_refused",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockCrossServiceFetch.mockResolvedValueOnce(fail(400, "invalid email")).mockResolvedValueOnce(ok());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // The globe understood the request and refused it; the next identical
+    // request would be refused identically, so a week of redeliveries buys
+    // nothing. The durable row is what an operator works from instead.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_provision_refused",
+          email: "pay@example.com",
+          error: expect.stringContaining("globe provisioning failed: 400"),
         }),
       },
     ]);
@@ -930,7 +970,7 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     expect(syncPaths()).toEqual(["/api/service/tier-sync", "/api/service/tier-sync"]);
   });
 
-  it("returns 200 but leaves the event unfinished after both tier-sync attempts fail", async () => {
+  it("answers 500 but leaves the event unfinished after both tier-sync attempts fail", async () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -946,8 +986,11 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     await vi.advanceTimersByTimeAsync(500);
     const res = await postPromise;
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ received: true, completed: false });
+    // Both attempts hit a 5xx, so the globe is down rather than unhappy with the
+    // request: Stripe's redelivery is the recovery mechanism, and the unfinished
+    // event is what lets it through instead of being absorbed as a duplicate.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ received: false, error: "Webhook handling failed" });
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(2);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("attempt 2/2"));
 
@@ -955,6 +998,10 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     // redelivery was absorbed as a duplicate and the workspace stayed at the
     // wrong tier with nothing durable recording it.
     expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_sync_gave_up",
+      expect.stringContaining("globe tier sync failed: 500"),
+    );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("NOT completed"));
     expect(failureWrites()).toEqual([
       {
@@ -965,6 +1012,40 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
           event_id: "evt_sync_gave_up",
           email: "retry2@example.com",
           error: expect.stringContaining("globe tier sync failed: 500"),
+        }),
+      },
+    ]);
+  });
+
+  it("keeps 200 when the globe rejects the tier sync outright", async () => {
+    vi.useFakeTimers();
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_r3", customer: "cus_r3", customer_email: "reject@example.com" },
+      "evt_sync_refused",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockCrossServiceFetch.mockResolvedValue(fail(400, "Invalid periodEndsAt date"));
+
+    const postPromise = POST(buildRequest(JSON.stringify(event)));
+    await vi.advanceTimersByTimeAsync(500);
+    const res = await postPromise;
+
+    // Still retried once in-process, then recorded and closed out: a body the
+    // globe has already rejected is not something a redelivery can change, so
+    // Stripe is told the delivery is done with and the operator gets the row.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
+    expect(mockCrossServiceFetch).toHaveBeenCalledTimes(2);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "tier_sync",
+          event_id: "evt_sync_refused",
+          error: expect.stringContaining("globe tier sync failed: 400"),
         }),
       },
     ]);
