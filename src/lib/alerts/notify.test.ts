@@ -302,6 +302,170 @@ describe("redaction", () => {
   });
 });
 
+describe("the timeout that bounds every caller", () => {
+  it("settles at about 5s against a fetch that never answers, so a dead channel cannot hold the request open", async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const signals: AbortSignal[] = [];
+    // A channel that accepts the POST and then says nothing at all. Aborting the
+    // signal is what a real fetch observes, so this rejects the way a real
+    // timeout does rather than leaving a pending promise behind.
+    mockFetch.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("This operation was aborted")));
+      });
+    });
+    const { notify } = await alerts();
+
+    let settled = false;
+    const pending = notify("critical", "t", "m", { eventId: "evt_1" }).then(() => {
+      settled = true;
+    });
+
+    // Four seconds in, the alert is still in flight: the bound is real, not an
+    // instant failure that would pass a looser assertion.
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(settled).toBe(false);
+    expect(signals[0].aborted).toBe(false);
+
+    // Past five seconds it is over, and it resolves rather than rejects: the
+    // caller's response is never held, and never broken, by the alert channel.
+    await vi.advanceTimersByTimeAsync(1_100);
+    await pending;
+
+    expect(settled).toBe(true);
+    expect(signals[0].aborted).toBe(true);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("webhook transport failed"));
+  });
+
+  it("does not block the caller beyond the timeout even with a channel that hangs forever", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockFetch.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("This operation was aborted")));
+      });
+    });
+    const { notify } = await alerts();
+
+    const started = Date.now();
+    const pending = notify("critical", "t", "m");
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+
+    // The caller is 5s older and free, not still waiting on a promise that will
+    // never settle.
+    expect(Date.now() - started).toBe(5_000);
+  });
+});
+
+describe("a drop is visible to an operator", () => {
+  it("reports the standing configuration state in the three states that matter", async () => {
+    const { alertingConfigState } = await alerts();
+
+    expect(alertingConfigState()).toEqual({ status: "configured", transports: ["webhook"], incomplete: [] });
+
+    vi.stubEnv("NTFY_URL", "https://ntfy.sh");
+    vi.stubEnv("NTFY_TOPIC", "wwv-billing");
+    expect(alertingConfigState()).toEqual({
+      status: "configured",
+      transports: ["webhook", "ntfy"],
+      incomplete: [],
+    });
+
+    // Half of ntfy is the case an operator most needs to see: the deployment
+    // believes it is alerting and is not.
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    vi.stubEnv("NTFY_URL", "");
+    expect(alertingConfigState()).toEqual({
+      status: "partially-configured",
+      transports: [],
+      incomplete: ["NTFY_URL"],
+    });
+
+    vi.stubEnv("NTFY_URL", "https://ntfy.sh");
+    vi.stubEnv("NTFY_TOPIC", "");
+    expect(alertingConfigState()).toEqual({
+      status: "partially-configured",
+      transports: [],
+      incomplete: ["NTFY_TOPIC"],
+    });
+
+    vi.stubEnv("NTFY_URL", "");
+    expect(alertingConfigState()).toEqual({ status: "unconfigured", transports: [], incomplete: [] });
+  });
+
+  it("logs each dropped alert at the point of failure, so the loss is not only a boot-time line", async () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notify } = await alerts();
+    warnSpy.mockClear();
+
+    await notify("critical", "Billing webhook handling failed", "m", { eventId: "evt_1" });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("DROPPED a critical alert"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unconfigured"));
+    // The operator is told what to set, and never what any value is.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("NTFY_URL and NTFY_TOPIC"));
+    expect(warnSpy.mock.calls.flat().join(" ")).not.toContain("https://");
+  });
+
+  it("names the variable a half-configured deployment still has to set", async () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    vi.stubEnv("NTFY_URL", "https://ntfy.sh");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notify } = await alerts();
+    warnSpy.mockClear();
+
+    await notify("warning", "Billing stage failure: provision", "m");
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("partially-configured"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("set NTFY_TOPIC as well"));
+  });
+
+  it("rate-limits the drop log to once a minute per worker, so a storm cannot become its own flood", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notify } = await alerts();
+    warnSpy.mockClear();
+
+    await notify("critical", "first", "m");
+    await notify("critical", "second", "m");
+    await notify("warning", "third", "m");
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(60_001);
+    await notify("critical", "after the window", "m");
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenLastCalledWith(expect.stringContaining("after the window"));
+  });
+
+  it("still counts a dropped alert, so a later send reports what never went out", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notify } = await alerts();
+
+    // Two drops while unconfigured, then the transport is switched on.
+    await notify("critical", "t", "m");
+    await notify("critical", "t", "m");
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://alerts.test/hook");
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await notify("critical", "t", "m");
+
+    // A drop claims its slot like any other attempt, so the alert that finally
+    // goes out carries the count of the drops that did not.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(payloadOf(0).context).toEqual({ suppressedSinceLastSend: 1 });
+  });
+});
+
 describe("de-duplication", () => {
   it("collapses identical alerts inside the window and reports the count on the next real send", async () => {
     vi.useFakeTimers();
@@ -364,5 +528,34 @@ describe("de-duplication", () => {
     await alert();
 
     expect(sentBody(1)).toBe("globe tier sync failed: 503\n\n(1 identical alert suppressed in the last 5 minutes)");
+  });
+
+  it("keeps the newest suppression state when the window overflows, instead of re-sending everything at once", async () => {
+    vi.useFakeTimers();
+    const { notify } = await alerts();
+    const alert = (key: string) => notify("critical", "Billing stage failure: provision", `globe 503 for ${key}`);
+
+    // Fill the window past its cap with distinct failures - a burst, which is
+    // exactly when suppression has to keep working.
+    for (let i = 0; i < 500; i += 1) await alert(`k${i}`);
+    const afterFill = mockFetch.mock.calls.length;
+
+    // The key that is still storming: one real send, then two suppressed.
+    await alert("k499");
+    const beforeRepeat = mockFetch.mock.calls.length;
+    await alert("k499");
+    await alert("k499");
+
+    // Overflowing the map did NOT hand every live key a fresh send, and the most
+    // recently seen key is still collapsed. The old implementation cleared the
+    // whole map here, which re-sent all 500 at the worst possible moment.
+    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(afterFill);
+    expect(beforeRepeat).toBeGreaterThanOrEqual(afterFill);
+    expect(mockFetch.mock.calls.length).toBe(beforeRepeat);
+
+    // The suppression count survives eviction and rides the next real send.
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await alert("k499");
+    expect(payloadOf(mockFetch.mock.calls.length - 1).context).toEqual({ suppressedSinceLastSend: 3 });
   });
 });

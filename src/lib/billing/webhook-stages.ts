@@ -190,15 +190,28 @@ async function alertStageFailure({ failure, retryable }: StageFailure): Promise<
  *
  * The status code the caller answers with still depends on whether any of these
  * failures is retryable: see the rule at the top of this file.
+ *
+ * HOW LONG THIS IS ALLOWED TO TAKE, because it sits between Stripe and the
+ * response. The durable rows are written in series and must all land - that is
+ * one indexed insert each, and it is the record the operator works from. The
+ * ALERTS are not: an alert POST is bounded only by the 5s timeout in notify(),
+ * and awaiting one per failure would make this function cost N x 5s for N
+ * non-retryable failures, with no upper bound, on a path Stripe is timing. So the
+ * FIRST alert is awaited and the rest are not. The first is the one that has to be
+ * attempted before this process could die mid-request; it is also, in the ordering
+ * the caller builds, the failure the delivery died on. Everything after it is
+ * already fire-and-forget in notify() for warning and info, and is best-effort
+ * here for critical - a dropped one still has its durable row.
  */
 export async function abandonIncompleteDelivery(
   eventId: string,
   eventType: string,
   failures: StageFailure[],
 ): Promise<void> {
-  for (const stageFailure of failures) {
+  for (const [index, stageFailure] of failures.entries()) {
     await recordStageFailure(stageFailure.failure);
-    await alertStageFailure(stageFailure);
+    const alert = alertStageFailure(stageFailure);
+    if (index === 0) await alert;
   }
   const summary = failures.map(({ failure }) => `${failure.stage}: ${failure.error}`).join("; ");
   const retry = shouldAskStripeToRetry(failures);

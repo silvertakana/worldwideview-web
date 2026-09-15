@@ -348,4 +348,32 @@ describe("abandonIncompleteDelivery — operator alerts", () => {
 
     expect(mockNotify).not.toHaveBeenCalled();
   });
+
+  it("awaits only the first alert, so the response path is not N timeouts long", async () => {
+    const third: StageFailure = {
+      failure: { stage: "resolve", eventId: "evt_9", eventType: "checkout.session.completed", error: "globe 400" },
+      retryable: false,
+    };
+    // The second and third never settle: only the first may be waited on.
+    mockNotify.mockImplementationOnce(async () => undefined);
+    mockNotify.mockImplementation(() => new Promise<void>(() => {}));
+
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent, retryable, third]);
+
+    // Every failure was raised, and the delivery still returned - which is the
+    // whole point: a hanging channel cannot hold Stripe's response open once per
+    // failure in turn.
+    expect(mockNotify).toHaveBeenCalledTimes(3);
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith("evt_9", expect.stringContaining("resolve"));
+  });
+
+  it("still attempts a critical alert first, before the process could die mid-request", async () => {
+    mockNotify.mockImplementationOnce(async () => undefined);
+
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent, retryable]);
+
+    // The guaranteed attempt is the FIRST failure's alert, awaited, not the last.
+    expect(mockNotify.mock.calls[0][0]).toBe("critical");
+    expect(mockNotify.mock.calls[0][1]).toBe("Billing stage failure: provision");
+  });
 });
