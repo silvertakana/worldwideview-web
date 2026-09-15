@@ -32,12 +32,16 @@ const calls: Call[] = [];
 const findQueue: unknown[] = [];
 const writeQueue: unknown[] = [];
 
-function respondFind(result: unknown) {
-  findQueue.push(result);
+/** Queue the row-probe results IN ORDER: the first value answers the initial
+ *  SELECT, a second one serves the re-read after a lost race. A queued `null`
+ *  is read as data = null, so prefer `{ data: null, error: null }`. */
+function respondFind(...results: unknown[]) {
+  findQueue.push(...results);
 }
 function respondWrite(result: unknown) {
   writeQueue.push(result);
 }
+/** An exhausted queue is "no rows". */
 function shift(queue: unknown[]) {
   return queue.length > 0 ? queue.shift() : { data: null, error: null };
 }
@@ -83,7 +87,7 @@ function makeBuilder(table: string) {
     // A read chain awaited directly (the list helpers) resolves from findQueue;
     // writers chain (insert() / update().eq()) before being awaited.
     then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
-      Promise.resolve(state.write ? shift(writeQueue) : shift(findQueue)).then(resolve, reject),
+      Promise.resolve(shift(state.write ? writeQueue : findQueue)).then(resolve, reject),
   };
   return builder as never;
 }
@@ -180,6 +184,68 @@ describe("upsertSubscriptionFromStripe", () => {
     const result = await upsertSubscriptionFromStripe(base);
 
     expect(result).toEqual({ ok: false, action: "error", detail: "42501 permission denied for table" });
+  });
+
+  it("re-reads and updates when it loses the insert race (23505 on email)", async () => {
+    // The winner is keyed by EMAIL only, so the re-read's subscription-id probe
+    // still finds nothing and falls through to the email probe, which finds the
+    // row another worker just committed.
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-winner", source: "stripe", updated_at: "2026-09-15T00:00:00.000Z" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({
+      data: null,
+      error: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "idx_billing_subscriptions_email_unique"',
+      },
+    });
+    respondWrite({ data: null, error: null });
+
+    const result = await upsertSubscriptionFromStripe(base);
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe("updated");
+    expect(result.detail).toContain("lost the insert race");
+    expect(callsFor("insert")).toHaveLength(1);
+    expect(callsFor("update")).toHaveLength(1);
+    expect(callsFor("eq").some((c) => c.args[0] === "id" && c.args[1] === "row-winner")).toBe(true);
+  });
+
+  it("recognises the duplicate from the SQLSTATE alone, without a matching message", async () => {
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-winner-2", source: "stripe", updated_at: "2026-09-15T00:00:00.000Z" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+    respondWrite({ data: null, error: null });
+
+    const result = await upsertSubscriptionFromStripe(base);
+
+    expect(result.action).toBe("updated");
+    expect(callsFor("eq").some((c) => c.args[0] === "id" && c.args[1] === "row-winner-2")).toBe(true);
+  });
+
+  it("reports an error when the race is lost but the winning row cannot be found", async () => {
+    const miss = { data: null, error: null };
+    respondFind(miss, miss, miss);
+    respondWrite({ data: null, error: { code: "23505", message: "duplicate key value" } });
+
+    const result = await upsertSubscriptionFromStripe(base);
+
+    expect(result.ok).toBe(false);
+    expect(result.action).toBe("error");
+    expect(result.detail).toContain("no row for");
+    expect(callsFor("update")).toHaveLength(0);
+  });
+
+  it("does not mistake an unrelated write error for a lost race", async () => {
+    respondFind({ data: null, error: null });
+    respondWrite({ data: null, error: { code: "42501", message: "permission denied for table billing_subscriptions" } });
+
+    const result = await upsertSubscriptionFromStripe(base);
+
+    expect(result).toEqual({ ok: false, action: "error", detail: "permission denied for table billing_subscriptions" });
+    expect(callsFor("update")).toHaveLength(0);
   });
 
   it("reports a thrown client failure instead of throwing", async () => {

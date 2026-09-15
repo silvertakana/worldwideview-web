@@ -94,12 +94,16 @@ export async function resolveFailure(failureId: string): Promise<boolean> {
 
 type ExistingRow = { id: string; source: string; updated_at: string };
 
+/** Postgres SQLSTATE for a unique-constraint violation. */
+const UNIQUE_VIOLATION = "23505";
+
 /**
  * Why there is no `.upsert()` here: the unique index that lets a manual row
  * carry no stripe_subscription_id is PARTIAL (WHERE stripe_subscription_id IS
  * NOT NULL), and PostgREST resolves an onConflict target to the index name,
  * which fails with 42P10 against a partial index. Hence an explicit
- * read-then-insert-or-update; the index still prevents a duplicate live row.
+ * read-then-insert-or-update; the two unique indexes still prevent a duplicate
+ * live row, and the insert-loser path below handles losing that race.
  */
 async function findSubscriptionRow(email: string, stripeSubscriptionId: string | null): Promise<ExistingRow | null> {
   const admin = createAdminClient();
@@ -129,6 +133,12 @@ async function findSubscriptionRow(email: string, stripeSubscriptionId: string |
  *
  * `source` is forced to 'stripe' and `updated_at` to now, so a caller cannot
  * fabricate a manual row or backdate a write.
+ *
+ * FOUR WORKERS, SO THE SELECT IS A RACE, NOT A LOCK. The read above can find
+ * nothing while another process is inserting the same email, and the insert then
+ * fails with 23505 from UNIQUE(email). That is the losing side of a normal race,
+ * not a failure: the row is re-read and updated, which is also why a lost race
+ * returns `updated` with a detail instead of `error`.
  *
  * CONSEQUENCE: while a manual row stands for an email, Stripe events for that
  * email keep being reported as `manual-protected` instead of applied. An
@@ -167,15 +177,34 @@ export async function upsertSubscriptionFromStripe(input: StripeSubscriptionInpu
       updated_at: new Date().toISOString(),
     };
 
-    const admin = createAdminClient();
-    const { error } = existing
-      ? await admin.from("billing_subscriptions").update(payload).eq("id", existing.id)
-      : await admin.from("billing_subscriptions").insert(payload);
-    if (error) return { ok: false, action: "error", detail: error.message };
-    return { ok: true, action: existing ? "updated" : "created" };
+    return existing ? await updateRow(existing.id, payload) : await insertRow(input.email, payload);
   } catch (err) {
     const detail = asMessage(err);
     console.error(`[billing] upsertSubscriptionFromStripe failed for ${input.email}: ${detail}`);
     return { ok: false, action: "error", detail };
   }
+}
+
+function isUniqueViolation(error: { code?: string; message?: string }): boolean {
+  return error.code === UNIQUE_VIOLATION || (error.message ?? "").includes(UNIQUE_VIOLATION);
+}
+
+async function updateRow(id: string, payload: Record<string, unknown>): Promise<SubscriptionWriteResult> {
+  const { error } = await createAdminClient().from("billing_subscriptions").update(payload).eq("id", id);
+  if (error) return { ok: false, action: "error", detail: error.message };
+  return { ok: true, action: "updated" };
+}
+
+/**
+ * Loses the race deliberately: another process inserted the same email between
+ * our SELECT and our INSERT, so the row exists now. Re-read it and update it.
+ */
+async function insertRow(email: string, payload: Record<string, unknown>): Promise<SubscriptionWriteResult> {
+  const { error } = await createAdminClient().from("billing_subscriptions").insert(payload);
+  if (!error) return { ok: true, action: "created" };
+  if (!isUniqueViolation(error)) return { ok: false, action: "error", detail: error.message };
+
+  const winner = await findSubscriptionRow(email, null);
+  if (!winner) return { ok: false, action: "error", detail: `insert lost the race but no row for ${email}` };
+  return { ...(await updateRow(winner.id, payload)), detail: "lost the insert race; updated the winning row" };
 }

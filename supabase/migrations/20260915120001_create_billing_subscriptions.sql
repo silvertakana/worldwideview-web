@@ -29,15 +29,32 @@
 -- authority) plus the webhook ledger. Reads and writes both live in
 -- src/lib/billing/subscription-store.ts and records.ts and obey this rule.
 --
--- CONCURRENCY, expressly NOT covered by an index: two simultaneous first-time
--- webhooks for one email could both INSERT, because neither has a
--- stripe_subscription_id yet and email carries no unique rule. That is accepted
--- here: subscription events are delivered to a single webhook worker, so a
--- concurrent same-email insert path does not exist in production. Adding a
--- partial unique index on (email) instead would reject the legitimate
--- re-subscribe UPDATE above, so it is deliberately absent. If the write path
--- ever becomes concurrent, move to one row per subscription with a full unique
--- index on stripe_subscription_id before adding any email constraint.
+-- CONCURRENCY: this table is written by FOUR web server processes, not one.
+-- The Dockerfile runs `pm2-runtime server.js -i 4` (Dockerfile:69), so two
+-- deliveries routinely land on different processes with no shared memory
+-- between them. A single checkout emits checkout.session.completed and
+-- customer.subscription.created within seconds of each other, and a
+-- redelivered unfinished event may legitimately be reprocessed, so two
+-- upsertSubscriptionFromStripe calls really can interleave: neither finds a row
+-- (no stripe_subscription_id yet, no row for the email yet) and both INSERT.
+-- Two live rows for one customer, which one-row-per-customer semantics cannot
+-- tolerate.
+--
+-- UNIQUE(email) below is what enforces the semantics. It is NOT in tension with
+-- the re-subscribe path: that UPDATE rewrites stripe_subscription_id on the
+-- existing row and leaves email untouched, so only a second INSERT of the same
+-- email can violate it - exactly the duplicate worth preventing. (email is NOT
+-- NULL, so there is no nullable-multiple-NULL complication either.) The losing
+-- side of the race is a normal outcome, not an error: src/lib/billing/records.ts
+-- catches the 23505 unique violation from the INSERT, re-reads the row by
+-- email, and UPDATEs it instead.
+--
+-- An operator could not construct a failing case for this: within a READ
+-- COMMITTED transaction, re-writing a column value the row already holds (as the
+-- re-subscribe UPDATE does) cannot violate a unique index, because the same
+-- transaction's earlier update already registered that value and no second row
+-- enters the picture. What could violate it is the fourth-worker duplicate the
+-- index exists to prevent.
 --
 -- Stripe does not carry the hub's price env vars, so `source` and the payload
 -- columns (status, stripe_status, price_id, interval, ...) arrive from the
@@ -83,7 +100,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_subscriptions_stripe_subscription
 CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_user_id
     ON public.billing_subscriptions(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_email
+-- One row per customer, enforced: UNIQUE(email) is what collapses the
+-- four-worker race above onto a single row instead of a duplicate. It doubles as
+-- the email lookup index, which is why there is no separate non-unique one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_subscriptions_email_unique
     ON public.billing_subscriptions(email);
 
 ALTER TABLE public.billing_subscriptions ENABLE ROW LEVEL SECURITY;
