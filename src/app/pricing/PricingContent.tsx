@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Check } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { BILLING_ENABLED } from "@/lib/billing/constants";
+import { BILLING_ENABLED, BILLING_PAUSED_MESSAGE } from "@/lib/billing/constants";
 import TrackedLink from "@/components/TrackedLink";
 import AnimateIn from "@/components/AnimateIn";
 import styles from "./page.module.css";
@@ -41,7 +41,7 @@ const TIERS = [
   },
 ];
 
-export default function PricingContent() {
+export default function PricingContent({ paused }: { paused: boolean }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -101,7 +101,29 @@ export default function PricingContent() {
                 ))}
               </div>
               {tier.name === "Cloud: Pro" ? (
-                BILLING_ENABLED && user ? (
+                BILLING_ENABLED && paused ? (
+                  user ? (
+                    // The customer portal is deliberately NOT gated by the kill
+                    // switch: an existing subscriber must still be able to reach
+                    // /accounts/billing to cancel or update their card.
+                    <TrackedLink
+                      href="/accounts/billing"
+                      className={styles.ctaBtn}
+                      eventName="pricing_cta_click"
+                      eventData={{ tier: tier.name, label: "Manage Billing" }}
+                    >
+                      Manage Billing
+                    </TrackedLink>
+                  ) : (
+                    <span
+                      className={`${styles.ctaBtn} ${styles.ctaBtnUnavailable}`}
+                      aria-disabled="true"
+                      title={BILLING_PAUSED_MESSAGE}
+                    >
+                      Temporarily unavailable
+                    </span>
+                  )
+                ) : BILLING_ENABLED && user ? (
                   <TrackedLink
                     href="/accounts/billing"
                     className={styles.ctaBtn}

@@ -1,0 +1,125 @@
+.container {
+  margin-bottom: var(--space-xl);
+  padding: var(--space-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.heading {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-xs);
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-sm);
+}
+
+.currentReason {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  align-items: flex-start;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.button {
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 40px;
+  transition: background var(--transition-fast);
+}
+
+.button:hover {
+  background: var(--color-accent-hover);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.resumeButton {
+  background: var(--color-success);
+}
+
+.resumeButton:hover {
+  background: color-mix(in srgb, var(--color-success) 85%, black);
+}
+
+.error {
+  color: var(--color-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: var(--space-md) 0 0;
+}
+
+.confirmation {
+  color: var(--color-success);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: var(--space-md) 0 0;
+}
+
+/* Both paragraphs stay mounted so a screen reader announces the next change. */
+.error:empty,
+.confirmation:empty {
+  margin: 0;
+}

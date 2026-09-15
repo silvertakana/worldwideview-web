@@ -33,6 +33,11 @@
 .ctaBtn:hover { background: var(--color-accent-hover); color: #fff; }
 .ctaBtn:active { transform: scale(0.98); }
 
+/* Kill-switch state for the Cloud: Pro CTA: present, legible, visibly NOT
+   actionable (no accent fill, no hover response). */
+.ctaBtnUnavailable { background: var(--color-bg-card); border: 1px solid var(--color-border); color: var(--color-text-muted); cursor: default; }
+.ctaBtnUnavailable:hover { background: var(--color-bg-card); color: var(--color-text-muted); }
+
 .enterprise { max-width: 40rem; margin: 4rem auto 0; padding: 0 1.5rem; }
 .enterpriseCard { position: relative; overflow: hidden; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-card); padding: 2.5rem; text-align: center; }
 .enterpriseGlow { position: absolute; top: -50%; left: 50%; transform: translateX(-50%); width: 60%; height: 200%; background: radial-gradient(ellipse, rgba(var(--color-accent-rgb), 0.06) 0%, transparent 70%); pointer-events: none; }

@@ -5,8 +5,9 @@ import { Zap, ExternalLink } from "lucide-react";
 import { BILLING_ENABLED } from "@/lib/billing/constants";
 import hubStyles from "../../hub/hub.module.css";
 
-export function ManageBillingClient({ plan, status }: { plan: string; status: string }) {
+export function ManageBillingClient({ plan, status, paused }: { plan: string; status: string; paused: boolean }) {
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const isLocal = plan === "local";
 
     if (!BILLING_ENABLED) {
@@ -21,6 +22,7 @@ export function ManageBillingClient({ plan, status }: { plan: string; status: st
 
     async function handleUpgrade() {
         setLoading(true);
+        setError(null);
         try {
             const res = await fetch("/api/billing/checkout", {
                 method: "POST",
@@ -29,7 +31,13 @@ export function ManageBillingClient({ plan, status }: { plan: string; status: st
             });
             const data = await res.json();
             if (!res.ok) {
-                throw new Error(data.error || "Failed to start checkout");
+                // A paused checkout answers 503 with the generic copy plus an
+                // operator-supplied `reason` (absent for an "unavailable"
+                // kill-switch state, which must not leak internal text).
+                const reason = typeof data.reason === "string" && data.reason ? ` (${data.reason})` : "";
+                setError(`${data.error || "Failed to start checkout"}${reason}`);
+                setLoading(false);
+                return;
             }
             if (data.url) window.location.href = data.url;
         } catch {
@@ -38,6 +46,8 @@ export function ManageBillingClient({ plan, status }: { plan: string; status: st
     }
 
     async function handleManageBilling() {
+        // Deliberately NOT gated by the runtime kill switch: the customer portal
+        // must always work so a subscriber can cancel or update their card.
         setLoading(true);
         try {
             const res = await fetch("/api/billing/portal", {
@@ -59,11 +69,32 @@ export function ManageBillingClient({ plan, status }: { plan: string; status: st
     }
 
     if (isLocal) {
+        if (paused) {
+            return (
+                <span
+                    aria-disabled="true"
+                    style={{
+                        display: "inline-flex", alignItems: "center", gap: "var(--space-xs)",
+                        color: "var(--color-text-muted)", fontSize: "0.9rem", cursor: "default",
+                    }}
+                >
+                    <Zap size={16} />
+                    Temporarily unavailable
+                </span>
+            );
+        }
         return (
-            <button onClick={handleUpgrade} disabled={loading} className={hubStyles.submitButton}>
-                <Zap size={16} style={{ marginRight: "var(--space-xs)" }} />
-                {loading ? "Loading..." : "Upgrade to Pro"}
-            </button>
+            <>
+                {error && (
+                    <p style={{ color: "var(--color-danger, #ef4444)", fontSize: "0.85rem", marginBottom: "var(--space-xs)" }}>
+                        {error}
+                    </p>
+                )}
+                <button onClick={handleUpgrade} disabled={loading} className={hubStyles.submitButton}>
+                    <Zap size={16} style={{ marginRight: "var(--space-xs)" }} />
+                    {loading ? "Loading..." : "Upgrade to Pro"}
+                </button>
+            </>
         );
     }
 
