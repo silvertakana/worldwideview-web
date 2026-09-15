@@ -55,6 +55,8 @@ export interface BillingOverride {
   created_by: string | null;
   created_at: string;
   revoked_at: string | null;
+  /** Only selected by the audit-trail read; OVERRIDE_COLUMNS omits it. */
+  revoked_by?: string | null;
 }
 
 /** A row of billing_failures. */
@@ -77,13 +79,19 @@ export interface BillingFailureInput {
   email?: string | null;
   eventId?: string | null;
   eventType?: string | null;
-  /** `provision` writes the globe workspace; `tier_sync` pushes the paid tier. */
+  /**
+   * `resolve` means the event could not be attributed to a customer at all;
+   * `provision` writes the globe workspace; `tier_sync` pushes the paid tier.
+   */
   stage: FailureStage;
   error?: string | null;
 }
 
-/** The two stages the CHECK constraint on billing_failures permits. */
-export type FailureStage = "provision" | "tier_sync";
+/**
+ * The three stages the CHECK constraint on billing_failures permits
+ * (20260915120003 created it with two; 20260915160000 widened it).
+ */
+export type FailureStage = "provision" | "tier_sync" | "resolve";
 
 export const OVERRIDE_COLUMNS = "id, user_id, tier, reason, created_by, created_at, revoked_at";
 

@@ -4,6 +4,7 @@ import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
 import { cancelStaleSubscriptions } from './lib/stripe';
 import { directTierSync, provisionGlobeUser } from './lib/globe-sync';
+import { deleteSupabaseUserByEmail, ensureSupabaseUser } from './lib/supabase-admin';
 
 /**
  * Regression test for the PMT-001 billing fix (hub worktree
@@ -77,65 +78,6 @@ const NEW_USER_PASSWORD = 'BillingNewUser-2026!!';
 loadHubEnv();
 
 // ---------------------------------------------------------------------------
-// Supabase admin API (same pattern as billing.global.setup.ts).
-// ---------------------------------------------------------------------------
-async function deleteSupabaseUser(email: string): Promise<void> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) return;
-  const base = supabaseUrl.replace(/\/$/, '');
-  try {
-    const listRes = await fetch(`${base}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, {
-      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-    });
-    if (listRes.ok) {
-      const list = await listRes.json();
-      for (const user of list.users || []) {
-        if (user.email === email) {
-          await fetch(`${base}/auth/v1/admin/users/${user.id}`, {
-            method: 'DELETE',
-            headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-          });
-          console.log(`[billing-provision] Deleted Supabase user ${email}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.log(`[billing-provision] Supabase cleanup error: ${e}`);
-  }
-}
-
-async function createSupabaseUser(email: string, password: string): Promise<void> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('[billing-provision] NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing from hub .env.local');
-  }
-  const base = supabaseUrl.replace(/\/$/, '');
-  const res = await fetch(`${base}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-    },
-    body: JSON.stringify({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name: 'Billing New-User Tester' },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (!(res.status === 409 || body.includes('already exists') || body.includes('already registered'))) {
-      throw new Error(`[billing-provision] Supabase admin create user failed (${res.status}): ${body}`);
-    }
-  }
-  console.log(`[billing-provision] Supabase user ensured: ${email}`);
-}
-
-// ---------------------------------------------------------------------------
 // Test
 // ---------------------------------------------------------------------------
 let globeDb: GlobeDb;
@@ -147,9 +89,9 @@ test.beforeAll(async () => {
 
   // Fresh hub user, NO globe rows, NO live Stripe subscriptions.
   await globeDb.purgeTestUser(NEW_USER_EMAIL);
-  await deleteSupabaseUser(NEW_USER_EMAIL);
+  await deleteSupabaseUserByEmail(NEW_USER_EMAIL);
   await cancelStaleSubscriptions(NEW_USER_EMAIL);
-  await createSupabaseUser(NEW_USER_EMAIL, NEW_USER_PASSWORD);
+  await ensureSupabaseUser(NEW_USER_EMAIL, NEW_USER_PASSWORD, 'Billing New-User Tester');
 
   const globeUser = await globeDb.findUserByEmail(NEW_USER_EMAIL);
   expect(globeUser, 'new-user must not exist in the globe DB before the test').toBeNull();
@@ -157,7 +99,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await deleteSupabaseUser(NEW_USER_EMAIL);
+  await deleteSupabaseUserByEmail(NEW_USER_EMAIL);
   await cancelStaleSubscriptions(NEW_USER_EMAIL);
   // The NEW contract creates globe rows (user + org + org_tiers) — purge them
   // so repeat runs and the shared dev DB stay clean.

@@ -30,11 +30,20 @@
 #
 # TWO-TIER TEST STRATEGY
 #   L1 - webhook-simulator (test/simulator/, compose profile "simulator"):
-#        signed-webhook matrix, no browser, fast. Executed below as the
-#        "Run webhook simulator signature contract" step: valid events must
-#        return 200, a tampered signature must return 400, and a
-#        byte-identical replay must be idempotent (200). Any violation fails
-#        the job (the simulator's --expect-status exits non-zero).
+#        signed-webhook contract, no browser, fast. Executed below as the
+#        "Run webhook simulator signature contract" step. COVERAGE IS PARTIAL
+#        and deliberately so: the four subscription/invoice fixtures carry
+#        metadata.email, so the handler resolves the customer from the payload
+#        and does its real work (durable record + tier push) with no outbound
+#        Stripe call, and each must return 200. checkout.session.completed CANNOT
+#        complete in this stack (the fixture carries a synthetic
+#        cs_test_simulator id, the real test API 404s it, so the handler throws)
+#        and instead asserts the post-fix failure contract (500), because the
+#        handler must ask Stripe to retry rather than report a lost payment as
+#        delivered. A tampered signature must return 400 and a replay of a
+#        previously delivered body must be accepted (200). Any violation fails
+#        the job (the simulator's --expect-status exits non-zero). The checkout
+#        money path is asserted, NOT covered - see the step's TODO(billing).
 #   L3 - full browser E2E (THIS workflow): real UI + Stripe checkout flow,
 #        tier sync against the globe. Current gate. Needs real Stripe
 #        test-mode secrets; stripe-mock is stateless, so checkout/webhook
@@ -337,12 +346,42 @@ jobs:
           NODE_TLS_REJECT_UNAUTHORIZED: "0"
         run: |
           set -euo pipefail
-          echo "--- L1: valid-signature matrix (all 5 core events expect 200)"
-          node test/simulator/index.js --matrix --expect-status 200
+          # These four complete end to end in this stack: their fixtures carry
+          # metadata.email, so the handler resolves the customer straight off the
+          # payload with no outbound Stripe call and does its real work (durable
+          # record + tier push). They must return 200. A FAILED tier push does not
+          # change that - it is recorded durably and leaves the event unfinished
+          # rather than being reported to Stripe as retryable - so this step
+          # asserts the delivery contract, not that the globe accepted the sync.
+          echo "--- L1: customer.subscription.created must complete (expect 200)"
+          node test/simulator/index.js customer.subscription.created --expect-status 200
+          echo "--- L1: customer.subscription.updated must complete (expect 200)"
+          node test/simulator/index.js customer.subscription.updated --expect-status 200
+          echo "--- L1: customer.subscription.deleted must complete (expect 200)"
+          node test/simulator/index.js customer.subscription.deleted --expect-status 200
+          echo "--- L1: invoice.payment_failed must complete (expect 200)"
+          node test/simulator/index.js invoice.payment_failed --expect-status 200
+          # checkout.session.completed cannot be exercised by this stack, so this
+          # asserts the failure contract instead of a success it cannot reach:
+          # the fixture uses a synthetic cs_test_simulator id, the handler calls
+          # stripe.checkout.sessions.retrieve() on it before provisioning, and the
+          # real Stripe test API 404s it, so the handler throws. 500 is the
+          # correct contract after the silent-failure fix (D1): the handler must
+          # ask Stripe to retry rather than report a lost payment as delivered.
+          # TODO(billing): make a checkout session resolvable in this stack (a
+          # stateful stripe-mock or a real cs_ id from the checkout flow) so the
+          # money path is genuinely covered here, not merely asserted.
+          echo "--- L1: checkout.session.completed reports the failure contract (expect 500)"
+          node test/simulator/index.js checkout.session.completed --expect-status 500
           echo "--- L1: tampered signature must be rejected (expect 400)"
           node test/simulator/index.js checkout.session.completed --bad-signature --expect-status 400
-          echo "--- L1: byte-identical replay must be idempotent (expect 200)"
-          node test/simulator/index.js checkout.session.completed --duplicate --expect-status 200
+          # Replay safety is asserted on a subscription event: pointed at
+          # checkout.session.completed (500 on both deliveries after D1) it would
+          # prove nothing about the ledger. When the first delivery completed, the
+          # replay short-circuits on processed_at; when it did not, the replay
+          # reprocesses. Both are accepted, and neither is a lost payment.
+          echo "--- L1: byte-identical replay must be accepted (expect 200)"
+          node test/simulator/index.js customer.subscription.updated --duplicate --expect-status 200
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
