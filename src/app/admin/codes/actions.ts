@@ -1,17 +1,20 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { randomBytes } from 'crypto'
+import { randomInt } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
 function generateCodeSegment(): string {
-  const bytes = randomBytes(5)
   let result = ''
   for (let i = 0; i < 5; i++) {
-    result += CODE_CHARS[bytes[i] % CODE_CHARS.length]
+    // randomInt rejection-samples, so every index in [0, CODE_CHARS.length) is
+    // equally likely. The previous `randomBytes(5)[i] % CODE_CHARS.length`
+    // folded 256 byte values into 31 buckets; 256 = 8 * 31 + 8, so the first 8
+    // alphabet characters were drawn 9/256 of the time and the rest 8/256.
+    result += CODE_CHARS[randomInt(0, CODE_CHARS.length)]
   }
   return result
 }
