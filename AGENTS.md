@@ -58,3 +58,6 @@ pnpm build  # Runs `next build` to produce the `.next/standalone` output
 | Symptom | Reference |
 |---|---|
 | OAuth callback redirects to `/login`, "Authentication failed", `unable to verify the first certificate`, chunked `sb-*` cookies, Mode 1 / Mode 2 / Pattern C | [`docs/troubleshooting/oauth-auth-flow.md`](docs/troubleshooting/oauth-auth-flow.md) |
+
+<!-- Temporary change used to verify that a root-level markdown-only PR to main does not trigger the required `quality` check. This PR is closed without merging. -->
+
