@@ -4,7 +4,11 @@ import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 import { provisionWorkspace } from "@/lib/billing/provision";
-import { claimWebhookEvent } from "@/lib/billing/webhook-idempotency";
+import {
+  claimWebhookEvent,
+  completeWebhookEvent,
+  failWebhookEvent,
+} from "@/lib/billing/webhook-idempotency";
 
 const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   active: "active",
@@ -138,14 +142,17 @@ export async function POST(req: Request) {
     return new NextResponse(`Webhook Error: ${message}`, { status: 400 });
   }
 
-  // PMT-008: claim the event before processing. The unique event_id makes
-  // duplicate deliveries (Stripe retries, dashboard replay) a no-op — a
-  // duplicate returns 200 without re-processing or re-calling the globe.
+  // PMT-008 / D1: claim the event before processing. A claim row on its own only
+  // means an attempt started; it short-circuits a redelivery once processed_at is
+  // set, i.e. once the work actually completed. Previously the claim alone was
+  // treated as "done", so any mid-handler failure left the event claimed forever:
+  // Stripe was told 200, never retried, and every replay was absorbed as a
+  // duplicate — a silently lost payment.
   // Fail-open: if the idempotency store is unavailable ("unknown"), we process
   // anyway rather than drop the event.
   const idempotency = await claimWebhookEvent(event.id);
-  if (idempotency === "duplicate") {
-    console.log(`[webhook] Duplicate event ${event.id} (${event.type}) already processed; skipping`);
+  if (idempotency === "completed") {
+    console.log(`[webhook] Duplicate event ${event.id} (${event.type}) already completed; skipping`);
     return NextResponse.json({ received: true, duplicate: true });
   }
 
@@ -316,8 +323,23 @@ export async function POST(req: Request) {
       }
     }
   } catch (err) {
-    console.error(`[webhook] Error handling ${event.type}:`, err);
+    // D1: a handler failure must never be reported as delivered. Swallowing it
+    // into a 200 told Stripe the event was handled, so Stripe never retried and
+    // the only trace of a lost payment was this log line.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[webhook] Handling FAILED for ${event.id} (${event.type}); answering 500 so Stripe redelivers:`,
+      err,
+    );
+    await failWebhookEvent(event.id, message);
+    return NextResponse.json(
+      { received: false, error: "Webhook handling failed" },
+      { status: 500 },
+    );
   }
 
+  // Reached only when the switch ran to completion: mark the event finished so a
+  // later redelivery short-circuits instead of reprocessing.
+  await completeWebhookEvent(event.id);
   return NextResponse.json({ received: true });
 }
