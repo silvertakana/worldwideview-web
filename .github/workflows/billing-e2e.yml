@@ -26,7 +26,15 @@
 #     src/lib/billing/**, src/lib/stripe/**,
 #     tests/billing-*.spec.ts, tests/playwright.billing.config.ts,
 #     test/simulator/**, docker-compose.test.yml, supabase/migrations/**,
+#     src/lib/alerts/**, src/app/api/health/**,
 #     .github/workflows/billing-e2e.yml
+#
+#   The alerting gates are load-bearing, not filler. The billing failure paths
+#   this workflow proves (payment failure, reconcile mismatch, ledger outage)
+#   are the ones that RAISE alerts, and src/app/api/health/route.ts is the
+#   operator surface those alerts land on. A change confined to alerting code
+#   could otherwise never select this workflow, which is exactly the change that
+#   most needs the billing proof re-run.
 #
 # TWO-TIER TEST STRATEGY
 #   L1 - webhook-simulator (test/simulator/, compose profile "simulator"):
@@ -88,6 +96,8 @@ on:
       - 'test/simulator/**'
       - 'docker-compose.test.yml'
       - 'supabase/migrations/**'
+      - 'src/lib/alerts/**'
+      - 'src/app/api/health/**'
       - '.github/workflows/billing-e2e.yml'
   pull_request:
     branches: [main]
@@ -103,6 +113,8 @@ on:
       - 'test/simulator/**'
       - 'docker-compose.test.yml'
       - 'supabase/migrations/**'
+      - 'src/lib/alerts/**'
+      - 'src/app/api/health/**'
       - '.github/workflows/billing-e2e.yml'
 
 concurrency:
