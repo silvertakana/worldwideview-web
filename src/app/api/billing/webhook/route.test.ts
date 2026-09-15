@@ -26,6 +26,7 @@ const {
   mockCrossServiceFetch,
   mockAdminClient,
   mockGetUserById,
+  mockNotify,
 } = vi.hoisted(() => ({
   mockConstructEvent: vi.fn(),
   mockRetrieveCheckoutSession: vi.fn(),
@@ -37,6 +38,7 @@ const {
   mockCrossServiceFetch: vi.fn(),
   mockAdminClient: vi.fn(),
   mockGetUserById: vi.fn(),
+  mockNotify: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe/client", () => ({
@@ -62,6 +64,10 @@ vi.mock("@/lib/billing/webhook-idempotency", () => ({
 // real records.ts / webhook-record.ts / hub-user.ts run against this client, so
 // the ledger assertions below are about rows that would really be written.
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mockAdminClient }));
+
+// The alert channel is a seam like any other: the route's tests assert WHICH
+// alert a failure raises, and alerts/notify.test.ts owns whether it is delivered.
+vi.mock("@/lib/alerts/notify", () => ({ notify: mockNotify }));
 
 // The REAL provision.ts and constants.ts are used: provisioning order is
 // asserted at the crossServiceFetch level (provision → tier-sync).
@@ -199,6 +205,8 @@ beforeEach(() => {
   mockClaimWebhookEvent.mockResolvedValue("claimed");
   mockCompleteWebhookEvent.mockResolvedValue(undefined);
   mockFailWebhookEvent.mockResolvedValue(undefined);
+  mockNotify.mockReset();
+  mockNotify.mockResolvedValue(undefined);
   mockCrossServiceFetch.mockResolvedValue(ok());
   // Canary: a test that forgets to configure constructEvent fails loudly on the
   // 400 signature path instead of silently passing.
@@ -1232,5 +1240,115 @@ describe("POST /api/billing/webhook — durable subscription record", () => {
     expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
     expect(warnSpy.mock.calls.map((call) => String(call[0])).some((m) => m.includes("durable record left untouched"))).toBe(true);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/billing/webhook — operator alerts (D9)", () => {
+  it("raises a critical alert when the handler itself throws, before it touches the ledger", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com" },
+      "evt_boom",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockRejectedValue(new Error("stripe is down"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(500);
+    expect(mockNotify).toHaveBeenCalledWith(
+      "critical",
+      "Billing webhook handling failed: checkout.session.completed",
+      expect.stringContaining("stripe is down"),
+      expect.objectContaining({ eventId: "evt_boom", eventType: "checkout.session.completed" }),
+    );
+    // The alert must not wait on a ledger write that could itself be the failure:
+    // a broken handler is exactly when the database is most likely to be the cause.
+    expect(mockNotify.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFailWebhookEvent.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("alerts that a paying customer's workspace was never provisioned, naming the stage", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_provision_alert",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockCrossServiceFetch.mockResolvedValueOnce(fail(500, "globe exploded")).mockResolvedValueOnce(ok());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // Retryable, so the level is a warning: Stripe is already being asked again.
+    expect(res.status).toBe(500);
+    expect(mockNotify).toHaveBeenCalledWith(
+      "warning",
+      "Billing stage failure: provision",
+      expect.stringContaining("globe provisioning failed: 500 (globe exploded)"),
+      expect.objectContaining({
+        stage: "provision",
+        eventId: "evt_provision_alert",
+        eventType: "checkout.session.completed",
+        retryable: true,
+      }),
+    );
+  });
+
+  it("alerts critical for a checkout no redelivery can rescue", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_orphan", customer_email: "pay@example.com" },
+      "evt_orphan_alert",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession({ client_reference_id: null, metadata: {} }));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // 200 is correct for Stripe and wrong for the operator: only a human can add
+    // the metadata this checkout arrived without, so it has to be a critical alert.
+    expect(res.status).toBe(200);
+    expect(mockNotify).toHaveBeenCalledWith(
+      "critical",
+      "Billing stage failure: provision",
+      expect.stringContaining("no hubUserId on checkout session cs_test_123"),
+      expect.objectContaining({ stage: "provision", retryable: false }),
+    );
+  });
+
+  it("alerts critical when a payment-related durable write is lost", async () => {
+    writeError = { message: "42501 permission denied for table billing_subscriptions" };
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // The delivery itself is fine - the globe was told the tier and Stripe gets a
+    // 200 - so the alert is the only thing standing between a lost ledger row and
+    // nobody ever finding out.
+    expect(res.status).toBe(200);
+    expect(mockNotify).toHaveBeenCalledWith(
+      "critical",
+      "Billing ledger write lost: subscription record",
+      expect.stringContaining("permission denied"),
+      expect.objectContaining({ table: "billing_subscriptions", action: "error" }),
+    );
+  });
+
+  it("does not alert on a delivery that did its work", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_quiet",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });
