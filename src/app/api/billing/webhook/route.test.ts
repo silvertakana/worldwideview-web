@@ -24,6 +24,8 @@ const {
   mockCompleteWebhookEvent,
   mockFailWebhookEvent,
   mockCrossServiceFetch,
+  mockAdminClient,
+  mockGetUserById,
 } = vi.hoisted(() => ({
   mockConstructEvent: vi.fn(),
   mockRetrieveCheckoutSession: vi.fn(),
@@ -33,6 +35,8 @@ const {
   mockCompleteWebhookEvent: vi.fn(),
   mockFailWebhookEvent: vi.fn(),
   mockCrossServiceFetch: vi.fn(),
+  mockAdminClient: vi.fn(),
+  mockGetUserById: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe/client", () => ({
@@ -54,6 +58,11 @@ vi.mock("@/lib/billing/webhook-idempotency", () => ({
   failWebhookEvent: mockFailWebhookEvent,
 }));
 
+// The durable-record writers are NOT mocked (see the test double below): the
+// real records.ts / webhook-record.ts / hub-user.ts run against this client, so
+// the ledger assertions below are about rows that would really be written.
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mockAdminClient }));
+
 // The REAL provision.ts and constants.ts are used: provisioning order is
 // asserted at the crossServiceFetch level (provision → tier-sync).
 
@@ -69,6 +78,7 @@ function buildEvent(type: string, object: Record<string, unknown>, id = `evt_${D
 }
 
 const TRIAL_END = 1893456000; // fixed timestamp for deterministic assertions
+const PERIOD_END = 1896134400; // the paid-through date Stripe carries on the subscription
 
 function buildCheckoutSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -79,8 +89,11 @@ function buildCheckoutSession(overrides: Record<string, unknown> = {}) {
     customer_details: { name: "Test User" },
     subscription: {
       id: "sub_abc",
+      status: "trialing",
       trial_end: TRIAL_END,
-      items: { data: [{ price: { id: "price_pro_monthly" } }] },
+      current_period_end: PERIOD_END,
+      cancel_at_period_end: false,
+      items: { data: [{ price: { id: "price_pro_monthly", recurring: { interval: "month" } } }] },
     },
     ...overrides,
   };
@@ -113,6 +126,45 @@ function syncPaths(): unknown[] {
   return mockCrossServiceFetch.mock.calls.map((c) => c[0]);
 }
 
+// ── Durable-record test double ────────────────────────────────────
+// The route writes billing_subscriptions (the ledger) through the real
+// records.ts, so "the row was written", "the cuid was rejected" and "a manual
+// row survived untouched" are proven end to end instead of asserted against a
+// stub. createAdminClient() is the only seam. maybeSingle() answers the row
+// probes from `probeRow`; every write resolves with `writeError`.
+const dbWrites: { table: string; op: string; payload: Record<string, unknown> }[] = [];
+let probeRow: Record<string, unknown> | null = null;
+let writeError: { message: string } | null = null;
+
+function makeBuilder(table: string) {
+  const chain = {} as Record<string, unknown>;
+  const record = (op: string) => (...args: unknown[]) => {
+    if (op === "insert" || op === "update" || op === "upsert") {
+      dbWrites.push({ table, op, payload: (args[0] ?? {}) as Record<string, unknown> });
+    }
+    return chain;
+  };
+  for (const op of ["select", "eq", "is", "neq", "order", "limit", "insert", "update", "upsert"]) {
+    chain[op] = record(op);
+  }
+  chain.maybeSingle = () => Promise.resolve({ data: probeRow, error: null });
+  chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+    Promise.resolve({ data: null, error: writeError }).then(resolve, reject);
+  return chain;
+}
+
+function dbWritesFor(table: string) {
+  return dbWrites.filter((write) => write.table === table);
+}
+
+function subscriptionWrites() {
+  return dbWritesFor("billing_subscriptions");
+}
+
+function failureWrites() {
+  return dbWritesFor("billing_failures");
+}
+
 // ── Setup ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -124,6 +176,24 @@ beforeEach(() => {
   mockCompleteWebhookEvent.mockReset();
   mockFailWebhookEvent.mockReset();
   mockCrossServiceFetch.mockReset();
+
+  dbWrites.length = 0;
+  probeRow = null;
+  writeError = null;
+  mockGetUserById.mockReset();
+  // Realistic default: the hub's own uid resolves, a marketplace cuid does not.
+  mockGetUserById.mockImplementation((uid: string) =>
+    Promise.resolve(
+      uid === "user_abc"
+        ? { data: { user: { id: "user_abc" } }, error: null }
+        : { data: { user: null }, error: { message: "User not found" } },
+    ),
+  );
+  mockAdminClient.mockReset();
+  mockAdminClient.mockReturnValue({
+    from: (table: string) => makeBuilder(table),
+    auth: { admin: { getUserById: mockGetUserById } },
+  });
 
   // Default verdict: a fresh claim, so the handler processes the event.
   mockClaimWebhookEvent.mockResolvedValue("claimed");
@@ -201,6 +271,7 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
       tier: "pro",
       status: "trialing",
       trialEndsAt: new Date(TRIAL_END * 1000).toISOString(),
+      periodEndsAt: new Date(PERIOD_END * 1000).toISOString(),
     });
   });
 
@@ -219,11 +290,15 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     });
   });
 
-  it("skips provisioning when no hubUserId is present, but still syncs the tier", async () => {
-    const event = buildEvent("checkout.session.completed", {
-      id: "cs_test_123",
-      customer_email: "pay@example.com",
-    });
+  it("skips provisioning when no hubUserId is present, syncs the tier, and does NOT mark the event complete", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      {
+        id: "cs_test_123",
+        customer_email: "pay@example.com",
+      },
+      "evt_orphan",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockRetrieveCheckoutSession.mockResolvedValue(
       buildCheckoutSession({ client_reference_id: null, metadata: {} }),
@@ -232,8 +307,99 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     const res = await POST(buildRequest(JSON.stringify(event)));
 
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
     expect(syncPaths()).toEqual(["/api/service/tier-sync"]);
+
+    // D8: nothing was provisioned, and no redelivery can add the metadata that
+    // would change that, so the event must not read as handled anywhere.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_orphan",
+      expect.stringContaining("no hubUserId"),
+    );
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_orphan",
+          email: "pay@example.com",
+          error: expect.stringContaining("no hubUserId on checkout session cs_test_123"),
+        }),
+      },
+    ]);
+  });
+
+  it("answers 500 so Stripe redelivers when the globe 5xxes on provisioning", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_provision_failed",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    // The globe 500s on provisioning; the tier sync that follows still succeeds.
+    mockCrossServiceFetch.mockResolvedValueOnce(fail(500, "globe exploded")).mockResolvedValueOnce(ok());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // A globe that is restarting, deploying or cold-starting is exactly what a
+    // redelivery is for: the in-process retry is one attempt 500ms later, and a
+    // container restart is far longer than that. Without the 500 this customer
+    // has paid for a workspace that is never provisioned.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ received: false, error: "Webhook handling failed" });
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_provision_failed",
+      expect.stringContaining("globe provisioning failed: 500"),
+    );
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_provision_failed",
+          email: "pay@example.com",
+          error: expect.stringContaining("globe provisioning failed: 500"),
+        }),
+      },
+    ]);
+  });
+
+  it("keeps 200 but leaves the event unfinished when the globe refuses the workspace outright", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_provision_refused",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockCrossServiceFetch.mockResolvedValueOnce(fail(400, "invalid email")).mockResolvedValueOnce(ok());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // The globe understood the request and refused it; the next identical
+    // request would be refused identically, so a week of redeliveries buys
+    // nothing. The durable row is what an operator works from instead.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_provision_refused",
+          email: "pay@example.com",
+          error: expect.stringContaining("globe provisioning failed: 400"),
+        }),
+      },
+    ]);
   });
 
   it("logs a structured error with session/email/customer identifiers when hubUserId is missing (loud skip)", async () => {
@@ -262,21 +428,74 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     expect(logMsg).toContain("email=orphan@example.com");
     expect(logMsg).toContain("customerId=cus_orphan");
     expect(logMsg).toContain("eventId=");
+    // D8: a loud log line is not a durable record, and the event must not be
+    // closed out as handled while the account needs a human.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toHaveLength(1);
+    expect(failureWrites()[0].payload.stage).toBe("provision");
   });
 
-  it("breaks without syncing when no email is resolvable (deleted customer)", async () => {
-    const event = buildEvent("checkout.session.completed", {
-      id: "cs_test_123",
-      customer: "cus_abc",
-    });
+  it("fails the delivery and files a durable failure when the customer has no email (permanent absence)", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer: "cus_abc" },
+      "evt_no_email",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    // Stripe answers, and the customer genuinely has no email to be found.
     mockRetrieveCustomer.mockResolvedValue({ id: "cus_abc", deleted: true });
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
-    expect(res.status).toBe(200);
+    // A1: this used to be a 200 with no work done at all - no provisioning, no
+    // tier sync, and the event marked complete.
+    expect(res.status).toBe(500);
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_no_email",
+      expect.stringContaining("no usable customer email"),
+    );
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "resolve",
+          event_id: "evt_no_email",
+          event_type: "checkout.session.completed",
+          email: null,
+          attempts: 1,
+          error: expect.stringContaining("no usable customer email"),
+        }),
+      },
+    ]);
+  });
+
+  it("fails the delivery but files NO durable failure when the lookup itself fails (transient)", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer: "cus_abc" },
+      "evt_blip",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockRetrieveCustomer.mockRejectedValue(new Error("429 Too Many Requests"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_blip",
+      expect.stringContaining("could not retrieve Stripe customer cus_abc"),
+    );
+    // The two categories are kept deliberately apart. A blip's durable record is
+    // the unfinished ledger row above; the operator's queue is for failures a
+    // retry will never fix, and filling it with 429s would bury the rows that
+    // need a human.
+    expect(failureWrites()).toEqual([]);
   });
 
   it("falls back to an outbound customer retrieve when the payload carries no email", async () => {
@@ -371,6 +590,7 @@ describe("POST /api/billing/webhook — customer.subscription.created", () => {
       tier: "pro",
       status: "trialing",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
     expect(mockRetrieveCustomer).not.toHaveBeenCalled();
   });
@@ -397,6 +617,7 @@ describe("POST /api/billing/webhook — customer.subscription.updated (status ma
       tier: expectedTier,
       status: expectedStatus,
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -421,6 +642,7 @@ describe("POST /api/billing/webhook — customer.subscription.updated (status ma
       tier: "free",
       status: "canceled",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -459,6 +681,7 @@ describe("POST /api/billing/webhook — customer.subscription.deleted", () => {
       tier: "free",
       status: "canceled",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
   });
 
@@ -474,6 +697,46 @@ describe("POST /api/billing/webhook — customer.subscription.deleted", () => {
 
     expect(mockRetrieveCustomer).toHaveBeenCalledWith("cus_del");
     expect(tierSyncCall(0).email).toBe("outbound@example.com");
+  });
+
+  it("never swallows a cancellation: a transient lookup failure is a 500, not a lost lock", async () => {
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_gone", customer: "cus_gone" },
+      "evt_deleted_blip",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCustomer.mockRejectedValue(new Error("Stripe 503"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // A1's motivating scenario. The old handler returned 200 here, marked the
+    // event complete, absorbed every redelivery as a duplicate and never armed a
+    // lock, so the cancellation vanished and the customer kept free access with
+    // nothing anywhere recording why.
+    expect(res.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_deleted_blip",
+      expect.stringContaining("could not retrieve Stripe customer cus_gone"),
+    );
+  });
+
+  it("carries the paid-through date to the globe, so a cancellation cannot lock them early", async () => {
+    const event = buildEvent("customer.subscription.deleted", {
+      id: "sub_paid",
+      customer: "cus_paid",
+      customer_email: "paid@example.com",
+      current_period_end: PERIOD_END,
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    // D2: without a real paid-through date the globe falls back to its fixed
+    // window, so a monthly subscriber who cancels just after a renewal is locked
+    // roughly two weeks before the period they already paid for ends.
+    expect(tierSyncCall(0).periodEndsAt).toBe(new Date(PERIOD_END * 1000).toISOString());
   });
 });
 
@@ -500,7 +763,29 @@ describe("POST /api/billing/webhook — invoice.payment_failed", () => {
       tier: "pro",
       status: "past_due",
       trialEndsAt: null,
+      periodEndsAt: null,
     });
+  });
+
+  it("sends no paid-through date on a failed payment, where nothing was paid", async () => {
+    const event = buildEvent("invoice.payment_failed", {
+      customer: "cus_fail",
+      customer_email: "fail@example.com",
+      subscription: "sub_fail",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveSubscription.mockResolvedValue({
+      current_period_end: PERIOD_END,
+      items: { data: [{ price: { id: "price_pro_monthly" } }] },
+    });
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    // The period that just failed is the one that was NOT paid, so claiming it as
+    // paid-through would hold the workspace unlocked for a period nobody bought.
+    // Null lets the globe apply its own dunning grace window instead.
+    expect(tierSyncCall(0).periodEndsAt).toBeNull();
+    expect(tierSyncCall(0).trialEndsAt).toBeNull();
   });
 
   it("resolves the team tier from the subscription price ID", async () => {
@@ -685,14 +970,15 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     expect(syncPaths()).toEqual(["/api/service/tier-sync", "/api/service/tier-sync"]);
   });
 
-  it("returns 200 after both attempts fail, logging the final failure", async () => {
+  it("answers 500 but leaves the event unfinished after both tier-sync attempts fail", async () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const event = buildEvent("customer.subscription.deleted", {
-      id: "sub_r2",
-      customer: "cus_r2",
-      customer_email: "retry2@example.com",
-    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_r2", customer: "cus_r2", customer_email: "retry2@example.com" },
+      "evt_sync_gave_up",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockCrossServiceFetch.mockResolvedValue(fail(500, "globe exploded"));
 
@@ -700,9 +986,69 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     await vi.advanceTimersByTimeAsync(500);
     const res = await postPromise;
 
-    expect(res.status).toBe(200);
+    // Both attempts hit a 5xx, so the globe is down rather than unhappy with the
+    // request: Stripe's redelivery is the recovery mechanism, and the unfinished
+    // event is what lets it through instead of being absorbed as a duplicate.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ received: false, error: "Webhook handling failed" });
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(2);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("attempt 2/2"));
+
+    // D8: this gave up silently before - the event was marked complete, so the
+    // redelivery was absorbed as a duplicate and the workspace stayed at the
+    // wrong tier with nothing durable recording it.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_sync_gave_up",
+      expect.stringContaining("globe tier sync failed: 500"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("NOT completed"));
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "tier_sync",
+          event_id: "evt_sync_gave_up",
+          email: "retry2@example.com",
+          error: expect.stringContaining("globe tier sync failed: 500"),
+        }),
+      },
+    ]);
+  });
+
+  it("keeps 200 when the globe rejects the tier sync outright", async () => {
+    vi.useFakeTimers();
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_r3", customer: "cus_r3", customer_email: "reject@example.com" },
+      "evt_sync_refused",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockCrossServiceFetch.mockResolvedValue(fail(400, "Invalid periodEndsAt date"));
+
+    const postPromise = POST(buildRequest(JSON.stringify(event)));
+    await vi.advanceTimersByTimeAsync(500);
+    const res = await postPromise;
+
+    // Still retried once in-process, then recorded and closed out: a body the
+    // globe has already rejected is not something a redelivery can change, so
+    // Stripe is told the delivery is done with and the operator gets the row.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
+    expect(mockCrossServiceFetch).toHaveBeenCalledTimes(2);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "tier_sync",
+          event_id: "evt_sync_refused",
+          error: expect.stringContaining("globe tier sync failed: 400"),
+        }),
+      },
+    ]);
   });
 });
 
@@ -720,5 +1066,171 @@ describe("POST /api/billing/webhook — unknown events", () => {
     // every redelivery of it would be reprocessed forever.
     expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_ignored");
     expect(mockFailWebhookEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/billing/webhook — durable subscription record", () => {
+  function checkoutEvent() {
+    const event = buildEvent("checkout.session.completed", {
+      id: "cs_test_123",
+      customer_email: "pay@example.com",
+      customer: "cus_abc",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    return event;
+  }
+
+  it("records the subscription behind a completed checkout, with the validated hub user id", async () => {
+    const event = checkoutEvent();
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].op).toBe("insert");
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      user_id: "user_abc",
+      email: "pay@example.com",
+      stripe_customer_id: "cus_abc",
+      stripe_subscription_id: "sub_abc",
+      price_id: "price_pro_monthly",
+      plan: "pro",
+      interval: "month",
+      status: "trialing",
+      stripe_status: "trialing",
+      cancel_at_period_end: false,
+      current_period_end: new Date(PERIOD_END * 1000).toISOString(),
+      trial_ends_at: new Date(TRIAL_END * 1000).toISOString(),
+      source: "stripe",
+    });
+  });
+
+  it("records the mapped status, plan and period end for a subscription update", async () => {
+    const event = buildSubscriptionEvent("customer.subscription.updated", "past_due", "price_team_monthly", {
+      metadata: { userId: "user_abc" },
+      current_period_end: PERIOD_END,
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      user_id: "user_abc",
+      email: "pay@example.com",
+      plan: "team",
+      status: "past_due",
+      stripe_status: "past_due",
+      interval: "month",
+      current_period_end: new Date(PERIOD_END * 1000).toISOString(),
+    });
+  });
+
+  it("records free/canceled for a deleted subscription", async () => {
+    const event = buildEvent("customer.subscription.deleted", {
+      id: "sub_del",
+      status: "canceled",
+      customer: "cus_del",
+      customer_email: "cancel@example.com",
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      stripe_subscription_id: "sub_del",
+      plan: "free",
+      status: "canceled",
+    });
+  });
+
+  it("stores NULL rather than a marketplace cuid in metadata.userId", async () => {
+    // The marketplace writes its own Prisma cuid into the same Stripe account's
+    // metadata.userId. Storing it would attach the row to a user that does not
+    // exist and break every downstream read.
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly", {
+      metadata: { userId: "clx8marketplacecuid" },
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockGetUserById).toHaveBeenCalledWith("clx8marketplacecuid");
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].payload.user_id).toBeNull();
+    expect(subscriptionWrites()[0].payload.email).toBe("pay@example.com");
+  });
+
+  it("prefers the hub's own session metadata over a customer-object candidate", async () => {
+    // No customer_email on the payload, so the outbound retrieve happens and the
+    // customer's (marketplace) metadata.userId becomes a second candidate.
+    const event = buildEvent("checkout.session.completed", {
+      id: "cs_test_123",
+      customer: "cus_abc",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockRetrieveCustomer.mockResolvedValue({
+      id: "cus_abc",
+      deleted: false,
+      email: "outbound@example.com",
+      metadata: { userId: "clx8marketplacecuid" },
+    });
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockRetrieveCustomer).toHaveBeenCalledWith("cus_abc");
+    expect(subscriptionWrites()[0].payload.user_id).toBe("user_abc");
+    expect(subscriptionWrites()[0].payload.email).toBe("outbound@example.com");
+  });
+
+  it("never writes over a manual operator grant", async () => {
+    probeRow = { id: "row-manual", source: "manual", updated_at: "2026-09-01T00:00:00.000Z" };
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
+    expect(mockCompleteWebhookEvent).toHaveBeenCalled();
+  });
+
+  it("still answers 200 when the durable record write fails (a ledger, not a gate)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    writeError = { message: "42501 permission denied for table billing_subscriptions" };
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
+    const logged = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(logged.some((message) => message.includes("Durable subscription record NOT written"))).toBe(true);
+    // The globe was still told the tier: only the ledger failed.
+    expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the ledger untouched when the event carries no subscription object", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = buildEvent("invoice.payment_failed", {
+      customer: "cus_fail",
+      customer_email: "fail@example.com",
+      subscription: "sub_fail",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveSubscription.mockRejectedValue(new Error("network"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    // A guessed plan would overwrite a real one, so nothing is written at all.
+    expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
+    expect(warnSpy.mock.calls.map((call) => String(call[0])).some((m) => m.includes("durable record left untouched"))).toBe(true);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

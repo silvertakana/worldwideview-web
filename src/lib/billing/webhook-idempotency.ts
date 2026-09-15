@@ -25,10 +25,18 @@ export async function claimWebhookEvent(eventId: string): Promise<IdempotencyVer
     // Exactly one concurrent delivery creates the row and gets it back; the
     // others get no row and fall through to the state read below. Writing
     // `processed_at: null` is what marks the row as an unfinished attempt.
+    //
+    // `last_attempt_at` is stamped HERE, at claim time, and not only from
+    // failWebhookEvent. A process killed between the claim and the completion
+    // never reaches the failure path, so without this the row keeps
+    // last_attempt_at NULL - and the partial index webhook_events_unfinished_idx
+    // is ordered on that column, so the freshest abandoned work sorts as NULL and
+    // nothing sweeps it. DO NOTHING means an existing row is never touched, so
+    // this does not change what a replay decides.
     const { data: claimed, error: claimError } = await admin
       .from("webhook_events")
       .upsert(
-        { event_id: eventId, processed_at: null },
+        { event_id: eventId, processed_at: null, last_attempt_at: new Date().toISOString() },
         { onConflict: "event_id", ignoreDuplicates: true },
       )
       .select("id")
@@ -69,26 +77,58 @@ export async function claimWebhookEvent(eventId: string): Promise<IdempotencyVer
  * short-circuits a redelivery, so this write is what actually makes the ledger
  * idempotent.
  *
- * Upsert rather than update: when the claim itself failed open (ledger
- * unreachable), no row exists yet and this is the only chance to record it.
- * Best-effort: a ledger write failure must not change the webhook's HTTP
- * status, and an unrecorded completion only means a replay reprocesses —
+ * WRITE-ONCE. The completion is a guarded UPDATE (WHERE processed_at IS NULL)
+ * rather than a blind `onConflict: event_id` upsert, because the upsert rewrote
+ * `processed_at` on every replay of an already-completed event. The reconciler
+ * reads this table, and a completion timestamp that moves underneath a
+ * reconciler is not a completion timestamp.
+ *
+ * The guarded update matching nothing means one of two things, and only one of
+ * them is ours to repair: the row is already complete (leave its timestamp
+ * alone), or the claim itself failed open - the ledger was unreachable, so no
+ * row was ever created and this is the last chance to record the event. Read
+ * first to tell them apart, then insert only in the second case.
+ *
+ * Best-effort throughout: a ledger write failure must not change the webhook's
+ * HTTP status, and an unrecorded completion only means a replay reprocesses —
  * provisioning is idempotent by contract and tier-sync is a set operation.
  */
 export async function completeWebhookEvent(eventId: string): Promise<void> {
   try {
     const admin = createAdminClient();
-    const { error } = await admin
+    const completedAt = new Date().toISOString();
+
+    const { data, error } = await admin
       .from("webhook_events")
-      .upsert(
-        { event_id: eventId, processed_at: new Date().toISOString(), last_error: null },
-        { onConflict: "event_id" },
-      )
-      .select("id")
-      .maybeSingle();
+      .update({ processed_at: completedAt, last_error: null })
+      .eq("event_id", eventId)
+      .is("processed_at", null)
+      .select("id");
 
     if (error) {
       console.error(`[webhook] Could not record completion of ${eventId}: ${error.message}`);
+      return;
+    }
+    if (data && data.length > 0) return;
+
+    const { data: existing, error: readError } = await admin
+      .from("webhook_events")
+      .select("id")
+      .eq("event_id", eventId)
+      .maybeSingle();
+
+    if (readError) {
+      console.error(`[webhook] Could not record completion of ${eventId}: ${readError.message}`);
+      return;
+    }
+    if (existing) return;
+
+    const { error: insertError } = await admin
+      .from("webhook_events")
+      .insert({ event_id: eventId, processed_at: completedAt });
+
+    if (insertError) {
+      console.error(`[webhook] Could not record completion of ${eventId}: ${insertError.message}`);
     }
   } catch (err) {
     console.error(
