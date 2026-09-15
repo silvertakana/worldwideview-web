@@ -21,6 +21,8 @@ const {
   mockRetrieveCustomer,
   mockRetrieveSubscription,
   mockClaimWebhookEvent,
+  mockCompleteWebhookEvent,
+  mockFailWebhookEvent,
   mockCrossServiceFetch,
 } = vi.hoisted(() => ({
   mockConstructEvent: vi.fn(),
@@ -28,6 +30,8 @@ const {
   mockRetrieveCustomer: vi.fn(),
   mockRetrieveSubscription: vi.fn(),
   mockClaimWebhookEvent: vi.fn(),
+  mockCompleteWebhookEvent: vi.fn(),
+  mockFailWebhookEvent: vi.fn(),
   mockCrossServiceFetch: vi.fn(),
 }));
 
@@ -46,6 +50,8 @@ vi.mock("@/lib/cross-service/fetch", () => ({
 
 vi.mock("@/lib/billing/webhook-idempotency", () => ({
   claimWebhookEvent: mockClaimWebhookEvent,
+  completeWebhookEvent: mockCompleteWebhookEvent,
+  failWebhookEvent: mockFailWebhookEvent,
 }));
 
 // The REAL provision.ts and constants.ts are used: provisioning order is
@@ -115,12 +121,17 @@ beforeEach(() => {
   mockRetrieveCustomer.mockReset();
   mockRetrieveSubscription.mockReset();
   mockClaimWebhookEvent.mockReset();
+  mockCompleteWebhookEvent.mockReset();
+  mockFailWebhookEvent.mockReset();
   mockCrossServiceFetch.mockReset();
 
-  mockClaimWebhookEvent.mockResolvedValue("processed");
+  // Default verdict: a fresh claim, so the handler processes the event.
+  mockClaimWebhookEvent.mockResolvedValue("claimed");
+  mockCompleteWebhookEvent.mockResolvedValue(undefined);
+  mockFailWebhookEvent.mockResolvedValue(undefined);
   mockCrossServiceFetch.mockResolvedValue(ok());
-  // Canary: a test that forgets to configure constructEvent fails loudly
-  // instead of silently passing via the handler's catch-all 200.
+  // Canary: a test that forgets to configure constructEvent fails loudly on the
+  // 400 signature path instead of silently passing.
   mockConstructEvent.mockImplementation(() => {
     throw new Error("mockConstructEvent not configured for this test");
   });
@@ -322,19 +333,26 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     expect(tierSyncCall(1).email).toBe("meta@example.com");
   });
 
-  it("still returns 200 received:true when a Stripe outbound call throws", async () => {
-    const event = buildEvent("checkout.session.completed", {
-      id: "cs_test_123",
-      customer_email: "pay@example.com",
-    });
+  it("returns 500 when a Stripe outbound call throws, so Stripe retries", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com" },
+      "evt_stripe_down",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockRetrieveCheckoutSession.mockRejectedValue(new Error("stripe is down"));
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ received: true });
+    // D1: this used to be a 200, which told Stripe the event was handled and
+    // stopped the retry that would have recovered the payment.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ received: false, error: "Webhook handling failed" });
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith("evt_stripe_down", "stripe is down");
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
   });
 });
 
@@ -538,11 +556,11 @@ describe("POST /api/billing/webhook — invoice.payment_failed", () => {
 });
 
 describe("POST /api/billing/webhook — idempotency (PMT-008)", () => {
-  it("returns 200 duplicate:true and skips processing for a duplicate event ID", async () => {
+  it("returns 200 duplicate:true and skips processing for a COMPLETED event ID", async () => {
     const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
     event.id = "evt_duplicate_001";
     mockConstructEvent.mockReturnValue(event);
-    mockClaimWebhookEvent.mockResolvedValue("duplicate");
+    mockClaimWebhookEvent.mockResolvedValue("completed");
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
@@ -550,6 +568,9 @@ describe("POST /api/billing/webhook — idempotency (PMT-008)", () => {
     expect(await res.json()).toEqual({ received: true, duplicate: true });
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
     expect(mockRetrieveCustomer).not.toHaveBeenCalled();
+    // The short-circuit must not rewrite the ledger entry either.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).not.toHaveBeenCalled();
   });
 
   it("claims the event id with the idempotency ledger for every event", async () => {
@@ -564,6 +585,7 @@ describe("POST /api/billing/webhook — idempotency (PMT-008)", () => {
 
   it("fails open (processes anyway) when the idempotency store is unavailable", async () => {
     const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    event.id = "evt_fail_open";
     mockConstructEvent.mockReturnValue(event);
     mockClaimWebhookEvent.mockResolvedValue("unknown");
 
@@ -571,6 +593,73 @@ describe("POST /api/billing/webhook — idempotency (PMT-008)", () => {
 
     expect(res.status).toBe(200);
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
+    // The completion write is the ledger's last chance to record the event when
+    // the claim itself could not be written.
+    expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_fail_open");
+  });
+});
+
+describe("POST /api/billing/webhook — failure recovery (D1)", () => {
+  it("leaves a failed event unfinished and reprocesses it when redelivered", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com" },
+      "evt_redelivered",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    // Both deliveries see the same ledger row: claimed, processed_at NULL.
+    mockClaimWebhookEvent.mockResolvedValue("claimed");
+
+    mockRetrieveCheckoutSession.mockRejectedValueOnce(new Error("stripe is down"));
+    const first = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(first.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith("evt_redelivered", "stripe is down");
+
+    // Stripe's redelivery must be allowed to finish the work rather than being
+    // absorbed as a duplicate by the unfinished claim row.
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    const second = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ received: true });
+    expect(syncPaths()).toEqual(["/api/provision", "/api/service/tier-sync"]);
+    expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_redelivered");
+    expect(mockClaimWebhookEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("records completion only after the handler ran to completion", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com" },
+      "evt_completes",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_completes");
+    expect(mockFailWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it("still returns 500 when the idempotency store is unavailable and handling then fails", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com" },
+      "evt_fail_open_throw",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockClaimWebhookEvent.mockResolvedValue("unknown");
+    mockRetrieveCheckoutSession.mockRejectedValue(new Error("stripe is down"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // Fail-open is about the ledger, never about the delivery contract.
+    expect(res.status).toBe(500);
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
   });
 });
 
@@ -619,12 +708,17 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
 
 describe("POST /api/billing/webhook — unknown events", () => {
   it("returns 200 for an unknown event type without syncing", async () => {
-    const event = buildEvent("charge.succeeded", { id: "ch_123" });
+    const event = buildEvent("charge.succeeded", { id: "ch_123" }, "evt_ignored");
     mockConstructEvent.mockReturnValue(event);
 
     const res = await POST(buildRequest(JSON.stringify(event)));
 
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+    // An intentionally ignored type must still be marked completed, otherwise
+    // every redelivery of it would be reprocessed forever.
+    expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_ignored");
+    expect(mockFailWebhookEvent).not.toHaveBeenCalled();
   });
 });
