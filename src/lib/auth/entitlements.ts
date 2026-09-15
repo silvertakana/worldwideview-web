@@ -29,8 +29,11 @@ export async function hasInstanceEntitlement(userId: string): Promise<boolean> {
   return entitlements.length > 0
 }
 
+// Same relative order as the globe's src/lib/org-tier.ts TIER_RANK. `team` is
+// purchasable here, so leaving it out let the `?? 0` fallback score a Team
+// entitlement as free, i.e. below every other paid tier.
 const TIER_RANK: Record<string, number> = {
-  free: 0, beta_tester: 1, early_access: 2, pro: 3, enterprise: 4
+  free: 0, beta_tester: 1, early_access: 2, pro: 3, team: 4, enterprise: 5
 }
 
 export async function getHighestTier(userId: string): Promise<string> {

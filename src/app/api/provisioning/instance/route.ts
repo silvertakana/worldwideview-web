@@ -3,6 +3,21 @@ import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
 import { hasInstanceEntitlement, getHighestTier, markEntitlementUsed } from '../../../../lib/auth/entitlements'
 
+// A setup token authorises completing an instance's setup, so it must not reach
+// the log: neither as a bare field nor embedded in a setup URL.
+function redactToken(url: unknown): unknown {
+  return typeof url === 'string' ? url.replace(/([?&]token=)[^&#]*/i, '$1[redacted]') : url
+}
+
+function redactGlobeResponse(data: Record<string, unknown> | null | undefined) {
+  if (!data) return data
+  return {
+    ...data,
+    setupUrl: redactToken(data.setupUrl),
+    setupToken: data.setupToken ? '[redacted]' : undefined,
+  }
+}
+
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -108,10 +123,10 @@ export async function POST(request: Request) {
     console.warn('[provision] globe non-json response', { status: res.status })
     return null
   })
-  console.log('[provision] globe body', data)
+  console.log('[provision] globe body', redactGlobeResponse(data))
 
   if (!res.ok) {
-    console.error('[provision] globe request failed', { status: res.status, body: data })
+    console.error('[provision] globe request failed', { status: res.status, body: redactGlobeResponse(data) })
   }
 
   if (res.ok) {
@@ -124,7 +139,7 @@ export async function POST(request: Request) {
     if (pattern && setupTokenFromProvision) {
       const instanceUrl = pattern.replace('{subdomain}', data.subdomain)
       data.setupUrl = `${instanceUrl}/setup?token=${setupTokenFromProvision}`
-      console.log('[provision] setup url from pattern + token', { setupUrl: data.setupUrl })
+      console.log('[provision] setup url from pattern + token', { setupUrl: redactToken(data.setupUrl) })
     } else if (pattern) {
       data.setupUrl = pattern.replace('{subdomain}', data.subdomain)
       console.log('[provision] setup url generated from pattern (no token)', { setupUrl: data.setupUrl })
@@ -133,7 +148,7 @@ export async function POST(request: Request) {
     }
   }
 
-  console.log('[provision] success', { subdomain: data?.subdomain, callbackUrl: data?.setupUrl })
+  console.log('[provision] success', { subdomain: data?.subdomain, callbackUrl: redactToken(data?.setupUrl) })
 
   return NextResponse.json(data || { error: 'Provisioning service error' }, { status: res.status })
 }
