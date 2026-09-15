@@ -16,10 +16,11 @@ import {
 } from "./webhook-idempotency";
 
 // ── Supabase query-builder double ─────────────────────────────────
-// Mirrors the three terminal shapes the ledger uses:
+// Mirrors the terminal shapes the ledger uses:
 //   .upsert(...).select("id").maybeSingle()
 //   .select("processed_at").eq(...).maybeSingle()
-//   .update(...).eq(...).is(...).select("id").maybeSingle()
+//   .update(...).eq(...).is(...).select("id")      <- awaited directly
+//   .insert(...)                                    <- awaited directly
 // The builder is thenable too, so an awaited filter chain resolves to the row.
 
 interface LedgerResult {
@@ -29,6 +30,7 @@ interface LedgerResult {
 
 interface LedgerQuery {
   upsert: ReturnType<typeof vi.fn>;
+  insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   select: ReturnType<typeof vi.fn>;
   eq: ReturnType<typeof vi.fn>;
@@ -40,6 +42,7 @@ interface LedgerQuery {
 function ledgerQuery(result: LedgerResult): LedgerQuery {
   const query = {} as LedgerQuery;
   query.upsert = vi.fn(() => query);
+  query.insert = vi.fn(() => query);
   query.update = vi.fn(() => query);
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
@@ -71,9 +74,28 @@ describe("claimWebhookEvent", () => {
     expect(await claimWebhookEvent("evt_1")).toBe("claimed");
 
     expect(query.upsert).toHaveBeenCalledWith(
-      { event_id: "evt_1", processed_at: null },
+      {
+        event_id: "evt_1",
+        processed_at: null,
+        last_attempt_at: expect.any(String),
+      },
       { onConflict: "event_id", ignoreDuplicates: true },
     );
+  });
+
+  it("stamps last_attempt_at at claim time so an abandoned claim is sweepable", async () => {
+    // A process killed between claim and completion never reaches
+    // failWebhookEvent. Without this stamp the row keeps last_attempt_at NULL,
+    // which sorts last in webhook_events_unfinished_idx - so the freshest
+    // abandoned work is the one thing nothing sweeps.
+    const query = ledgerQuery({ data: { id: "row_1" }, error: null });
+    mockFrom.mockReturnValueOnce(query);
+
+    await claimWebhookEvent("evt_1");
+
+    const payload = query.upsert.mock.calls[0][0] as Record<string, unknown>;
+    expect(typeof payload.last_attempt_at).toBe("string");
+    expect(Number.isNaN(Date.parse(payload.last_attempt_at as string))).toBe(false);
   });
 
   it("allows reprocessing when the existing row is claimed-but-unfinished (D1)", async () => {
@@ -128,22 +150,61 @@ describe("claimWebhookEvent", () => {
 });
 
 describe("completeWebhookEvent", () => {
-  it("writes a non-null processed_at and clears the stored error", async () => {
-    const query = ledgerQuery({ data: { id: "row_1" }, error: null });
+  it("completes an unfinished row, guarded on processed_at IS NULL", async () => {
+    const query = ledgerQuery({ data: [{ id: "row_1" }], error: null });
     mockFrom.mockReturnValueOnce(query);
 
     await completeWebhookEvent("evt_1");
 
-    const payload = query.upsert.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.event_id).toBe("evt_1");
+    const payload = query.update.mock.calls[0][0] as Record<string, unknown>;
     expect(payload.last_error).toBeNull();
     expect(typeof payload.processed_at).toBe("string");
     expect(Number.isNaN(Date.parse(payload.processed_at as string))).toBe(false);
-    expect(query.upsert.mock.calls[0][1]).toEqual({ onConflict: "event_id" });
+    expect(query.eq).toHaveBeenCalledWith("event_id", "evt_1");
+    expect(query.is).toHaveBeenCalledWith("processed_at", null);
+    // A blind onConflict upsert would rewrite processed_at on every replay.
+    expect(query.upsert).not.toHaveBeenCalled();
+    expect(query.insert).not.toHaveBeenCalled();
+  });
+
+  it("never moves the timestamp of an already-completed row", async () => {
+    const unmatched = ledgerQuery({ data: [], error: null });
+    const existing = ledgerQuery({ data: { id: "row_done" }, error: null });
+    mockFrom.mockReturnValueOnce(unmatched).mockReturnValueOnce(existing);
+
+    await completeWebhookEvent("evt_1");
+
+    // The guarded update matched nothing and the row exists: the completion
+    // timestamp is immutable, so this write is a no-op.
+    expect(unmatched.update).toHaveBeenCalled();
+    expect(existing.insert).not.toHaveBeenCalled();
+  });
+
+  it("inserts the row when the claim failed open and no row exists yet", async () => {
+    const unmatched = ledgerQuery({ data: [], error: null });
+    const missing = ledgerQuery({ data: null, error: null });
+    const inserted = ledgerQuery({ data: null, error: null });
+    mockFrom.mockReturnValueOnce(unmatched).mockReturnValueOnce(missing).mockReturnValueOnce(inserted);
+
+    await completeWebhookEvent("evt_1");
+
+    const payload = inserted.insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.event_id).toBe("evt_1");
+    expect(typeof payload.processed_at).toBe("string");
   });
 
   it("never throws when the completion write fails", async () => {
+    // The guarded UPDATE itself errors, so it returns before the read.
     mockFrom.mockReturnValueOnce(ledgerQuery({ data: null, error: { message: "boom" } }));
+
+    await expect(completeWebhookEvent("evt_1")).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it("never throws when the row read after an unmatched update fails", async () => {
+    mockFrom
+      .mockReturnValueOnce(ledgerQuery({ data: [], error: null }))
+      .mockReturnValueOnce(ledgerQuery({ data: null, error: { message: "boom" } }));
 
     await expect(completeWebhookEvent("evt_1")).resolves.toBeUndefined();
     expect(console.error).toHaveBeenCalled();
