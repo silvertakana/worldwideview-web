@@ -4,6 +4,7 @@ import {
   GLOBE_URL_VAR,
   MAX_SWEEP_ROUNDS,
   TIER_LOCK_SWEEP_PATH,
+  describeSweepCounts,
   requireCrossServiceSecret,
   requireGlobeUrl,
   signCrossServiceRequest,
@@ -19,6 +20,8 @@ import {
  *   2. Its signature is byte-identical to the hub's own signer, which is the
  *      only thing standing between a scheduled run and a 401 at 6am.
  *   3. It sends no payload. The account emails exist for the log line only.
+ *   4. It judges the sweep by the BODY, never the HTTP status: a partial sweep
+ *      is a 200, and treating that as healthy would be a false all-clear.
  */
 
 const SECRET = 'test-secret-for-hmac-vitest-2026'
@@ -49,7 +52,23 @@ function sigOf(header: string): string {
   return match[1]
 }
 
-type SweepReply = { status?: number; body: unknown }
+/**
+ * Runs a promise that must reject and hands back what it threw. Typed, and it
+ * fails the test if the call unexpectedly succeeds instead of quietly returning
+ * undefined.
+ */
+async function rejection(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise
+  } catch (thrown) {
+    return thrown as Error
+  }
+  throw new Error('expected this call to reject, but it resolved')
+}
+
+// `raw` serves a literally unreadable response body, which JSON.stringify
+// cannot express (a string body would serialize as valid JSON).
+type SweepReply = { status?: number; body?: unknown; raw?: string }
 
 /** Serves a queued reply per call and records the exact request. */
 function sweepStub(replies: SweepReply[]) {
@@ -70,7 +89,11 @@ function sweepStub(replies: SweepReply[]) {
     }
     index += 1
     const status = reply.status ?? 200
-    return { ok: status === 200, status, text: async () => JSON.stringify(reply.body) }
+    return {
+      ok: status === 200,
+      status,
+      text: async () => (reply.raw !== undefined ? reply.raw : JSON.stringify(reply.body)),
+    }
   }
   return { impl, calls }
 }
@@ -241,7 +264,7 @@ describe('requestTierLockSweep', () => {
     expect(call.headers['X-Service-Timestamp']).toMatch(/^\d{10}$/)
     expect(call.headers['X-Service-Nonce']).toMatch(/^[0-9a-f-]{36}$/)
     expect(call.body).toBe('')
-    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, hasMore: false })
+    expect(result).toEqual({ rounds: 1, due: 2, locked: 2, failed: null, unapplied: null, hasMore: false })
   })
 
   it('emits a signature the hub signer can reproduce for the same request', async () => {
@@ -288,7 +311,7 @@ describe('requestTierLockSweep', () => {
     const result = await requestTierLockSweep({ emails: [] })
 
     expect(stub.calls).toHaveLength(2)
-    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, hasMore: false })
+    expect(result).toEqual({ rounds: 2, due: 3, locked: 3, failed: null, unapplied: null, hasMore: false })
   })
 
   it('reports loudly rather than dropping the remainder when hasMore never clears', async () => {
@@ -310,12 +333,92 @@ describe('requestTierLockSweep', () => {
     await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/HTTP 401/)
   })
 
-  it('fails the run when the globe reports success false', async () => {
+  it('fails the run when the globe reports success false without the new fields', async () => {
     process.env.CROSS_SERVICE_SECRET = SECRET
     process.env.WWV_GLOBE_URL = GLOBE
     const stub = sweepStub([{ body: { success: false, error: 'sweep unavailable' } }])
     vi.stubGlobal('fetch', stub.impl)
 
-    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/reported failure/)
+    const error = await rejection(requestTierLockSweep({ emails: [] }))
+    expect(error.message).toMatch(/did not complete/)
+    // No counts were sent, so the message must not invent any.
+    expect(error.message).not.toMatch(/failed=/)
+  })
+})
+
+/**
+ * The response contract, after the globe added per-organization failure
+ * containment. `success` stopped being a constant and now means `failed === 0`,
+ * and a partial sweep answers HTTP 200 - so the status code is not the signal.
+ * These cases pin both reply shapes at once: the deployed globe may still send
+ * the old one, and the new partial-run case must never pass as healthy.
+ */
+describe('requestTierLockSweep response contract', () => {
+  beforeEach(() => {
+    process.env.CROSS_SERVICE_SECRET = SECRET
+    process.env.WWV_GLOBE_URL = GLOBE
+  })
+
+  it('accepts the older shape, which carries no failed or unapplied field', async () => {
+    const stub = sweepStub([{ body: { success: true, due: 4, locked: 4, hasMore: false } }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    expect(result).toEqual({ rounds: 1, due: 4, locked: 4, failed: null, unapplied: null, hasMore: false })
+    // Absent is not zero, and the log line must not pretend otherwise.
+    expect(describeSweepCounts(result)).toBe('due=4 locked=4')
+  })
+
+  it('accepts a clean new-shape reply and surfaces its zero counts', async () => {
+    const stub = sweepStub([
+      { body: { success: true, due: 4, locked: 4, unapplied: 0, failed: 0, hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const result = await requestTierLockSweep({ emails: [] })
+
+    expect(result).toEqual({ rounds: 1, due: 4, locked: 4, failed: 0, unapplied: 0, hasMore: false })
+    // Distinguishable from the old-shape line above, which reported neither.
+    expect(describeSweepCounts(result)).toBe('due=4 locked=4 failed=0 unapplied=0')
+  })
+
+  it('fails on a partial sweep that answers HTTP 200 with success false', async () => {
+    const stub = sweepStub([
+      { status: 200, body: { success: false, due: 5, locked: 3, unapplied: 1, failed: 2, hasMore: false } },
+    ])
+    vi.stubGlobal('fetch', stub.impl)
+
+    const error = await rejection(requestTierLockSweep({ emails: [] }))
+
+    // The whole point: HTTP 200 and a non-zero failure count is NOT an all-clear.
+    expect(error.message).toMatch(/did not complete/)
+    expect(error.message).toMatch(/success=false/)
+    expect(error.message).toMatch(/failed=2/)
+    expect(error.message).toMatch(/unapplied=1/)
+  })
+
+  it('fails on an empty response body rather than treating it as a pass', async () => {
+    const stub = sweepStub([{ status: 200, raw: '' }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/empty body/)
+  })
+
+  it('fails on a body it cannot parse', async () => {
+    const stub = sweepStub([{ status: 200, raw: '<html>502 Bad Gateway</html>' }])
+    vi.stubGlobal('fetch', stub.impl)
+
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/not JSON/)
+  })
+
+  it('fails when the body parses to something that cannot carry a verdict', async () => {
+    const stub = sweepStub([{ status: 200, raw: 'null' }])
+    vi.stubGlobal('fetch', stub.impl)
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/rather than an object/)
+
+    const arrayStub = sweepStub([{ status: 200, raw: '[]' }])
+    vi.stubGlobal('fetch', arrayStub.impl)
+    await expect(requestTierLockSweep({ emails: [] })).rejects.toThrow(/an array/)
   })
 })

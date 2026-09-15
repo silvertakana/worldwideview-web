@@ -17,6 +17,22 @@
 #   the deadlines it has already armed on itself. Nothing here can cancel a
 #   subscription, change a grant, or choose who gets locked.
 #
+# IT FAILS FOR THREE REASONS, AND ALL THREE ARE ALERTS
+#   1. Stripe and the durable billing record disagree.
+#   2. billing_failures has an unresolved row: a customer-facing step failed
+#      (provisioning, or the globe tier-sync) and nobody fixed it.
+#   3. webhook_events has a row claimed and left unfinished for over an hour.
+#   A database read that fails also fails the run, deliberately: "0 unresolved
+#   failures" and "we could not look" are different facts and only one of them is
+#   reassuring. The runner never reports health it has not verified.
+#
+# SCHEMA DEPENDENCY
+#   The unfinished-events query reads webhook_events.last_attempt_at, added by
+#   supabase/migrations/20260915000001_webhook_events_completion_state.sql on
+#   branch fix/billing-launch-hardening. Until that migration is applied this job
+#   fails with `column "last_attempt_at" does not exist` - which is the intended
+#   behaviour for a check that cannot run. Do not "fix" it by skipping the query.
+#
 # WHY schedule AND workflow_dispatch
 #   A scheduled workflow only runs from the default branch, and GitHub disables
 #   a schedule after 60 days of repository inactivity. workflow_dispatch keeps a
