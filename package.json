@@ -1,6 +1,6 @@
 {
   "name": "worldwideview-web",
-  "version": "0.20.2",
+  "version": "0.21.3",
   "private": true,
   "scripts": {
     "clean": "node -e \"const fs=require('fs');fs.rmSync('.next',{recursive:true,force:true})\"",
