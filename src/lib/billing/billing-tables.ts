@@ -55,6 +55,8 @@ export interface BillingOverride {
   created_by: string | null;
   created_at: string;
   revoked_at: string | null;
+  /** Only selected by the audit-trail read; OVERRIDE_COLUMNS omits it. */
+  revoked_by?: string | null;
 }
 
 /** A row of billing_failures. */
