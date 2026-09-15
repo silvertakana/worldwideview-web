@@ -129,6 +129,22 @@ export async function setOverride(
   return (data as BillingOverride | null) ?? null;
 }
 
+/**
+ * Every override ever granted to a user, newest first - the operator screen's
+ * audit trail. `billing_overrides` keeps revoked rows on purpose: "who gave this
+ * customer access, when, and why" is only answerable if the revoked history
+ * survives, so this deliberately does NOT filter on revoked_at.
+ */
+export async function listOverridesForUser(userId: string): Promise<BillingOverride[]> {
+  const { data, error } = await createAdminClient()
+    .from("billing_overrides")
+    .select(`${OVERRIDE_COLUMNS}, revoked_by`)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`[billing] listOverridesForUser failed: ${error.message}`);
+  return (data as BillingOverride[] | null) ?? [];
+}
+
 export async function revokeOverride(overrideId: string, revokedBy: string | null): Promise<boolean> {
   const { error } = await createAdminClient()
     .from("billing_overrides")

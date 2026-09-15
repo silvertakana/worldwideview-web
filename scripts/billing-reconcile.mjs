@@ -1,0 +1,499 @@
+#!/usr/bin/env node
+/**
+ * Read-only billing reconciliation runner.
+ *
+ * Compares Stripe against the hub's durable billing record (the
+ * public.billing_subscriptions table) and exits non-zero when the two
+ * disagree. Run by .github/workflows/billing-reconcile.yml on a schedule; the
+ * exit code is what raises the alert.
+ *
+ * READ-ONLY EXCEPT FOR ONE DELIBERATE STEP. Every Stripe call is a GET and every
+ * database statement is a SELECT. This script cannot cancel a subscription or
+ * change a grant. The one thing it asks for is the globe's own tier-lock sweep
+ * (scripts/lib/globe-tier-lock-sweep.mjs): a signed, bodiless POST telling the
+ * globe to enforce the deadlines it has already armed on itself. It carries no
+ * payload and names no account, so this runner decides nothing about who gets
+ * locked.
+ *
+ * IT ALSO READS THE TWO QUEUES THE COMPARISON CANNOT SEE. An event that arrived
+ * and never finished writing its record is missing from BOTH lists, so comparing
+ * them cannot notice it. scripts/lib/billing-durable-queues.mjs reads
+ * webhook_events (claimed, never completed) and billing_failures (a step that
+ * failed in a way a Stripe redelivery cannot fix) over this same connection, and
+ * this runner fails on anything stuck past 15 minutes or left unresolved. It
+ * reports those rows and never resolves one.
+ *
+ * WHAT THOSE REPORTS CONTAIN. Per queue: the exact count, the shape of the
+ * failure queue by stage and the age of its oldest row, then at most
+ * SAMPLE_LIMIT rows oldest first - headed "showing the N oldest of M" whenever
+ * the list is shorter than the count, because a bounded sample that reads as a
+ * total is how a backlog of 300 becomes a note about 20. Every row carries the
+ * identity an operator can search by, so the log line is enough to start looking
+ * without a second query.
+ *
+ * AND THREE DIFFERENT ENDINGS, NOT TWO. Drift fails the run; so does an
+ * unfinished payment or an unresolved failure. A queue that could not be read as
+ * fully as it should have been - an absent table, rows with no timestamp to age -
+ * leaves the exit code at 0 and says INCOMPLETE instead, because a missing
+ * migration is not a billing incident and an alert that means both things means
+ * nothing. The INCOMPLETE line is what stops that green run being read as a clean
+ * bill of health.
+ *
+ * The comparison itself lives in scripts/lib/billing-reconcile-core.mjs and is
+ * pure; this file is only the I/O around it.
+ */
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { Pool } from 'pg'
+import { reconcile, isSweepEligible } from './lib/billing-reconcile-core.mjs'
+import {
+  BILLING_FAILURES_TABLE,
+  WEBHOOK_EVENTS_TABLE,
+  formatAge,
+  gradeDurableQueues,
+  readDurableQueues,
+  summarizeUnfinishedEvents,
+  summarizeUnresolvedFailures,
+} from './lib/billing-durable-queues.mjs'
+import { requestTierLockSweep } from './lib/globe-tier-lock-sweep.mjs'
+
+const STRIPE_API_DEFAULT = 'https://api.stripe.com/v1'
+const REQUEST_TIMEOUT_MS = 30_000
+const PAGE_LIMIT = '100'
+
+/**
+ * Every row, deliberately not just the non-canceled ones the app lists
+ * (subscription-store.ts filters `status <> 'canceled'`). A ledger row that was
+ * wrongly marked canceled must still match its live Stripe subscription:
+ * filtered out, it would look like an unrecorded grant and the alert would be
+ * a false one.
+ */
+const LEDGER_SQL = `
+  SELECT user_id, email, stripe_customer_id, stripe_subscription_id,
+         price_id, plan, interval, status, stripe_status,
+         current_period_end, source
+    FROM public.billing_subscriptions
+   ORDER BY updated_at DESC
+`
+
+/**
+ * @param {string[]} names env files, in increasing priority
+ * @returns {Map<string,string>}
+ */
+function parseEnvFiles(names) {
+  /** @type {Map<string,string>} */
+  const values = new Map()
+  for (const name of names) {
+    let content
+    try {
+      content = fs.readFileSync(path.resolve(process.cwd(), name), 'utf8')
+    } catch {
+      continue // an absent env file is normal, and always the case in CI
+    }
+    for (const line of content.split(/\r?\n/)) {
+      const match = line.match(/^\s*([\w.-]+)\s*=(.*)$/)
+      if (!match) continue
+      let value = (match[2] || '').trim()
+      if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1)
+      if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1)
+      if (value) values.set(match[1], value)
+    }
+  }
+  return values
+}
+
+/**
+ * Fill this runner's env contract from the repo's env files, the same
+ * hand-rolled parse tests/lib/env.ts uses (no dotenv dependency). An
+ * already-set variable always wins, so a developer's .env can never clobber
+ * the CI secrets.
+ *
+ * The names are written out instead of looped: a computed key on process.env is
+ * what eslint-plugin-security's object-injection rule forbids, and this list is
+ * the runner's complete environment contract anyway.
+ */
+function loadEnvFiles() {
+  const fromFile = parseEnvFiles(['.env', '.env.local'])
+  const dbUrl = fromFile.get('SUPABASE_DB_URL')
+  if (dbUrl && process.env.SUPABASE_DB_URL === undefined) process.env.SUPABASE_DB_URL = dbUrl
+  const stripeKey = fromFile.get('STRIPE_SECRET_KEY')
+  if (stripeKey && process.env.STRIPE_SECRET_KEY === undefined) process.env.STRIPE_SECRET_KEY = stripeKey
+  const stripeBase = fromFile.get('STRIPE_BASE_URL')
+  if (stripeBase && process.env.STRIPE_BASE_URL === undefined) process.env.STRIPE_BASE_URL = stripeBase
+  const crossService = fromFile.get('CROSS_SERVICE_SECRET')
+  if (crossService && process.env.CROSS_SERVICE_SECRET === undefined) process.env.CROSS_SERVICE_SECRET = crossService
+  const provisioning = fromFile.get('PROVISIONING_API_URL')
+  if (provisioning && process.env.PROVISIONING_API_URL === undefined) process.env.PROVISIONING_API_URL = provisioning
+  // Deliberately the runner's own variable rather than PROVISIONING_API_URL:
+  // that one is a deployment variable and is not guaranteed to exist on a
+  // runner, and the sweep must never fall back to a guessed address.
+  const globeUrl = fromFile.get('WWV_GLOBE_URL')
+  if (globeUrl && process.env.WWV_GLOBE_URL === undefined) process.env.WWV_GLOBE_URL = globeUrl
+}
+
+/** pg hands back a Date for timestamptz; the core compares ISO instants. */
+function toIso(value) {
+  if (value instanceof Date) return value.toISOString()
+  return typeof value === 'string' ? value : null
+}
+
+function normalizeLedgerRow(row) {
+  return {
+    user_id: row.user_id ?? null,
+    email: row.email ?? null,
+    stripe_customer_id: row.stripe_customer_id ?? null,
+    stripe_subscription_id: row.stripe_subscription_id ?? null,
+    price_id: row.price_id ?? null,
+    plan: row.plan ?? null,
+    interval: row.interval ?? null,
+    status: row.status ?? null,
+    stripe_status: row.stripe_status ?? null,
+    current_period_end: toIso(row.current_period_end),
+    source: row.source ?? 'stripe',
+  }
+}
+
+/**
+ * Read the ledger over Postgres. SUPABASE_DB_URL is the only credential that
+ * reaches the hub database from a GitHub runner: there is no Supabase URL secret
+ * and no service-role-key secret, and no environment-scoped secrets exist
+ * either, so PostgREST and createAdminClient() are not available here.
+ */
+async function readLedger(dbUrl) {
+  const pool = new Pool({ connectionString: dbUrl, max: 2 })
+  try {
+    const result = await pool.query(LEDGER_SQL)
+    return result.rows.map(normalizeLedgerRow)
+  } finally {
+    await pool.end()
+  }
+}
+
+/** One Stripe GET. Read-only: no other method is ever used. */
+async function stripeGet(pathname, search, stripeKey, stripeBase) {
+  const response = await fetch(`${stripeBase}${pathname}?${search.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${stripeKey}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(
+      `Stripe GET ${pathname} failed with HTTP ${response.status}: ${body.slice(0, 300)}`,
+    )
+  }
+  return response.json()
+}
+
+/**
+ * Walk a Stripe list endpoint to the end.
+ *
+ * Paginating is not optional: an unpaginated read reconciles the first page and
+ * silently reports agreement about everything after it, which is worse than not
+ * running at all. `has_more` plus `starting_after` is the same loop
+ * tests/lib/stripe.ts uses.
+ */
+async function stripeListAll(pathname, params, stripeKey, stripeBase) {
+  const collected = []
+  let startingAfter
+  for (;;) {
+    const search = new URLSearchParams({ ...params, limit: PAGE_LIMIT })
+    if (startingAfter) search.set('starting_after', startingAfter)
+    const body = await stripeGet(pathname, search, stripeKey, stripeBase)
+    const batch = Array.isArray(body.data) ? body.data : []
+    collected.push(...batch)
+    if (!body.has_more || batch.length === 0) break
+    startingAfter = batch[batch.length - 1].id
+  }
+  return collected
+}
+
+/**
+ * Stripe's view of every subscription, in the shape the pure core expects.
+ * Customers are read first so each subscription can carry its account email,
+ * which is the key the ledger is written against.
+ */
+async function readStripeSubscriptions(stripeKey, stripeBase) {
+  const customers = await stripeListAll('/customers', {}, stripeKey, stripeBase)
+  /** @type {Map<string,string|null>} */
+  const emailByCustomerId = new Map()
+  for (const customer of customers) {
+    emailByCustomerId.set(customer.id, customer.email ?? null)
+  }
+
+  // status=all so a canceled subscription still matches its ledger row instead
+  // of making that row look like a grant Stripe never backed.
+  const subscriptions = await stripeListAll('/subscriptions', { status: 'all' }, stripeKey, stripeBase)
+
+  return subscriptions.map((subscription) => {
+    const item = Array.isArray(subscription.items?.data) ? subscription.items.data[0] : undefined
+    const price = item?.price
+    return {
+      subscriptionId: subscription.id,
+      customerId: subscription.customer ?? null,
+      email: emailByCustomerId.get(subscription.customer) ?? null,
+      status: subscription.status,
+      priceId: price?.id ?? null,
+      interval: price?.recurring?.interval ?? null,
+      currentPeriodEnd: subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000).toISOString()
+        : null,
+    }
+  })
+}
+
+function printReport(report, meta) {
+  console.log(
+    '[reconcile] READ-ONLY EXCEPT FOR THE SWEEP: every Stripe call is a GET and every database ' +
+      'statement is a SELECT, and the one request this run signs is the globe tier-lock sweep - a ' +
+      'bodiless POST that names no account.',
+  )
+  console.log(`[reconcile] Stripe API base: ${meta.stripeBase}`)
+  if (meta.stripeBase !== STRIPE_API_DEFAULT) {
+    console.log('[reconcile] WARNING: STRIPE_BASE_URL is not the real Stripe API, so this run says nothing about production.')
+  }
+  console.log(`[reconcile] ledger rows read: ${meta.ledgerCount}`)
+  console.log(`[reconcile] Stripe subscriptions read: ${meta.stripeCount}`)
+  console.log(`[reconcile] evaluated at: ${report.evaluatedAt}`)
+
+  // Object.entries, not counts[name]: a computed key on a record is a
+  // security/detect-object-injection warning, and the report already carries
+  // every class in DRIFT_CLASSES order.
+  console.log('[reconcile] drift counts:')
+  for (const [name, count] of Object.entries(report.counts)) {
+    console.log(`[reconcile]   ${name}: ${count}`)
+  }
+
+  for (const item of report.drift) {
+    console.log('')
+    console.log(`  [${item.driftClass}] authority: ${item.authority}`)
+    console.log(`    account: ${item.email ?? '(no email)'}`)
+    console.log(`    subscription: ${item.subscriptionId ?? '(none)'}  customer: ${item.customerId ?? '(none)'}`)
+    console.log(`    field: ${item.field}`)
+    console.log(`    ledger says: ${JSON.stringify(item.ledgerValue)}`)
+    console.log(`    Stripe says: ${JSON.stringify(item.stripeValue)}`)
+    console.log(`    ${item.detail}`)
+  }
+
+  console.log('')
+  console.log(`[reconcile] operator-owned rows (never reconciled): ${report.counts.operatorOwned}`)
+  for (const owned of report.operatorOwned) {
+    console.log(`    ${owned.email ?? '(no email)'}  subscription: ${owned.linkedStripeSubscriptionId ?? '(none)'}  active in Stripe: ${owned.activeInStripe}`)
+  }
+}
+
+/** The only phase that leaves the read-only path, and only when drift demands it. */
+async function runSweepPhase(sweepTargets) {
+  const emails = [...new Set(sweepTargets.map((item) => item.email).filter(Boolean))]
+  console.log('')
+  console.log(`[reconcile] sweep phase: ${sweepTargets.length} drift item(s) say payment has stopped.`)
+  console.log(`[reconcile] accounts affected: ${emails.join(', ') || '(no email on the drift items)'}`)
+  const result = await requestTierLockSweep({ emails })
+
+  // An undeployed endpoint is not a sweep: reporting its zeroes would print the
+  // exact line a healthy sweep prints and bury the banner the module just wrote.
+  if (result.notDeployed) {
+    console.log(
+      `[reconcile] sweep NOT DEPLOYED after ${result.rounds} attempt(s): no deadline was enforced. ` +
+        'The drift itself is reported above and is still what makes this run red; the missing ' +
+        'deploy is the separate, non-alerting fact named on the line above.',
+    )
+    return
+  }
+
+  console.log(
+    `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked} ` +
+      `unapplied=${result.unapplied} failed=${result.failed}`,
+  )
+}
+
+/**
+ * A bounded sample must never be mistakable for the total, so the total is
+ * printed next to it whenever anything was cut.
+ * @param {number} shown
+ * @param {number} total
+ */
+function printSampleBound(shown, total) {
+  if (total > shown) console.log(`[reconcile]   showing the ${shown} oldest of ${total}`)
+}
+
+/**
+ * Read the two queues that hold payments which arrived and did not finish, report
+ * them, and hand back the verdict the exit policy decides on. Never writes:
+ * resolving a failed handover is a person's decision, and a nightly job that
+ * guessed would take something away from a customer who paid for it.
+ */
+async function runDurableQueuePhase(dbUrl) {
+  // Its own pool, like readLedger: the queue read must not keep the pool the
+  // ledger already closed, and one phase ending cannot strand the other.
+  const pool = new Pool({ connectionString: dbUrl, max: 2 })
+  let reading
+  try {
+    reading = await readDurableQueues((sql, params) => pool.query(sql, params))
+  } finally {
+    await pool.end()
+  }
+
+  const verdict = gradeDurableQueues(reading)
+  const stuck = summarizeUnfinishedEvents(reading.unfinishedEvents)
+  const unresolved = summarizeUnresolvedFailures(reading.unresolvedFailures)
+
+  console.log('')
+  console.log(
+    '[reconcile] durable queues: the two tables that hold payments which arrived and did not finish.',
+  )
+
+  if (reading.absentTables.includes(WEBHOOK_EVENTS_TABLE)) {
+    console.log(`[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} unfinished=${reading.unfinishedEvents.length}` +
+        `${reading.canAgeEvents ? '' : ' (no attempt timestamp in this schema)'}`,
+    )
+    // Unfinished and STUCK are two different numbers on purpose: the first is the
+    // queue, the second is what this run is willing to call a problem, and a row
+    // too young to judge belongs in the first and not the second.
+    console.log(`[reconcile] durable queues:   unfinished past ${formatAge(stuck.thresholdMs)}: ${stuck.count}`)
+    printSampleBound(stuck.sample.length, stuck.count)
+    for (const event of stuck.sample) {
+      console.log('')
+      console.log(`  ${event.eventId}`)
+      // The identity columns sit on the other side of a migration, so an event
+      // with neither is normal rather than broken: the line is simply not printed.
+      const account = event.email ?? event.userId
+      if (account !== null) console.log(`    account: ${account}`)
+      console.log(`    last attempt: ${event.lastAttemptAt ?? '(unknown)'} (${formatAge(event.ageMs)} ago)`)
+      console.log(`    last error: ${event.lastError ?? '(none recorded)'}`)
+    }
+  }
+
+  if (reading.absentTables.includes(BILLING_FAILURES_TABLE)) {
+    console.log(`[reconcile] durable queues: ${BILLING_FAILURES_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${BILLING_FAILURES_TABLE} unresolved=${reading.unresolvedFailures.length}`,
+    )
+    console.log(
+      `[reconcile] durable queues:   stages: ` +
+        `${unresolved.byStage.map(([stage, count]) => `${stage}=${count}`).join(', ') || '(none)'}`,
+    )
+    console.log(
+      `[reconcile] durable queues:   oldest: ` +
+        `${unresolved.oldestAgeMs === null ? '(none)' : formatAge(unresolved.oldestAgeMs)}`,
+    )
+    printSampleBound(unresolved.sample.length, unresolved.count)
+    for (const item of unresolved.sample) {
+      console.log('')
+      console.log(`  [${item.stage}] ${item.identity}`)
+      console.log(
+        `    event: ${item.eventId ?? '(none)'}  type: ${item.eventType ?? '(none)'}  attempts: ${item.attempts ?? '(unknown)'}`,
+      )
+      console.log(
+        `    first seen: ${item.firstSeenAt ?? '(unknown)'}` +
+          `${item.ageMs === null ? '' : ` (${formatAge(item.ageMs)} ago)`}`,
+      )
+      console.log(`    last attempt: ${item.lastAttemptAt ?? '(unknown)'}`)
+    }
+  }
+
+  for (const warning of verdict.warnings) {
+    console.log(`[reconcile] durable queues WARNING: ${warning}`)
+  }
+  for (const failure of verdict.failures) {
+    console.log(`[reconcile] durable queues FAILURE: ${failure}`)
+  }
+
+  return verdict
+}
+
+/**
+ * Returns the exit code rather than setting one, so the whole runner is
+ * drivable from a test instead of only from a shell.
+ * @returns {Promise<number>} 0 when the two sides agree, 1 when they do not
+ */
+export async function main() {
+  loadEnvFiles()
+
+  const dbUrl = process.env.SUPABASE_DB_URL
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!dbUrl) {
+    throw new Error(
+      'SUPABASE_DB_URL is not set. It is the only way this runner can read the hub database: ' +
+        'there is no Supabase URL secret and no service-role-key secret. Set it in the workflow env, ' +
+        'or export it locally.',
+    )
+  }
+  if (!stripeKey) {
+    throw new Error('STRIPE_SECRET_KEY is not set. Set it in the workflow env, or export it locally.')
+  }
+  const stripeBase = process.env.STRIPE_BASE_URL || STRIPE_API_DEFAULT
+
+  const ledger = await readLedger(dbUrl)
+  const stripeSubscriptions = await readStripeSubscriptions(stripeKey, stripeBase)
+  const report = reconcile({ ledger, stripe: stripeSubscriptions })
+
+  printReport(report, {
+    stripeBase,
+    ledgerCount: ledger.length,
+    stripeCount: stripeSubscriptions.length,
+  })
+
+  const sweepTargets = report.drift.filter(isSweepEligible)
+  if (sweepTargets.length > 0) {
+    await runSweepPhase(sweepTargets)
+  }
+
+  const queues = await runDurableQueuePhase(dbUrl)
+
+  if (!report.ok) {
+    console.log('')
+    console.log(`[reconcile] RESULT: DRIFT FOUND (${report.counts.total}). See docs/billing-reconciliation.md.`)
+    return 1
+  }
+  if (!queues.ok) {
+    console.log('')
+    console.log(
+      '[reconcile] RESULT: no drift between the ledger and Stripe, but the durable billing queues ' +
+        `need attention (${queues.failures.length}). See the FAILURE lines above and ` +
+        'docs/billing-reconciliation.md.',
+    )
+    return 1
+  }
+
+  // WHY AN UNREADABLE QUEUE LEAVES THE EXIT CODE AT 0 WHILE AN UNFINISHED PAYMENT
+  // DOES NOT. "There is nowhere to record a stuck payment" and "a payment is
+  // stuck" are different facts, and only the second is a billing incident an
+  // operator can act on tonight. An absent table is a missing migration, so
+  // reddening the scheduled run for it would make the alert mean "a deploy is
+  // behind" as often as it means "a customer paid and got nothing" - and an alert
+  // that means two things gets ignored. A queue that EXISTS and answers with
+  // something unreadable is red instead: that is this runner's own query failing,
+  // which is a code or schema problem rather than a deploy. The exit code is not
+  // the whole answer either way, which is why this case still refuses to call
+  // itself healthy.
+  if (!queues.complete) {
+    console.log('')
+    console.log(
+      '[reconcile] RESULT: no drift, and no stuck payment found - but this run was INCOMPLETE ' +
+        `(${queues.warnings.length} warning(s) above). Do not read it as a clean bill of health.`,
+    )
+    return 0
+  }
+  console.log('')
+  console.log('[reconcile] RESULT: no drift. The ledger and Stripe agree.')
+  return 0
+}
+
+// Run only when executed directly; importing this file (from the test) must not
+// start a reconciliation.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    process.exitCode = await main()
+  } catch (error) {
+    console.error('')
+    console.error(`[reconcile] FAILED: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}
