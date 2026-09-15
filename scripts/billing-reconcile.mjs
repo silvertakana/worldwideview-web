@@ -15,17 +15,32 @@
  * payload and names no account, so this runner decides nothing about who gets
  * locked.
  *
- * AND IT READS THE TWO QUEUES THAT HAD NO READER. Two earlier fixes made
- * failure durable and then nothing looked at it: the D1 fix leaves a webhook
- * event unfinished (processed_at IS NULL) when a delivery throws, and the D8 fix
- * writes a billing_failures row when provisioning or the tier-sync call fails
- * for a reason Stripe will not retry. Both tables were write-only, so "a
- * customer paid and got nothing" produced no signal at all. This runner now
- * reads both and FAILS when either is non-empty.
+ * IT ALSO READS THE TWO QUEUES THE COMPARISON CANNOT SEE. An event that arrived
+ * and never finished writing its record is missing from BOTH lists, so comparing
+ * them cannot notice it. scripts/lib/billing-durable-queues.mjs reads
+ * webhook_events (claimed, never completed) and billing_failures (a step that
+ * failed in a way a Stripe redelivery cannot fix) over this same connection, and
+ * this runner fails on anything stuck past 15 minutes or left unresolved. It
+ * reports those rows and never resolves one.
  *
- * The comparison itself lives in scripts/lib/billing-reconcile-core.mjs and the
- * two queue detectors in scripts/lib/billing-backlog-core.mjs; both are pure.
- * This file is only the I/O around them.
+ * WHAT THOSE REPORTS CONTAIN. Per queue: the exact count, the shape of the
+ * failure queue by stage and the age of its oldest row, then at most
+ * SAMPLE_LIMIT rows oldest first - headed "showing the N oldest of M" whenever
+ * the list is shorter than the count, because a bounded sample that reads as a
+ * total is how a backlog of 300 becomes a note about 20. Every row carries the
+ * identity an operator can search by, so the log line is enough to start looking
+ * without a second query.
+ *
+ * AND THREE DIFFERENT ENDINGS, NOT TWO. Drift fails the run; so does an
+ * unfinished payment or an unresolved failure. A queue that could not be read as
+ * fully as it should have been - an absent table, rows with no timestamp to age -
+ * leaves the exit code at 0 and says INCOMPLETE instead, because a missing
+ * migration is not a billing incident and an alert that means both things means
+ * nothing. The INCOMPLETE line is what stops that green run being read as a clean
+ * bill of health.
+ *
+ * The comparison itself lives in scripts/lib/billing-reconcile-core.mjs and is
+ * pure; this file is only the I/O around it.
  */
 
 import fs from 'node:fs'
@@ -34,11 +49,15 @@ import { pathToFileURL } from 'node:url'
 import { Pool } from 'pg'
 import { reconcile, isSweepEligible } from './lib/billing-reconcile-core.mjs'
 import {
-  STUCK_EVENT_THRESHOLD_MS,
-  selectStuckEvents,
-  summarizeFailures,
-} from './lib/billing-backlog-core.mjs'
-import { describeSweepCounts, requestTierLockSweep } from './lib/globe-tier-lock-sweep.mjs'
+  BILLING_FAILURES_TABLE,
+  WEBHOOK_EVENTS_TABLE,
+  formatAge,
+  gradeDurableQueues,
+  readDurableQueues,
+  summarizeUnfinishedEvents,
+  summarizeUnresolvedFailures,
+} from './lib/billing-durable-queues.mjs'
+import { requestTierLockSweep } from './lib/globe-tier-lock-sweep.mjs'
 
 const STRIPE_API_DEFAULT = 'https://api.stripe.com/v1'
 const REQUEST_TIMEOUT_MS = 30_000
@@ -57,61 +76,6 @@ const LEDGER_SQL = `
          current_period_end, source
     FROM public.billing_subscriptions
    ORDER BY updated_at DESC
-`
-
-/**
- * The operator's failure queue, mirroring listUnresolvedFailures() in
- * src/lib/billing/records.ts: the same column list (FAILURE_COLUMNS), the same
- * `resolved_at IS NULL` filter, the same oldest-first order.
- *
- * WHY THIS MIRRORS INSTEAD OF IMPORTING. That function is exported and this
- * runner deliberately does not call it, because it cannot: this script runs
- * under bare `node` with no bundler, so records.ts's `@/...` path aliases do not
- * resolve, and its module graph reaches PostgREST through createAdminClient(),
- * which needs a Supabase URL and a service-role key that no GitHub runner has.
- * SUPABASE_DB_URL is the only credential that reaches this database from CI. If
- * listUnresolvedFailures() changes, this query is what changes with it.
- */
-const FAILURES_SQL = `
-  SELECT id, user_id, email, event_id, event_type, stage, error, attempts,
-         first_seen_at, last_attempt_at, resolved_at
-    FROM public.billing_failures
-   WHERE resolved_at IS NULL
-   ORDER BY first_seen_at ASC
-`
-
-/**
- * webhook_events as it looks AFTER the D1 fix.
- *
- * SCHEMA DEPENDENCY. A nullable `processed_at`, `last_error`, `last_attempt_at`
- * and the partial index webhook_events_unfinished_idx all come from
- * supabase/migrations/20260915000001_webhook_events_completion_state.sql, which
- * lives on branch fix/billing-launch-hardening and is NOT on this branch. Until
- * that migration is applied, this query fails with
- *
- *   column "last_attempt_at" does not exist
- *
- * and the run fails loudly, which is the right outcome for a database that
- * predates the column: a reconciler that reports health about a check it could
- * not run is worse than no reconciler. Run this against the post-D1 schema only.
- * Do NOT add the column here - it already has a migration on that branch and a
- * second one would collide.
- *
- * The threshold is a parameter so this pre-filter and the pure detector cannot
- * drift apart. The detector decides; this only narrows.
- *
- * `last_attempt_at IS NOT NULL` is redundant against `<` and is written out on
- * purpose: excluding the NULL rows is a decision, not an oversight. See
- * STUCK_EVENT_NOTE in scripts/lib/billing-backlog-core.mjs for why those cannot
- * be judged.
- */
-const STUCK_EVENTS_SQL = `
-  SELECT event_id, last_attempt_at, last_error
-    FROM public.webhook_events
-   WHERE processed_at IS NULL
-     AND last_attempt_at IS NOT NULL
-     AND last_attempt_at < now() - ($1::bigint * interval '1 millisecond')
-   ORDER BY last_attempt_at ASC
 `
 
 /**
@@ -280,108 +244,12 @@ async function readStripeSubscriptions(stripeKey, stripeBase) {
   })
 }
 
-/** pg hands back Dates for timestamptz; the core accepts either and ISO reads better in a log. */
-function normalizeFailureRow(row) {
-  return {
-    id: row.id ?? null,
-    user_id: row.user_id ?? null,
-    email: row.email ?? null,
-    event_id: row.event_id ?? null,
-    event_type: row.event_type ?? null,
-    stage: row.stage ?? '(no stage)',
-    error: row.error ?? null,
-    attempts: typeof row.attempts === 'number' ? row.attempts : null,
-    first_seen_at: toIso(row.first_seen_at),
-    last_attempt_at: toIso(row.last_attempt_at),
-    resolved_at: toIso(row.resolved_at),
-  }
-}
-
-function normalizeStuckEventRow(row) {
-  return {
-    event_id: row.event_id ?? '(no event id)',
-    last_attempt_at: toIso(row.last_attempt_at),
-    last_error: row.last_error ?? null,
-  }
-}
-
-/**
- * Read both durable queues over one connection.
- *
- * NO LIMIT, deliberately: the exact count is the point of the report, and these
- * are exceptional rows. A backlog big enough to make this slow is a backlog the
- * operator needs to see whole.
- *
- * ANY FAILURE HERE PROPAGATES. A missing table, a bad credential or an
- * unreachable database must fail the run, never degrade into an empty result:
- * "0 unresolved failures" and "we could not look at the failures" are different
- * facts, and only the first one is reassuring.
- */
-async function readBacklog(dbUrl) {
-  const pool = new Pool({ connectionString: dbUrl, max: 2 })
-  try {
-    const failures = await pool.query(FAILURES_SQL)
-    const events = await pool.query(STUCK_EVENTS_SQL, [STUCK_EVENT_THRESHOLD_MS])
-    return {
-      failures: failures.rows.map(normalizeFailureRow),
-      stuckEvents: events.rows.map(normalizeStuckEventRow),
-    }
-  } finally {
-    await pool.end()
-  }
-}
-
-/**
- * The two queues, printed separately from the Stripe comparison because they
- * answer a different question: not "do our records match Stripe" but "is
- * anything already broken and waiting".
- */
-function printBacklog(failures, stuckEvents) {
-  console.log('')
-  console.log('[reconcile] unresolved billing failures (billing_failures where resolved_at IS NULL):')
-  console.log(`[reconcile]   count: ${failures.count}`)
-  for (const [stage, count] of failures.byStage) {
-    console.log(`[reconcile]   ${stage}: ${count}`)
-  }
-  if (failures.count > failures.sample.length) {
-    console.log(`[reconcile]   showing the ${failures.sample.length} oldest of ${failures.count}`)
-  }
-  for (const item of failures.sample) {
-    console.log('')
-    console.log(`  [${item.stage}] ${item.identity}`)
-    console.log(
-      `    event: ${item.eventId ?? '(none)'}  type: ${item.eventType ?? '(none)'}  attempts: ${item.attempts ?? '(unknown)'}`,
-    )
-    console.log(`    first seen: ${item.firstSeenAt ?? '(unknown)'}`)
-    console.log(`    last attempt: ${item.lastAttemptAt ?? '(unknown)'}`)
-  }
-
-  console.log('')
-  console.log(
-    `[reconcile] unfinished webhook events (processed_at IS NULL, no attempt for over ` +
-      `${Math.round(stuckEvents.thresholdMs / 60000)} minutes):`,
-  )
-  console.log(`[reconcile]   count: ${stuckEvents.count}`)
-  if (stuckEvents.count > stuckEvents.sample.length) {
-    console.log(`[reconcile]   showing the ${stuckEvents.sample.length} oldest of ${stuckEvents.count}`)
-  }
-  for (const item of stuckEvents.sample) {
-    console.log('')
-    console.log(`  ${item.eventId}`)
-    console.log(
-      `    last attempt: ${item.lastAttemptAt ?? '(unknown)'} (${Math.round(item.ageMs / 60000)} minutes ago)`,
-    )
-    console.log(`    last error: ${item.lastError ?? '(none recorded)'}`)
-  }
-
-  if (failures.count === 0 && stuckEvents.count === 0) {
-    console.log('')
-    console.log('[reconcile] both queues are empty: nothing is waiting for an operator.')
-  }
-}
-
 function printReport(report, meta) {
-  console.log('[reconcile] READ-ONLY EXCEPT FOR THE SWEEP: nothing is written to Stripe or the hub database on any path.')
+  console.log(
+    '[reconcile] READ-ONLY EXCEPT FOR THE SWEEP: every Stripe call is a GET and every database ' +
+      'statement is a SELECT, and the one request this run signs is the globe tier-lock sweep - a ' +
+      'bodiless POST that names no account.',
+  )
   console.log(`[reconcile] Stripe API base: ${meta.stripeBase}`)
   if (meta.stripeBase !== STRIPE_API_DEFAULT) {
     console.log('[reconcile] WARNING: STRIPE_BASE_URL is not the real Stripe API, so this run says nothing about production.')
@@ -424,8 +292,108 @@ async function runSweepPhase(sweepTargets) {
   console.log(`[reconcile] accounts affected: ${emails.join(', ') || '(no email on the drift items)'}`)
   const result = await requestTierLockSweep({ emails })
   console.log(
-    `[reconcile] sweep finished in ${result.rounds} call(s): ${describeSweepCounts(result)}`,
+    `[reconcile] sweep finished in ${result.rounds} call(s): due=${result.due} locked=${result.locked} ` +
+      `unapplied=${result.unapplied} failed=${result.failed}`,
   )
+}
+
+/**
+ * A bounded sample must never be mistakable for the total, so the total is
+ * printed next to it whenever anything was cut.
+ * @param {number} shown
+ * @param {number} total
+ */
+function printSampleBound(shown, total) {
+  if (total > shown) console.log(`[reconcile]   showing the ${shown} oldest of ${total}`)
+}
+
+/**
+ * Read the two queues that hold payments which arrived and did not finish, report
+ * them, and hand back the verdict the exit policy decides on. Never writes:
+ * resolving a failed handover is a person's decision, and a nightly job that
+ * guessed would take something away from a customer who paid for it.
+ */
+async function runDurableQueuePhase(dbUrl) {
+  // Its own pool, like readLedger: the queue read must not keep the pool the
+  // ledger already closed, and one phase ending cannot strand the other.
+  const pool = new Pool({ connectionString: dbUrl, max: 2 })
+  let reading
+  try {
+    reading = await readDurableQueues((sql, params) => pool.query(sql, params))
+  } finally {
+    await pool.end()
+  }
+
+  const verdict = gradeDurableQueues(reading)
+  const stuck = summarizeUnfinishedEvents(reading.unfinishedEvents)
+  const unresolved = summarizeUnresolvedFailures(reading.unresolvedFailures)
+
+  console.log('')
+  console.log(
+    '[reconcile] durable queues: the two tables that hold payments which arrived and did not finish.',
+  )
+
+  if (reading.absentTables.includes(WEBHOOK_EVENTS_TABLE)) {
+    console.log(`[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} unfinished=${reading.unfinishedEvents.length}` +
+        `${reading.canAgeEvents ? '' : ' (no attempt timestamp in this schema)'}`,
+    )
+    // Unfinished and STUCK are two different numbers on purpose: the first is the
+    // queue, the second is what this run is willing to call a problem, and a row
+    // too young to judge belongs in the first and not the second.
+    console.log(`[reconcile] durable queues:   unfinished past ${formatAge(stuck.thresholdMs)}: ${stuck.count}`)
+    printSampleBound(stuck.sample.length, stuck.count)
+    for (const event of stuck.sample) {
+      console.log('')
+      console.log(`  ${event.eventId}`)
+      // The identity columns sit on the other side of a migration, so an event
+      // with neither is normal rather than broken: the line is simply not printed.
+      const account = event.email ?? event.userId
+      if (account !== null) console.log(`    account: ${account}`)
+      console.log(`    last attempt: ${event.lastAttemptAt ?? '(unknown)'} (${formatAge(event.ageMs)} ago)`)
+      console.log(`    last error: ${event.lastError ?? '(none recorded)'}`)
+    }
+  }
+
+  if (reading.absentTables.includes(BILLING_FAILURES_TABLE)) {
+    console.log(`[reconcile] durable queues: ${BILLING_FAILURES_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${BILLING_FAILURES_TABLE} unresolved=${reading.unresolvedFailures.length}`,
+    )
+    console.log(
+      `[reconcile] durable queues:   stages: ` +
+        `${unresolved.byStage.map(([stage, count]) => `${stage}=${count}`).join(', ') || '(none)'}`,
+    )
+    console.log(
+      `[reconcile] durable queues:   oldest: ` +
+        `${unresolved.oldestAgeMs === null ? '(none)' : formatAge(unresolved.oldestAgeMs)}`,
+    )
+    printSampleBound(unresolved.sample.length, unresolved.count)
+    for (const item of unresolved.sample) {
+      console.log('')
+      console.log(`  [${item.stage}] ${item.identity}`)
+      console.log(
+        `    event: ${item.eventId ?? '(none)'}  type: ${item.eventType ?? '(none)'}  attempts: ${item.attempts ?? '(unknown)'}`,
+      )
+      console.log(
+        `    first seen: ${item.firstSeenAt ?? '(unknown)'}` +
+          `${item.ageMs === null ? '' : ` (${formatAge(item.ageMs)} ago)`}`,
+      )
+      console.log(`    last attempt: ${item.lastAttemptAt ?? '(unknown)'}`)
+    }
+  }
+
+  for (const warning of verdict.warnings) {
+    console.log(`[reconcile] durable queues WARNING: ${warning}`)
+  }
+  for (const failure of verdict.failures) {
+    console.log(`[reconcile] durable queues FAILURE: ${failure}`)
+  }
+
+  return verdict
 }
 
 /**
@@ -451,57 +419,59 @@ export async function main() {
   const stripeBase = process.env.STRIPE_BASE_URL || STRIPE_API_DEFAULT
 
   const ledger = await readLedger(dbUrl)
-  // Both database reads happen before any Stripe call: a database that cannot
-  // answer them cannot be reconciled against, and failing fast beats hammering
-  // Stripe to assemble a report we would have to throw away.
-  const backlog = await readBacklog(dbUrl)
   const stripeSubscriptions = await readStripeSubscriptions(stripeKey, stripeBase)
   const report = reconcile({ ledger, stripe: stripeSubscriptions })
-
-  const failures = summarizeFailures({ failures: backlog.failures })
-  const stuckEvents = selectStuckEvents({ events: backlog.stuckEvents })
 
   printReport(report, {
     stripeBase,
     ledgerCount: ledger.length,
     stripeCount: stripeSubscriptions.length,
   })
-  printBacklog(failures, stuckEvents)
 
   const sweepTargets = report.drift.filter(isSweepEligible)
   if (sweepTargets.length > 0) {
     await runSweepPhase(sweepTargets)
   }
 
-  const driftFound = !report.ok
-  const failuresFound = failures.count > 0
-  const stuckFound = stuckEvents.count > 0
+  const queues = await runDurableQueuePhase(dbUrl)
 
-  console.log('')
-  if (!driftFound && !failuresFound && !stuckFound) {
+  if (!report.ok) {
+    console.log('')
+    console.log(`[reconcile] RESULT: DRIFT FOUND (${report.counts.total}). See docs/billing-reconciliation.md.`)
+    return 1
+  }
+  if (!queues.ok) {
+    console.log('')
     console.log(
-      '[reconcile] RESULT: healthy. Stripe and the ledger agree, no unresolved billing failures, and no unfinished webhook events.',
+      '[reconcile] RESULT: no drift between the ledger and Stripe, but the durable billing queues ' +
+        `need attention (${queues.failures.length}). See the FAILURE lines above and ` +
+        'docs/billing-reconciliation.md.',
+    )
+    return 1
+  }
+
+  // WHY AN UNREADABLE QUEUE LEAVES THE EXIT CODE AT 0 WHILE AN UNFINISHED PAYMENT
+  // DOES NOT. "There is nowhere to record a stuck payment" and "a payment is
+  // stuck" are different facts, and only the second is a billing incident an
+  // operator can act on tonight. An absent table is a missing migration, so
+  // reddening the scheduled run for it would make the alert mean "a deploy is
+  // behind" as often as it means "a customer paid and got nothing" - and an alert
+  // that means two things gets ignored. A queue that EXISTS and answers with
+  // something unreadable is red instead: that is this runner's own query failing,
+  // which is a code or schema problem rather than a deploy. The exit code is not
+  // the whole answer either way, which is why this case still refuses to call
+  // itself healthy.
+  if (!queues.complete) {
+    console.log('')
+    console.log(
+      '[reconcile] RESULT: no drift, and no stuck payment found - but this run was INCOMPLETE ' +
+        `(${queues.warnings.length} warning(s) above). Do not read it as a clean bill of health.`,
     )
     return 0
   }
-
-  // Every non-empty queue fails the run. A failed scheduled run is the only
-  // alerting path this repository has, so the exit code is the alert.
-  if (driftFound) {
-    console.log(`[reconcile] RESULT: DRIFT FOUND (${report.counts.total}). See docs/billing-reconciliation.md.`)
-  }
-  if (failuresFound) {
-    console.log(
-      `[reconcile] RESULT: ${failures.count} UNRESOLVED BILLING FAILURE(S). A customer-facing step failed and nobody has fixed it.`,
-    )
-  }
-  if (stuckFound) {
-    console.log(
-      `[reconcile] RESULT: ${stuckEvents.count} UNFINISHED WEBHOOK EVENT(S). Claimed and never completed.`,
-    )
-  }
-  console.log('[reconcile] This run FAILS so the alert fires. It repairs nothing.')
-  return 1
+  console.log('')
+  console.log('[reconcile] RESULT: no drift. The ledger and Stripe agree.')
+  return 0
 }
 
 // Run only when executed directly; importing this file (from the test) must not

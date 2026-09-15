@@ -21,17 +21,45 @@
 #   1. Stripe and the durable billing record disagree.
 #   2. billing_failures has an unresolved row: a customer-facing step failed
 #      (provisioning, or the globe tier-sync) and nobody fixed it.
-#   3. webhook_events has a row claimed and left unfinished for over an hour.
+#   3. webhook_events has a row claimed and left unfinished for over 15 minutes.
+#      Fifteen minutes, not an hour: the handler's own work is measured in
+#      seconds, so a quarter of an hour with no progress is not still in flight.
 #   A database read that fails also fails the run, deliberately: "0 unresolved
 #   failures" and "we could not look" are different facts and only one of them is
 #   reassuring. The runner never reports health it has not verified.
 #
+# A FOURTH OUTCOME, AND IT IS NOT AN ALERT
+#   A queue that could not be READ AT ALL - the table is not deployed, or an
+#   unfinished row carries no timestamp to age it against - prints a WARNING and
+#   ends the run with `RESULT: ... this run was INCOMPLETE ...` at exit code 0. It
+#   does not email, and it is NOT a clean bill of health: it means nothing was
+#   found wrong in what could be read. Exactly one line means a genuinely clean
+#   run, `RESULT: no drift. The ledger and Stripe agree.`, and the runner can only
+#   print it when both queues were actually read. A queue that EXISTS and cannot
+#   be read is a red failure instead, not this outcome.
+#
 # SCHEMA DEPENDENCY
-#   The unfinished-events query reads webhook_events.last_attempt_at, added by
+#   The two durable queues are read by their COLUMNS, decided from the database
+#   catalogue before a row is touched. webhook_events gains last_attempt_at and
+#   last_error, and processed_at stops being required, in
 #   supabase/migrations/20260915000001_webhook_events_completion_state.sql on
-#   branch fix/billing-launch-hardening. Until that migration is applied this job
-#   fails with `column "last_attempt_at" does not exist` - which is the intended
-#   behaviour for a check that cannot run. Do not "fix" it by skipping the query.
+#   branch fix/billing-launch-hardening.
+#
+#   So an unapplied migration is a shape the reader recognises, not a crash. An
+#   absent table, or a table with no last_attempt_at column, is a WARNING: that
+#   queue was not read, the run still exits 0, and its last line says INCOMPLETE
+#   rather than a clean bill of health. That is deliberately not a red job -
+#   reddening the schedule for a missing deploy would make the alert mean "a
+#   deploy is behind" as often as it means "a customer paid and got nothing" -
+#   but it is NOT a pass either, and the INCOMPLETE line is how you tell.
+#
+#   What IS red is a queue that exists and cannot be read: an uninterpretable
+#   catalogue, a table missing a column the reader needs, a value it cannot read,
+#   a stuck event past the limit, or any unresolved billing_failures row.
+#
+#   Do not "fix" any of this by skipping a query. A check that is silently
+#   skipped prints a clean report about work nobody did, which is the one outcome
+#   this job exists to prevent.
 #
 # WHY schedule AND workflow_dispatch
 #   A scheduled workflow only runs from the default branch, and GitHub disables

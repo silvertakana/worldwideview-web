@@ -15,24 +15,28 @@
  *   emails are used ONLY for the human-readable log line below. They are never
  *   sent, because there is nowhere to send them.
  *
- * RESPONSE CONTRACT, AND WHY THE HTTP STATUS IS NOT THE SIGNAL
- *   The sweep answers `{success, due, locked, unapplied, failed, hasMore}`.
- *   `success` is not a constant: it means every due organization was enforced
- *   (`failed === 0`), and the route contains per-organization failures so one
- *   bad org cannot kill the run. A PARTIAL sweep therefore answers HTTP 200 with
- *   `success: false`.
+ * THE BODY IS THE VERDICT, AND ALL FOUR COUNTS ARE REQUIRED
+ *   The sweep answers `{success, due, locked, unapplied, failed, hasMore}`, and
+ *   `success` is not a constant: the route computes it as `result.failed === 0`,
+ *   so it says nothing at all about `unapplied`, and a body that simply never
+ *   mentions a count is not a body that reported zero.
  *
  *   That is why this module alerts on the BODY and never on the status code. A
- *   status-only check would report an all-clear for organizations that were due
- *   for enforcement and could not be enforced - a false clean bill from the job
- *   that is supposed to be the last line of defence.
+ *   PARTIAL sweep answers HTTP 200 with `success: false`, so a status-only check
+ *   would report an all-clear for organizations that were due for enforcement
+ *   and could not be enforced - a false clean bill from the job that is supposed
+ *   to be the last line of defence. By the time the body is read the status is
+ *   already 2xx, so it carries no information either way.
  *
- *   `unapplied` and `failed` are reported when present and never required: the
- *   deployed globe may still answer the older shape (no such fields, always
- *   `success: true`), and `success !== true` is safe against both - it cannot
- *   false-alarm on the old shape and it catches the new partial-run case. A
- *   missing, empty or unreadable body is a failure too: a sweep that answers
- *   with something we cannot read is not a passing sweep.
+ *   All four counts are required, and they are read in the order due, locked,
+ *   unapplied, failed so a body missing one is refused by name and the message
+ *   says which one. There is NO `Number()` coercion anywhere below: a count that
+ *   arrived as the string `'0'` is a count this runner cannot trust, which is not
+ *   the same thing as a healthy zero.
+ *
+ *   A body we cannot READ is not a passing sweep either. An empty or
+ *   whitespace-only body, a body that is not JSON, and valid JSON that is not an
+ *   object all fail the run rather than being skipped.
  *
  * TWO VARIABLES, NOT ONE
  *   CROSS_SERVICE_SECRET is half the configuration; the globe's base URL is the
@@ -161,25 +165,23 @@ export function signCrossServiceRequest({ method, path, body, timestamp, secret 
 }
 
 /**
- * @param {unknown} value
- * @returns {number|null} the number, or null when the field is absent or not one
+ * The sweep's reply as an object, or a refusal.
+ *
+ * Named and lifted out of the request so the three ways a body can be
+ * unreadable are each answered in one place with their own message: a blank
+ * body, a body that is not JSON at all, and valid JSON that is not an object
+ * (which covers an array, and also `null`). All three mean the same operational
+ * thing - this run cannot say whether the due deadlines were enforced - and none
+ * of them may be read as a clean sweep.
+ *
+ * @param {string} text the response body, verbatim
+ * @returns {Record<string, unknown>} the parsed body, proven to be an object
  */
-function numeric(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-/**
- * Read the sweep's verdict. A body we cannot READ is not a passing sweep, so a
- * missing, empty or malformed response is reported as a failure rather than
- * skipped.
- * @param {string} text
- * @param {number} status
- */
-function parseSweepBody(text, status) {
-  if (typeof text !== 'string' || text.trim() === '') {
+function parseSweepBody(text) {
+  if (text.trim() === '') {
     throw new Error(
-      `globe lock sweep returned an empty body (HTTP ${status}), which is not a passing sweep: ` +
-        'nothing in that response says the due deadlines were enforced.',
+      'globe lock sweep returned an empty body, which is not a passing sweep: nothing in that ' +
+        'response says the due deadlines were enforced.',
     )
   }
 
@@ -187,15 +189,15 @@ function parseSweepBody(text, status) {
   try {
     parsed = JSON.parse(text)
   } catch {
-    throw new Error(
-      `globe lock sweep returned a body that is not JSON (HTTP ${status}): ${text.slice(0, 300)}`,
-    )
+    throw new Error(`globe lock sweep returned a body that is not JSON: ${text.slice(0, 300)}`)
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(
-      `globe lock sweep returned ${Array.isArray(parsed) ? 'an array' : String(parsed)} rather ` +
-        `than an object (HTTP ${status}): ${text.slice(0, 300)}`,
+      'globe lock sweep returned a body that is not an object: ' +
+        `${Array.isArray(parsed) ? 'an array' : JSON.stringify(parsed)}. A sweep verdict is four ` +
+        'named counts, so a body that cannot carry them is not a passing sweep. Body: ' +
+        `${text.slice(0, 300)}`,
     )
   }
 
@@ -203,17 +205,41 @@ function parseSweepBody(text, status) {
 }
 
 /**
- * A sweep's counts as one log fragment. `failed` and `unapplied` appear only
- * when the globe actually sent them, so the log never claims "0 failed" about a
- * response that never said so, and a reader can tell an old-shape reply from a
- * new-shape one at a glance.
- * @param {{due: number, locked: number, failed: number|null, unapplied: number|null}} result
+ * The globe's sweep body is four counts, and the counts are the truth. The route
+ * computes its `success` flag as `failed === 0`, so that flag says nothing at
+ * all about `unapplied`, and a body that simply never mentions a count is not a
+ * body that reported zero.
+ *
+ * @param {unknown} value the raw field
+ * @param {string} field the field's name, for the message only
+ * @param {string} bodyText the whole body, for the message only
+ * @returns {number}
  */
-export function describeSweepCounts(result) {
-  const parts = [`due=${result.due}`, `locked=${result.locked}`]
-  if (result.failed !== null) parts.push(`failed=${result.failed}`)
-  if (result.unapplied !== null) parts.push(`unapplied=${result.unapplied}`)
-  return parts.join(' ')
+function requireCount(value, field, bodyText) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `globe lock sweep reported ${field} as ${JSON.stringify(value ?? null)} instead of a number, ` +
+        'so this run cannot say how much of the backlog was actually swept. A count that is absent ' +
+        'is not a count of zero, and this runner will not turn one into the other: refusing to ' +
+        `report a clean sweep. Body: ${bodyText.slice(0, 300)}`,
+    )
+  }
+  return value
+}
+
+/**
+ * A sweep's counts as the log fragment the per-round line is built from. Every
+ * count is named every time, with no optional field left to omit: all four are
+ * required by `requireCount`, so a reply that did not carry one never reaches a
+ * log line at all, and the shape of that line lives in one place in this module
+ * rather than inside a template literal. The runner writes its own closing line,
+ * which is these same four counts in this same order.
+ *
+ * @param {{due: number, locked: number, unapplied: number, failed: number}} counts
+ * @returns {string}
+ */
+export function describeSweepCounts(counts) {
+  return `due=${counts.due} locked=${counts.locked} unapplied=${counts.unapplied} failed=${counts.failed}`
 }
 
 /**
@@ -241,34 +267,36 @@ async function sweepOnce(baseUrl, secret) {
     )
   }
 
-  const parsed = parseSweepBody(text, response.status)
-
-  // The status is already 2xx here, so it says nothing. Alert on the BODY: a
+  const parsed = parseSweepBody(text)
+  // The status is already 2xx here, so it says nothing. Alert on the body: a
   // partial sweep is a 200 with `success: false`, and calling that healthy is
   // precisely the silent failure this reconciler exists to prevent.
-  const failed = numeric(parsed.failed)
-  const unapplied = numeric(parsed.unapplied)
   if (parsed.success !== true) {
+    throw new Error(`globe lock sweep reported failure: ${text.slice(0, 300)}`)
+  }
+
+  // Read one by one rather than defaulted: `Number(parsed.due ?? 0)` turns a
+  // body that never mentioned `due` into a report of zero deadlines, which looks
+  // exactly like a healthy sweep and is the one thing this runner must not do.
+  const due = requireCount(parsed.due, 'due', text)
+  const locked = requireCount(parsed.locked, 'locked', text)
+  const unapplied = requireCount(parsed.unapplied, 'unapplied', text)
+  const failed = requireCount(parsed.failed, 'failed', text)
+
+  // Checks `failed` as well as the flag. The globe sets the flag from this same
+  // count today, so this is belt-and-braces - but it is the count that decides,
+  // not a summary that a future route could compute differently.
+  if (failed > 0) {
     throw new Error(
-      `globe lock sweep did not complete: success=${String(parsed.success)}` +
-        (failed === null ? '' : `, failed=${failed}`) +
-        (unapplied === null ? '' : `, unapplied=${unapplied}`) +
-        '. The globe answers HTTP 200 for a partial sweep, so this body is the only signal that ' +
-        'organizations due for enforcement were not enforced. The affected organization ids are in ' +
-        `the globe's own server log. Body: ${text.slice(0, 300)}`,
+      `globe lock sweep reported failure: ${failed} of ${due} due deadline(s) could not be applied ` +
+        `(locked=${locked}, unapplied=${unapplied}). Body: ${text.slice(0, 300)}`,
     )
   }
 
-  return {
-    due: numeric(parsed.due) ?? 0,
-    locked: numeric(parsed.locked) ?? 0,
-    // null rather than 0 when the globe did not send them: the older reply shape
-    // always said success: true and carried no counts, and a fabricated 0 would
-    // read as "we checked, and nothing failed".
-    failed,
-    unapplied,
-    hasMore: parsed.hasMore === true,
-  }
+  // A nonzero `unapplied` is NOT a failure: a deadline can come due and need no
+  // action taken on it. It is still never rounded away - the caller logs it and
+  // returns it, so the run shows what the sweep actually did.
+  return { due, locked, unapplied, failed, hasMore: parsed.hasMore === true }
 }
 
 /**
@@ -281,9 +309,13 @@ async function sweepOnce(baseUrl, secret) {
  * dropping the remainder is exactly the failure mode this reconciler exists to
  * catch.
  *
+ * The returned counts describe the LAST call, not a total across calls: each
+ * call reports on the batch it was handed, and every round is logged as it
+ * happens, so nothing is lost by not adding them up.
+ *
  * @param {{emails?: string[]}} [input] accounts that motivated the sweep - for
  *   the log line only, and never part of the request
- * @returns {Promise<{rounds: number, due: number, locked: number, failed: number|null, unapplied: number|null, hasMore: boolean}>}
+ * @returns {Promise<{rounds: number, due: number, locked: number, unapplied: number, failed: number, hasMore: boolean}>}
  */
 export async function requestTierLockSweep({ emails = [] } = {}) {
   // Both checked before anything else so a missing setting is reported by name,
@@ -301,32 +333,36 @@ export async function requestTierLockSweep({ emails = [] } = {}) {
   )
 
   let rounds = 0
-  // Annotated, not inferred: a plain object literal would type `failed` and
-  // `unapplied` as the literal `null`, and sweepOnce's numbers would not assign.
-  /** @type {{due: number, locked: number, failed: number|null, unapplied: number|null, hasMore: boolean}} */
-  let last = { due: 0, locked: 0, failed: null, unapplied: null, hasMore: false }
+  let last = { due: 0, locked: 0, unapplied: 0, failed: 0, hasMore: false }
 
   for (;;) {
     rounds += 1
     last = await sweepOnce(baseUrl, secret)
     console.log(`[reconcile] sweep round ${rounds}: ${describeSweepCounts(last)}`)
+    if (last.unapplied > 0) {
+      console.log(
+        `[reconcile] sweep WARNING: the globe reported ${last.unapplied} due deadline(s) it did not ` +
+          'apply. That is not necessarily an error - a deadline can come due and need no action - ' +
+          'but it is the first number to look at if a lock you expected is missing.',
+      )
+    }
 
     if (!last.hasMore) {
       return {
         rounds,
         due: last.due,
         locked: last.locked,
-        failed: last.failed,
         unapplied: last.unapplied,
+        failed: last.failed,
         hasMore: false,
       }
     }
     if (rounds >= MAX_SWEEP_ROUNDS) {
       throw new Error(
         `the globe still reports hasMore after ${rounds} sweeps ` +
-          `(last call: due=${last.due}, locked=${last.locked}). More armed deadlines exist than one ` +
-          `run will process, so the remainder was NOT swept. This is a backlog, not a transient: ` +
-          `check the globe's lock scheduler.`,
+          `(last call: due=${last.due}, locked=${last.locked}, unapplied=${last.unapplied}). More ` +
+          `armed deadlines exist than one run will process, so the remainder was NOT swept. This is ` +
+          `a backlog, not a transient: check the globe's lock scheduler.`,
       )
     }
   }
