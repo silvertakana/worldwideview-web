@@ -289,11 +289,15 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     });
   });
 
-  it("skips provisioning when no hubUserId is present, but still syncs the tier", async () => {
-    const event = buildEvent("checkout.session.completed", {
-      id: "cs_test_123",
-      customer_email: "pay@example.com",
-    });
+  it("skips provisioning when no hubUserId is present, syncs the tier, and does NOT mark the event complete", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      {
+        id: "cs_test_123",
+        customer_email: "pay@example.com",
+      },
+      "evt_orphan",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockRetrieveCheckoutSession.mockResolvedValue(
       buildCheckoutSession({ client_reference_id: null, metadata: {} }),
@@ -302,8 +306,59 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     const res = await POST(buildRequest(JSON.stringify(event)));
 
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
     expect(syncPaths()).toEqual(["/api/service/tier-sync"]);
+
+    // D8: nothing was provisioned, and no redelivery can add the metadata that
+    // would change that, so the event must not read as handled anywhere.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith(
+      "evt_orphan",
+      expect.stringContaining("no hubUserId"),
+    );
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_orphan",
+          email: "pay@example.com",
+          error: expect.stringContaining("no hubUserId on checkout session cs_test_123"),
+        }),
+      },
+    ]);
+  });
+
+  it("files a provisioning failure and leaves the event unfinished when the globe rejects the workspace", async () => {
+    const event = buildEvent(
+      "checkout.session.completed",
+      { id: "cs_test_123", customer_email: "pay@example.com", customer: "cus_abc" },
+      "evt_provision_failed",
+    );
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    // The globe 500s on provisioning; the tier sync that follows still succeeds.
+    mockCrossServiceFetch.mockResolvedValueOnce(fail(500, "globe exploded")).mockResolvedValueOnce(ok());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "provision",
+          event_id: "evt_provision_failed",
+          email: "pay@example.com",
+          error: expect.stringContaining("globe provisioning failed: 500"),
+        }),
+      },
+    ]);
   });
 
   it("logs a structured error with session/email/customer identifiers when hubUserId is missing (loud skip)", async () => {
@@ -332,6 +387,11 @@ describe("POST /api/billing/webhook — checkout.session.completed", () => {
     expect(logMsg).toContain("email=orphan@example.com");
     expect(logMsg).toContain("customerId=cus_orphan");
     expect(logMsg).toContain("eventId=");
+    // D8: a loud log line is not a durable record, and the event must not be
+    // closed out as handled while the account needs a human.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(failureWrites()).toHaveLength(1);
+    expect(failureWrites()[0].payload.stage).toBe("provision");
   });
 
   it("fails the delivery and files a durable failure when the customer has no email (permanent absence)", async () => {
@@ -826,14 +886,15 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     expect(syncPaths()).toEqual(["/api/service/tier-sync", "/api/service/tier-sync"]);
   });
 
-  it("returns 200 after both attempts fail, logging the final failure", async () => {
+  it("returns 200 but leaves the event unfinished after both tier-sync attempts fail", async () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const event = buildEvent("customer.subscription.deleted", {
-      id: "sub_r2",
-      customer: "cus_r2",
-      customer_email: "retry2@example.com",
-    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = buildEvent(
+      "customer.subscription.deleted",
+      { id: "sub_r2", customer: "cus_r2", customer_email: "retry2@example.com" },
+      "evt_sync_gave_up",
+    );
     mockConstructEvent.mockReturnValue(event);
     mockCrossServiceFetch.mockResolvedValue(fail(500, "globe exploded"));
 
@@ -842,8 +903,27 @@ describe("POST /api/billing/webhook — tier-sync retry (PMT-007)", () => {
     const res = await postPromise;
 
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, completed: false });
     expect(mockCrossServiceFetch).toHaveBeenCalledTimes(2);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("attempt 2/2"));
+
+    // D8: this gave up silently before - the event was marked complete, so the
+    // redelivery was absorbed as a duplicate and the workspace stayed at the
+    // wrong tier with nothing durable recording it.
+    expect(mockCompleteWebhookEvent).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("NOT completed"));
+    expect(failureWrites()).toEqual([
+      {
+        table: "billing_failures",
+        op: "insert",
+        payload: expect.objectContaining({
+          stage: "tier_sync",
+          event_id: "evt_sync_gave_up",
+          email: "retry2@example.com",
+          error: expect.stringContaining("globe tier sync failed: 500"),
+        }),
+      },
+    ]);
   });
 });
 

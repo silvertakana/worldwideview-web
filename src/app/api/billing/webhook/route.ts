@@ -17,6 +17,12 @@ import {
   resolveIdentity,
   type PayloadEmailFields,
 } from "@/lib/billing/webhook-identity";
+import type { BillingFailureInput } from "@/lib/billing/billing-tables";
+import {
+  abandonIncompleteDelivery,
+  noteTierSyncFailure,
+  type TierSyncResult,
+} from "@/lib/billing/webhook-stages";
 import {
   claimWebhookEvent,
   completeWebhookEvent,
@@ -33,12 +39,6 @@ const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   trialing: "trialing",
   paused: "suspended",
 };
-
-interface TierSyncResult {
-    ok: boolean;
-    status?: number;
-    detail?: string;
-}
 
 async function syncTierToGlobe(email: string, tier: string, status: string, trialEndsAt?: number | null): Promise<TierSyncResult> {
     try {
@@ -125,8 +125,12 @@ interface SubscriptionEventFacts {
  * path's retrieve failed, or a non-subscription checkout): there is nothing
  * truthful to record, and writing a guessed plan over an existing row is worse
  * than writing nothing, so the ledger is skipped and said so.
+ *
+ * The tier-sync result is RETURNED rather than logged and dropped: the caller
+ * needs it to decide whether this delivery did its work, which decides whether
+ * the event may be marked complete (D8).
  */
-async function applySubscriptionEvent(facts: SubscriptionEventFacts): Promise<void> {
+async function applySubscriptionEvent(facts: SubscriptionEventFacts): Promise<TierSyncResult> {
     if (facts.subscription === null) {
         console.warn(
             `[webhook] No subscription object on ${facts.eventType} (${facts.eventId}) for ${facts.email}; durable record left untouched`,
@@ -151,7 +155,7 @@ async function applySubscriptionEvent(facts: SubscriptionEventFacts): Promise<vo
         });
     }
 
-    await syncTierWithRetry(facts.email, facts.plan, facts.status, facts.eventType, facts.trialEndsAt);
+    return syncTierWithRetry(facts.email, facts.plan, facts.status, facts.eventType, facts.trialEndsAt);
 }
 
 export async function POST(req: Request) {
@@ -193,6 +197,11 @@ export async function POST(req: Request) {
   }
 
   const eventCreated = event.created ?? null;
+
+  // D8: the stages this delivery failed. Collected rather than thrown, because a
+  // stage failure must not become a 500 (see the tail) while still being
+  // impossible to miss afterwards.
+  const stageFailures: BillingFailureInput[] = [];
 
   try {
     switch (event.type) {
@@ -244,6 +253,11 @@ export async function POST(req: Request) {
         // still attempted so the honest-failure path (404 without an org)
         // logs as today. The globe endpoint is idempotent, so duplicate
         // checkout deliveries are safe ("already exists" returns ok).
+        //
+        // D8: a failure here used to be a log line and nothing else - the event
+        // was still marked complete, so Stripe was never told anything was wrong
+        // and no redelivery could ever retry it. It is now filed against the
+        // event, which then is not marked complete either.
         const hubUserId = session.metadata?.userId || session.client_reference_id || "";
         if (!hubUserId) {
           // LOUD skip (PMT-017): a missing hubUserId means Stripe metadata never
@@ -254,6 +268,14 @@ export async function POST(req: Request) {
           console.error(
             `[webhook] checkout.session.completed: SKIPPED workspace provisioning - no hubUserId on checkout session; account requires manual remediation. sessionId=${session.id} email=${email} customerId=${session.customer ?? "n/a"} eventId=${event.id}`,
           );
+          stageFailures.push({
+            stage: "provision",
+            eventId: event.id,
+            eventType: event.type,
+            email,
+            userId,
+            error: `no hubUserId on checkout session ${session.id}; nothing was provisioned and no redelivery can add one`,
+          });
         } else {
           const provision = await provisionWorkspace({
             email,
@@ -267,22 +289,34 @@ export async function POST(req: Request) {
             console.error(
               `[webhook] Workspace provisioning FAILED for ${email} - globe returned ${provision.status ?? "transport error"}${provision.detail ? ` (${provision.detail})` : ""}`,
             );
+            stageFailures.push({
+              stage: "provision",
+              eventId: event.id,
+              eventType: event.type,
+              email,
+              userId,
+              error: `globe provisioning failed: ${provision.status ?? "transport error"}${provision.detail ? ` (${provision.detail})` : ""}`,
+            });
           }
         }
 
-        await applySubscriptionEvent({
-          eventId: event.id,
-          eventType: event.type,
-          eventCreated,
-          email,
-          userId,
-          customerId: typeof session.customer === "string" ? session.customer : identity.customerId,
-          subscription,
-          plan,
-          status: "trialing",
-          stripeStatus: subscription?.status ?? null,
-          trialEndsAt,
-        });
+        noteTierSyncFailure(
+          stageFailures,
+          { eventId: event.id, eventType: event.type, email, userId },
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email,
+            userId,
+            customerId: typeof session.customer === "string" ? session.customer : identity.customerId,
+            subscription,
+            plan,
+            status: "trialing",
+            stripeStatus: subscription?.status ?? null,
+            trialEndsAt,
+          }),
+        );
         break;
       }
 
@@ -305,21 +339,25 @@ export async function POST(req: Request) {
         // Payload-first email (PMT-009); subscriptions rarely carry one, so the
         // outbound customer retrieve remains the primary path here.
         const identity = await resolveIdentity(stripe, subscription, [subscription.metadata?.userId]);
-        await applySubscriptionEvent({
-          eventId: event.id,
-          eventType: event.type,
-          eventCreated,
-          email: identity.email,
-          userId: identity.userId,
-          customerId: identity.customerId,
-          subscription,
-          plan,
-          status,
-          stripeStatus: subscription.status,
-          // `trial_end` is carried through so the globe keeps seeing an
-          // expired trial as an expired trial rather than as "no trial".
-          trialEndsAt: subscription.trial_end ?? null,
-        });
+        noteTierSyncFailure(
+          stageFailures,
+          { eventId: event.id, eventType: event.type, email: identity.email, userId: identity.userId },
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email: identity.email,
+            userId: identity.userId,
+            customerId: identity.customerId,
+            subscription,
+            plan,
+            status,
+            stripeStatus: subscription.status,
+            // `trial_end` is carried through so the globe keeps seeing an
+            // expired trial as an expired trial rather than as "no trial".
+            trialEndsAt: subscription.trial_end ?? null,
+          }),
+        );
         break;
       }
 
@@ -327,19 +365,23 @@ export async function POST(req: Request) {
         const deletedSub = event.data.object as unknown as StripeSubscriptionLike;
 
         const identity = await resolveIdentity(stripe, deletedSub, [deletedSub.metadata?.userId]);
-        await applySubscriptionEvent({
-          eventId: event.id,
-          eventType: event.type,
-          eventCreated,
-          email: identity.email,
-          userId: identity.userId,
-          customerId: identity.customerId,
-          subscription: deletedSub,
-          plan: "free",
-          status: "canceled",
-          stripeStatus: deletedSub.status ?? "canceled",
-          trialEndsAt: deletedSub.trial_end ?? null,
-        });
+        noteTierSyncFailure(
+          stageFailures,
+          { eventId: event.id, eventType: event.type, email: identity.email, userId: identity.userId },
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email: identity.email,
+            userId: identity.userId,
+            customerId: identity.customerId,
+            subscription: deletedSub,
+            plan: "free",
+            status: "canceled",
+            stripeStatus: deletedSub.status ?? "canceled",
+            trialEndsAt: deletedSub.trial_end ?? null,
+          }),
+        );
         break;
       }
 
@@ -376,21 +418,26 @@ export async function POST(req: Request) {
           );
         }
 
-        await applySubscriptionEvent({
-          eventId: event.id,
-          eventType: event.type,
-          eventCreated,
-          email: identity.email,
-          // The subscription retrieve above is the only thing that can name the
-          // hub user on this path, and its metadata is the hub's own.
-          userId: await firstVerifiedHubUserId([subscription?.metadata?.userId]),
-          customerId: identity.customerId ?? failedInvoice.customer ?? null,
-          subscription,
-          plan,
-          status: "past_due",
-          stripeStatus: subscription?.status ?? null,
-          trialEndsAt: null,
-        });
+        // The subscription retrieve above is the only thing that can name the hub
+        // user on this path, and its metadata is the hub's own.
+        const userId = await firstVerifiedHubUserId([subscription?.metadata?.userId]);
+        noteTierSyncFailure(
+          stageFailures,
+          { eventId: event.id, eventType: event.type, email: identity.email, userId },
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email: identity.email,
+            userId,
+            customerId: identity.customerId ?? failedInvoice.customer ?? null,
+            subscription,
+            plan,
+            status: "past_due",
+            stripeStatus: subscription?.status ?? null,
+            trialEndsAt: null,
+          }),
+        );
         break;
       }
     }
@@ -424,8 +471,20 @@ export async function POST(req: Request) {
     );
   }
 
-  // Reached only when the switch ran to completion: mark the event finished so a
-  // later redelivery short-circuits instead of reprocessing.
+  if (stageFailures.length > 0) {
+    // D8: the switch ran, but the delivery did not do its work. Marking the event
+    // complete here is what let a paid customer sit without a workspace, or at
+    // the wrong tier, while the ledger said "handled": the redelivery would be
+    // absorbed as a duplicate, so nothing could ever retry it. Leaving the event
+    // unfinished is the whole fix; see webhook-stages.ts for why the status code
+    // stays 200.
+    await abandonIncompleteDelivery(event.id, event.type, stageFailures);
+    return NextResponse.json({ received: true, completed: false });
+  }
+
+  // Reached only when the switch ran to completion AND every stage it attempted
+  // succeeded: mark the event finished so a later redelivery short-circuits
+  // instead of reprocessing.
   await completeWebhookEvent(event.id);
   return NextResponse.json({ received: true });
 }
