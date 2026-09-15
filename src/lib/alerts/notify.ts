@@ -32,6 +32,19 @@
  *     a minute. The suppressed count rides the next real send instead of being
  *     silently dropped.
  *
+ * WHAT THE DE-DUPLICATION ACTUALLY IS, because the honest answer is narrower than
+ * "identical alerts are collapsed". The window lives in this module's process
+ * memory, and the hub runs as FOUR pm2 workers (see the Dockerfile's
+ * `pm2-runtime server.js -i 4`). Stripe's redeliveries are load-balanced across
+ * those workers like any other request, so an identical alert that lands on a
+ * different worker is NOT collapsed: the real ceiling is up to one send per
+ * worker per window, i.e. as many as four where one is described above. Sharing
+ * the state would mean Redis, a table or a sticky-routing rule, and none of those
+ * are worth acquiring to make an alert quieter - four POSTs is not the failure
+ * mode this module exists to prevent. Measure the collapse only against a single
+ * worker; always compare it against the ledger rows, which are shared and are
+ * therefore four times as many rows as alerts.
+ *
  * Server-only: it reads process.env at call time and must never be imported from
  * a client component.
  */
@@ -58,6 +71,44 @@ const DEDUPE_WINDOW_MINUTES = DEDUPE_WINDOW_MS / 60_000;
 const MAX_TRACKED_KEYS = 500;
 const MAX_FIELD_CHARS = 1_500;
 const REDACTED = "[redacted]";
+/** One line a minute per worker: enough to see the drop, not enough to become the flood. */
+const DROP_LOG_INTERVAL_MS = 60_000;
+
+/** Which transports a deployment has actually configured. Names only, never values. */
+export type AlertingTransport = "webhook" | "ntfy";
+
+/**
+ * "partially-configured" is its own state, not a rounding of "unconfigured": a
+ * topic with no server, or a server with no topic, is a deployment that believes
+ * it is alerting and is not. That is the case an operator most needs to see.
+ */
+export type AlertingStatus = "configured" | "partially-configured" | "unconfigured";
+
+export interface AlertingConfigState {
+  status: AlertingStatus;
+  /** Transport names that would actually carry an alert right now. */
+  transports: AlertingTransport[];
+  /** Names of the variables that are set but not enough on their own. */
+  incomplete: string[];
+}
+
+export function alertingConfigState(): AlertingConfigState {
+  const hasWebhook = webhookUrl() !== "";
+  const hasNtfyBase = ntfyBaseUrl() !== "";
+  const hasNtfyTopic = ntfyTopic() !== "";
+
+  const transports: AlertingTransport[] = [];
+  if (hasWebhook) transports.push("webhook");
+  if (hasNtfyBase && hasNtfyTopic) transports.push("ntfy");
+
+  const incomplete: string[] = [];
+  if (hasNtfyBase !== hasNtfyTopic) incomplete.push(hasNtfyBase ? "NTFY_TOPIC" : "NTFY_URL");
+
+  const status: AlertingStatus =
+    transports.length > 0 ? "configured" : incomplete.length > 0 ? "partially-configured" : "unconfigured";
+
+  return { status, transports, incomplete };
+}
 
 function webhookUrl(): string {
   return (process.env.ALERT_WEBHOOK_URL ?? "").trim();
@@ -201,8 +252,14 @@ const tracked = new Map<string, DedupeEntry>();
 
 /**
  * Returns the number of identical alerts suppressed since the last real send, or
- * null when this one is itself suppressed. Falls back to clearing the window when
- * it is full of live keys: one extra alert is the right side to fail on.
+ * null when this one is itself suppressed.
+ *
+ * Eviction is bounded and keeps the NEWEST keys. Clearing the map at capacity
+ * would be the worst possible moment to do it: a full window means a burst of
+ * distinct failures, and dropping every entry re-sends all of them at once - the
+ * dedupe would fail exactly when the storm it exists for is happening. Evicting
+ * the oldest quarter keeps the most recently seen keys, which are the ones a
+ * redelivery storm is still arriving on.
  */
 function claimSendSlot(key: string, now: number): number | null {
   const entry = tracked.get(key);
@@ -215,7 +272,12 @@ function claimSendSlot(key: string, now: number): number | null {
     for (const [candidate, seen] of tracked) {
       if (now - seen.lastSentAt >= DEDUPE_WINDOW_MS) tracked.delete(candidate);
     }
-    if (tracked.size >= MAX_TRACKED_KEYS) tracked.clear();
+    if (tracked.size >= MAX_TRACKED_KEYS) {
+      const oldestFirst = [...tracked].sort((a, b) => a[1].lastSentAt - b[1].lastSentAt);
+      for (let i = 0; i < MAX_TRACKED_KEYS / 4 && i < oldestFirst.length; i += 1) {
+        tracked.delete(oldestFirst[i][0]);
+      }
+    }
   }
   tracked.set(key, { lastSentAt: now, suppressed: 0 });
   return suppressed;
@@ -237,6 +299,32 @@ function safeContext(context: AlertContext, suppressed: number): Record<string, 
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+let lastDropLogAt = 0;
+
+/**
+ * Says, at the point of failure, that this alert is going nowhere.
+ *
+ * The load-time warning below fires once per process, before any request exists,
+ * and lands in the same container logs as the console.error this module was built
+ * to replace. An operator reading the health endpoint sees the standing state; a
+ * log line per drop is what ties a specific incident to it. Rate-limited per
+ * worker so a storm cannot turn the alerting path into its own flood.
+ *
+ * Variable NAMES only. Values are secrets and never appear here.
+ */
+function logDroppedAlert(level: AlertLevel, title: string, now: number): void {
+  if (now - lastDropLogAt < DROP_LOG_INTERVAL_MS) return;
+  lastDropLogAt = now;
+  const { status, incomplete } = alertingConfigState();
+  const missing =
+    incomplete.length > 0
+      ? `set ${incomplete.join(", ")} as well`
+      : "set ALERT_WEBHOOK_URL, or NTFY_URL and NTFY_TOPIC";
+  console.warn(
+    `[alerts] DROPPED a ${level} alert ("${title}"): no transport is configured (${status}). To receive it, ${missing}. At most one of these lines is printed per worker per minute; the health endpoint at /api/health reports the standing state.`,
+  );
 }
 
 async function deliver(transport: Transport): Promise<void> {
@@ -288,7 +376,16 @@ export async function notify(
       timestamp: new Date().toISOString(),
     };
 
-    const pending = Promise.all(transportsFor(payload).map(deliver));
+    const transports = transportsFor(payload);
+    if (transports.length === 0) {
+      // Deliberately AFTER the dedupe slot is claimed: the claim spends the
+      // suppression count, so a drop that did not claim would silently merge into
+      // the next real send's "N suppressed" and read as a delivery that happened.
+      logDroppedAlert(level, safeTitle, Date.now());
+      return;
+    }
+
+    const pending = Promise.all(transports.map(deliver));
     if (level === "critical") {
       await pending;
     }
@@ -301,6 +398,6 @@ export async function notify(
 
 if (!alertingConfigured()) {
   console.warn(
-    "[alerts] No alert transport configured (ALERT_WEBHOOK_URL, or NTFY_URL + NTFY_TOPIC); every alert will be dropped.",
+    "[alerts] No alert transport configured (ALERT_WEBHOOK_URL, or NTFY_URL + NTFY_TOPIC); every alert will be dropped. /api/health reports this as alerting.unconfigured.",
   );
 }
