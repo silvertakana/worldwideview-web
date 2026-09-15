@@ -3,6 +3,7 @@ import { chromium, type FullConfig } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
 import { cancelStaleSubscriptions } from './lib/stripe';
+import { deleteSupabaseUserByEmail, ensureSupabaseUser } from './lib/supabase-admin';
 import fs from 'fs';
 import path from 'path';
 
@@ -10,62 +11,6 @@ export const TEST_EMAIL = 'billing-e2e@worldwideview.local';
 export const TEST_PASSWORD = 'BillingE2E-2026!!';
 export const TEST_ORG_SLUG = 'billing-e2e-org';
 export const TEST_WORKSPACE_SUBDOMAIN = 'billing-e2e-ws';
-
-async function deleteSupabaseUser(email: string): Promise<void> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) return;
-  const base = supabaseUrl.replace(/\/$/, '');
-  try {
-    const listRes = await fetch(`${base}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, {
-      headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-    });
-    if (listRes.ok) {
-      const list = await listRes.json();
-      for (const user of list.users || []) {
-        if (user.email === email) {
-          await fetch(`${base}/auth/v1/admin/users/${user.id}`, {
-            method: 'DELETE',
-            headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-          });
-          console.log(`[billing-setup] Deleted Supabase user ${email}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.log(`[billing-setup] Supabase cleanup error: ${e}`);
-  }
-}
-
-async function createSupabaseUser(email: string, password: string): Promise<void> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('[billing-setup] NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing from hub .env.local');
-  }
-  const base = supabaseUrl.replace(/\/$/, '');
-  const res = await fetch(`${base}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-    },
-    body: JSON.stringify({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name: 'Billing E2E Tester' },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (!(res.status === 409 || body.includes('already exists') || body.includes('already registered'))) {
-      throw new Error(`[billing-setup] Supabase admin create user failed (${res.status}): ${body}`);
-    }
-  }
-  console.log(`[billing-setup] Supabase user ensured: ${email}`);
-}
 
 async function seedGlobeDb() {
   const globeDb = new GlobeDb();
@@ -224,9 +169,9 @@ async function globalSetup(config: FullConfig) {
   // CI Stripe test account.
   await cancelStaleSubscriptions(TEST_EMAIL);
 
-  await deleteSupabaseUser(TEST_EMAIL);
+  await deleteSupabaseUserByEmail(TEST_EMAIL);
   await seedGlobeDb();
-  await createSupabaseUser(TEST_EMAIL, TEST_PASSWORD);
+  await ensureSupabaseUser(TEST_EMAIL, TEST_PASSWORD, 'Billing E2E Tester');
   await loginToHubAndSaveStorage(baseURL, storageState);
   console.log('[billing-setup] Global setup complete.');
 }
