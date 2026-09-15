@@ -262,7 +262,14 @@ export async function POST(req: Request) {
   // anyway rather than drop the event.
   const idempotency = await claimWebhookEvent(event.id);
   if (idempotency === "completed") {
-    console.log(`[webhook] Duplicate event ${event.id} (${event.type}) already completed; skipping`);
+    // Deliberately names the state rather than saying "already processed": a
+    // claim row on its own means an attempt started, and only a non-null
+    // processed_at means the work finished. Conflating the two is the slip D1
+    // came from, and this line is the one a person reads when a payment looks
+    // like it was swallowed.
+    console.log(
+      `[webhook] Duplicate event ${event.id} (${event.type}) already completed (processed_at set); skipping`,
+    );
     return NextResponse.json({ received: true, duplicate: true });
   }
 
