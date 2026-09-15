@@ -9,14 +9,20 @@ export interface HubTierFallback {
   isTrialing: boolean;
 }
 
-const STRIPE_STATUS_TO_HUB_STATUS: Record<string, string> = {
+/**
+ * Stripe subscription status -> the hub's status vocabulary. Must stay in step
+ * with the webhook route's SUBSCRIPTION_STATUS_MAP: the globe's
+ * /api/service/tier-sync accepts active|trialing|past_due|suspended|canceled
+ * and rejects every other value, "deleted" included, with a 400.
+ */
+export const STRIPE_STATUS_TO_HUB_STATUS: Record<string, string> = {
   active: "active",
   past_due: "past_due",
   trialing: "trialing",
   canceled: "canceled",
   unpaid: "suspended",
   incomplete: "trialing",
-  incomplete_expired: "deleted",
+  incomplete_expired: "canceled",
   paused: "suspended",
 };
 
