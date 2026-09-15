@@ -212,6 +212,28 @@ describe("upsertSubscriptionFromStripe", () => {
     expect(callsFor("eq").some((c) => c.args[0] === "id" && c.args[1] === "row-winner")).toBe(true);
   });
 
+  it("protects a manual row it loses the insert race to (23505 on email)", async () => {
+    // Same lost race as above, except the worker that won it was
+    // recordManualSubscription: the winning row is an operator grant, so the
+    // re-read has to apply the guard the initial read would have applied.
+    const miss = { data: null, error: null };
+    const winner = { data: { id: "row-manual-winner", source: "manual", updated_at: "2026-09-15T00:00:00.000Z" }, error: null };
+    respondFind(miss, miss, winner);
+    respondWrite({
+      data: null,
+      error: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "idx_billing_subscriptions_email_unique"',
+      },
+    });
+
+    const result = await upsertSubscriptionFromStripe(base);
+
+    expect(result).toEqual({ ok: false, action: "manual-protected", detail: "row row-manual-winner is source=manual" });
+    expect(callsFor("insert")).toHaveLength(1);
+    expect(callsFor("update")).toHaveLength(0);
+  });
+
   it("recognises the duplicate from the SQLSTATE alone, without a matching message", async () => {
     const miss = { data: null, error: null };
     const winner = { data: { id: "row-winner-2", source: "stripe", updated_at: "2026-09-15T00:00:00.000Z" }, error: null };

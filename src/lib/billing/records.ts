@@ -138,7 +138,8 @@ async function findSubscriptionRow(email: string, stripeSubscriptionId: string |
  * nothing while another process is inserting the same email, and the insert then
  * fails with 23505 from UNIQUE(email). That is the losing side of a normal race,
  * not a failure: the row is re-read and updated, which is also why a lost race
- * returns `updated` with a detail instead of `error`.
+ * returns `updated` with a detail instead of `error` - or `manual-protected`
+ * when the row it lost to is the operator grant guarded above.
  *
  * CONSEQUENCE: while a manual row stands for an email, Stripe events for that
  * email keep being reported as `manual-protected` instead of applied. An
@@ -197,7 +198,11 @@ async function updateRow(id: string, payload: Record<string, unknown>): Promise<
 
 /**
  * Loses the race deliberately: another process inserted the same email between
- * our SELECT and our INSERT, so the row exists now. Re-read it and update it.
+ * our SELECT and our INSERT, so the row exists now. Re-read it and update it -
+ * unless the winner is a manual row. The concurrent writer may have been
+ * recordManualSubscription, and an operator grant must not be overwritten just
+ * because it landed after our SELECT, so the winner faces the same guard the
+ * initial read applies.
  */
 async function insertRow(email: string, payload: Record<string, unknown>): Promise<SubscriptionWriteResult> {
   const { error } = await createAdminClient().from("billing_subscriptions").insert(payload);
@@ -206,5 +211,8 @@ async function insertRow(email: string, payload: Record<string, unknown>): Promi
 
   const winner = await findSubscriptionRow(email, null);
   if (!winner) return { ok: false, action: "error", detail: `insert lost the race but no row for ${email}` };
+  if (winner.source === "manual") {
+    return { ok: false, action: "manual-protected", detail: `row ${winner.id} is source=manual` };
+  }
   return { ...(await updateRow(winner.id, payload)), detail: "lost the insert race; updated the winning row" };
 }
