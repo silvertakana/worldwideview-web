@@ -86,3 +86,12 @@ export function getDefaultPriceId(
 ): string {
   return DEFAULT_PRICE_IDS[`${plan}:${interval}`];
 }
+
+/**
+ * Customer-facing copy for the runtime kill switch (src/lib/billing/kill-switch.ts).
+ *
+ * It lives HERE, not there, because that module imports the service-role admin
+ * client, which is `server-only`: a client component can never import the switch
+ * itself, but it does need this string.
+ */
+export const BILLING_PAUSED_MESSAGE = "Billing is temporarily unavailable. Please try again later.";

@@ -26,6 +26,7 @@ const {
   mockCrossServiceFetch,
   mockAdminClient,
   mockGetUserById,
+  mockIsBillingPaused,
 } = vi.hoisted(() => ({
   mockConstructEvent: vi.fn(),
   mockRetrieveCheckoutSession: vi.fn(),
@@ -37,6 +38,7 @@ const {
   mockCrossServiceFetch: vi.fn(),
   mockAdminClient: vi.fn(),
   mockGetUserById: vi.fn(),
+  mockIsBillingPaused: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe/client", () => ({
@@ -62,6 +64,16 @@ vi.mock("@/lib/billing/webhook-idempotency", () => ({
 // real records.ts / webhook-record.ts / hub-user.ts run against this client, so
 // the ledger assertions below are about rows that would really be written.
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mockAdminClient }));
+
+// The runtime kill switch is mocked as PAUSED for this whole file. The webhook
+// is deliberately NOT gated by it, so every test here is also a standing proof
+// that pausing purchases leaves existing subscribers' billing intact. The real
+// module reads the database through the server-only admin client.
+vi.mock("@/lib/billing/kill-switch", () => ({
+  isBillingPaused: mockIsBillingPaused,
+  invalidateBillingKillSwitchCache: vi.fn(),
+  KILL_SWITCH_CACHE_TTL_MS: 10_000,
+}));
 
 // The REAL provision.ts and constants.ts are used: provisioning order is
 // asserted at the crossServiceFetch level (provision → tier-sync).
@@ -176,6 +188,9 @@ beforeEach(() => {
   mockCompleteWebhookEvent.mockReset();
   mockFailWebhookEvent.mockReset();
   mockCrossServiceFetch.mockReset();
+  // Billing is paused for every test in this file (see the kill-switch mock).
+  mockIsBillingPaused.mockReset();
+  mockIsBillingPaused.mockResolvedValue({ paused: true, source: "database", reason: "incident-42" });
 
   dbWrites.length = 0;
   probeRow = null;
@@ -1232,5 +1247,60 @@ describe("POST /api/billing/webhook — durable subscription record", () => {
     expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
     expect(warnSpy.mock.calls.map((call) => String(call[0])).some((m) => m.includes("durable record left untouched"))).toBe(true);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── The webhook is deliberately NOT gated by the kill switch ──────
+// The runtime kill switch pauses NEW purchases (/api/billing/checkout answers
+// 503). It must not touch the webhook: Stripe keeps sending subscription
+// events for existing subscribers while we are paused, and dropping them would
+// strand real customers with wrong access and wrong billing.
+
+describe("POST /api/billing/webhook — while billing is paused", () => {
+  it("still processes a subscription update and writes the durable record", async () => {
+    mockIsBillingPaused.mockResolvedValue({ paused: true, source: "database", reason: "incident-42" });
+    const event = buildSubscriptionEvent("customer.subscription.updated", "past_due", "price_team_monthly", {
+      metadata: { userId: "user_abc" },
+      current_period_end: PERIOD_END,
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    // Processed normally: claimed, tier-synced to the globe, durably recorded.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
+    expect(syncPaths()).toEqual(["/api/service/tier-sync"]);
+    expect(tierSyncCall(0)).toMatchObject({
+      email: "pay@example.com",
+      tier: "team",
+      status: "past_due",
+      periodEndsAt: new Date(PERIOD_END * 1000).toISOString(),
+    });
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      user_id: "user_abc",
+      email: "pay@example.com",
+      plan: "team",
+      status: "past_due",
+      stripe_status: "past_due",
+    });
+  });
+
+  it("still processes a cancellation, so a paused hub never locks a customer out of cancelling", async () => {
+    mockIsBillingPaused.mockResolvedValue({ paused: true, source: "env", reason: "manual maintenance" });
+    const event = buildEvent("customer.subscription.deleted", {
+      id: "sub_del",
+      status: "canceled",
+      customer: "cus_del",
+      customer_email: "cancel@example.com",
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(tierSyncCall(0)).toMatchObject({ tier: "free", status: "canceled" });
+    expect(subscriptionWrites()[0].payload).toMatchObject({ status: "canceled" });
   });
 });

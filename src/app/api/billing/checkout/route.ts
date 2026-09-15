@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
-import { getPriceId } from "@/lib/billing/constants";
+import { getPriceId, BILLING_PAUSED_MESSAGE } from "@/lib/billing/constants";
 import type { PlanOption, IntervalOption } from "@/lib/billing/constants";
+import { isBillingPaused } from "@/lib/billing/kill-switch";
 
 // Accepted plan ids -> canonical (plan, interval) pair.
 // The pricing page emits interval-encoded ids ("pro-monthly" / "pro-annual");
@@ -18,6 +19,34 @@ const PLAN_ID_MAP: Record<string, { plan: PlanOption; interval: IntervalOption }
 };
 
 export async function POST(req: Request) {
+  // Runtime kill switch: stops NEW purchases only.
+  // `/api/billing/webhook` is deliberately NOT gated — existing subscribers
+  // keep their access and their billing stays correct while we are paused — and
+  // `/api/billing/portal` is deliberately NOT gated — a customer must always be
+  // able to cancel or update their card. The asymmetry is intentional.
+  // This runs before getStripe(): while paused the Stripe client is never even
+  // constructed, so no Stripe API call is possible.
+  const killSwitch = await isBillingPaused();
+  if (killSwitch.paused) {
+    const body: {
+      error: string;
+      paused: true;
+      source: string;
+      reason?: string;
+    } = {
+      error: BILLING_PAUSED_MESSAGE,
+      paused: true,
+      source: killSwitch.source,
+    };
+    // `reason` is operator-supplied for "env"/"database" and absent for
+    // "unavailable", so no internal failure text can ever leak to a client.
+    // Assigned conditionally so the key is genuinely absent, not undefined.
+    if (killSwitch.source !== "unavailable" && killSwitch.reason !== undefined) {
+      body.reason = killSwitch.reason;
+    }
+    return NextResponse.json(body, { status: 503 });
+  }
+
   const stripe = getStripe();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

@@ -30,6 +30,13 @@ vi.mock("@/lib/billing/tier-fallback", () => ({
   getHubTierFallback: mockGetHubTierFallback,
 }));
 
+// The page now reads the runtime billing kill switch, whose real implementation
+// goes through the server-only Supabase admin client. Mocked as NOT paused so the
+// display-tier behaviour under test is unchanged.
+vi.mock("@/lib/billing/kill-switch", () => ({
+  isBillingPaused: async () => ({ paused: false, source: "database" }),
+}));
+
 import BillingPage from "./page";
 
 // ── Helpers ───────────────────────────────────────────────────────

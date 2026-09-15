@@ -6,10 +6,12 @@ import { ManageBillingClient } from "./ManageBillingClient";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 import { getHubTierFallback, type HubTierFallback } from "@/lib/billing/tier-fallback";
 import { resolveDisplayTier, shouldConsultHubAuthority, type GlobeTierSnapshot } from "@/lib/billing/display-tier";
+import { isBillingPaused } from "@/lib/billing/kill-switch";
 
 export const metadata = { title: "Billing | Your Account" };
 
 export default async function BillingPage() {
+    const { paused } = await isBillingPaused();
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -162,6 +164,7 @@ export default async function BillingPage() {
             <ManageBillingClient
                 plan={plan}
                 status={status}
+                paused={paused}
             />
 
             <hr style={{
