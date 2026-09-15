@@ -1,0 +1,66 @@
+# =============================================================================
+# Billing reconciliation - Stripe against the hub's durable billing record
+# =============================================================================
+#
+# THE EXIT CODE IS THE ALERTING MECHANISM.
+#   A failed scheduled run emails the repository owner. That email is the ONLY
+#   alerting path this repository has: there is no Slack, no PagerDuty and no
+#   metrics sink wired up here. Do NOT add `continue-on-error`, do NOT wrap the
+#   script to swallow its exit code, and do NOT "fix" a red run by removing the
+#   failure - removing the failure removes the alert. A red run is the feature.
+#   What to do about one is in docs/billing-reconciliation.md.
+#
+# READ-ONLY
+#   The job issues Stripe GETs and Postgres SELECTs and nothing else. It cannot
+#   cancel a subscription, change a grant, or lock a workspace.
+#
+# WHY schedule AND workflow_dispatch
+#   A scheduled workflow only runs from the default branch, and GitHub disables
+#   a schedule after 60 days of repository inactivity. workflow_dispatch keeps a
+#   manual trigger available across such a gap, and for an on-demand check right
+#   after a billing incident.
+#
+# SECRETS
+#   SUPABASE_DB_URL   the only credential that reaches the hub database from a
+#                     runner. There is no Supabase URL secret and no
+#                     service-role-key secret, and no environment-scoped
+#                     secrets exist, so PostgREST is not an option here.
+#   STRIPE_SECRET_KEY used read-only; the script only ever issues GET requests.
+#   CROSS_SERVICE_SECRET is NOT a repository secret. Adding it is a human step,
+#   and until it exists a run that finds unpaid-but-granted drift fails loudly on
+#   that specific missing variable instead of silently skipping the globe lock
+#   sweep. That is deliberate: a skipped lock phase looks like a healthy system.
+# =============================================================================
+
+name: Billing reconciliation
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile Stripe against the durable billing record
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run the reconciliation
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: node scripts/billing-reconcile.mjs
