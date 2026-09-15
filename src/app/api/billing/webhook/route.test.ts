@@ -24,6 +24,8 @@ const {
   mockCompleteWebhookEvent,
   mockFailWebhookEvent,
   mockCrossServiceFetch,
+  mockAdminClient,
+  mockGetUserById,
 } = vi.hoisted(() => ({
   mockConstructEvent: vi.fn(),
   mockRetrieveCheckoutSession: vi.fn(),
@@ -33,6 +35,8 @@ const {
   mockCompleteWebhookEvent: vi.fn(),
   mockFailWebhookEvent: vi.fn(),
   mockCrossServiceFetch: vi.fn(),
+  mockAdminClient: vi.fn(),
+  mockGetUserById: vi.fn(),
 }));
 
 vi.mock("@/lib/stripe/client", () => ({
@@ -54,6 +58,11 @@ vi.mock("@/lib/billing/webhook-idempotency", () => ({
   failWebhookEvent: mockFailWebhookEvent,
 }));
 
+// The durable-record writers are NOT mocked (see the test double below): the
+// real records.ts / webhook-record.ts / hub-user.ts run against this client, so
+// the ledger assertions below are about rows that would really be written.
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mockAdminClient }));
+
 // The REAL provision.ts and constants.ts are used: provisioning order is
 // asserted at the crossServiceFetch level (provision → tier-sync).
 
@@ -69,6 +78,7 @@ function buildEvent(type: string, object: Record<string, unknown>, id = `evt_${D
 }
 
 const TRIAL_END = 1893456000; // fixed timestamp for deterministic assertions
+const PERIOD_END = 1896134400; // the paid-through date Stripe carries on the subscription
 
 function buildCheckoutSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -79,8 +89,11 @@ function buildCheckoutSession(overrides: Record<string, unknown> = {}) {
     customer_details: { name: "Test User" },
     subscription: {
       id: "sub_abc",
+      status: "trialing",
       trial_end: TRIAL_END,
-      items: { data: [{ price: { id: "price_pro_monthly" } }] },
+      current_period_end: PERIOD_END,
+      cancel_at_period_end: false,
+      items: { data: [{ price: { id: "price_pro_monthly", recurring: { interval: "month" } } }] },
     },
     ...overrides,
   };
@@ -113,6 +126,41 @@ function syncPaths(): unknown[] {
   return mockCrossServiceFetch.mock.calls.map((c) => c[0]);
 }
 
+// ── Durable-record test double ────────────────────────────────────
+// The route writes billing_subscriptions (the ledger) through the real
+// records.ts, so "the row was written", "the cuid was rejected" and "a manual
+// row survived untouched" are proven end to end instead of asserted against a
+// stub. createAdminClient() is the only seam. maybeSingle() answers the row
+// probes from `probeRow`; every write resolves with `writeError`.
+const dbWrites: { table: string; op: string; payload: Record<string, unknown> }[] = [];
+let probeRow: Record<string, unknown> | null = null;
+let writeError: { message: string } | null = null;
+
+function makeBuilder(table: string) {
+  const chain = {} as Record<string, unknown>;
+  const record = (op: string) => (...args: unknown[]) => {
+    if (op === "insert" || op === "update" || op === "upsert") {
+      dbWrites.push({ table, op, payload: (args[0] ?? {}) as Record<string, unknown> });
+    }
+    return chain;
+  };
+  for (const op of ["select", "eq", "is", "neq", "order", "limit", "insert", "update", "upsert"]) {
+    chain[op] = record(op);
+  }
+  chain.maybeSingle = () => Promise.resolve({ data: probeRow, error: null });
+  chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+    Promise.resolve({ data: null, error: writeError }).then(resolve, reject);
+  return chain;
+}
+
+function dbWritesFor(table: string) {
+  return dbWrites.filter((write) => write.table === table);
+}
+
+function subscriptionWrites() {
+  return dbWritesFor("billing_subscriptions");
+}
+
 // ── Setup ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -124,6 +172,24 @@ beforeEach(() => {
   mockCompleteWebhookEvent.mockReset();
   mockFailWebhookEvent.mockReset();
   mockCrossServiceFetch.mockReset();
+
+  dbWrites.length = 0;
+  probeRow = null;
+  writeError = null;
+  mockGetUserById.mockReset();
+  // Realistic default: the hub's own uid resolves, a marketplace cuid does not.
+  mockGetUserById.mockImplementation((uid: string) =>
+    Promise.resolve(
+      uid === "user_abc"
+        ? { data: { user: { id: "user_abc" } }, error: null }
+        : { data: { user: null }, error: { message: "User not found" } },
+    ),
+  );
+  mockAdminClient.mockReset();
+  mockAdminClient.mockReturnValue({
+    from: (table: string) => makeBuilder(table),
+    auth: { admin: { getUserById: mockGetUserById } },
+  });
 
   // Default verdict: a fresh claim, so the handler processes the event.
   mockClaimWebhookEvent.mockResolvedValue("claimed");
@@ -720,5 +786,171 @@ describe("POST /api/billing/webhook — unknown events", () => {
     // every redelivery of it would be reprocessed forever.
     expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_ignored");
     expect(mockFailWebhookEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/billing/webhook — durable subscription record", () => {
+  function checkoutEvent() {
+    const event = buildEvent("checkout.session.completed", {
+      id: "cs_test_123",
+      customer_email: "pay@example.com",
+      customer: "cus_abc",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    return event;
+  }
+
+  it("records the subscription behind a completed checkout, with the validated hub user id", async () => {
+    const event = checkoutEvent();
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].op).toBe("insert");
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      user_id: "user_abc",
+      email: "pay@example.com",
+      stripe_customer_id: "cus_abc",
+      stripe_subscription_id: "sub_abc",
+      price_id: "price_pro_monthly",
+      plan: "pro",
+      interval: "month",
+      status: "trialing",
+      stripe_status: "trialing",
+      cancel_at_period_end: false,
+      current_period_end: new Date(PERIOD_END * 1000).toISOString(),
+      trial_ends_at: new Date(TRIAL_END * 1000).toISOString(),
+      source: "stripe",
+    });
+  });
+
+  it("records the mapped status, plan and period end for a subscription update", async () => {
+    const event = buildSubscriptionEvent("customer.subscription.updated", "past_due", "price_team_monthly", {
+      metadata: { userId: "user_abc" },
+      current_period_end: PERIOD_END,
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      user_id: "user_abc",
+      email: "pay@example.com",
+      plan: "team",
+      status: "past_due",
+      stripe_status: "past_due",
+      interval: "month",
+      current_period_end: new Date(PERIOD_END * 1000).toISOString(),
+    });
+  });
+
+  it("records free/canceled for a deleted subscription", async () => {
+    const event = buildEvent("customer.subscription.deleted", {
+      id: "sub_del",
+      status: "canceled",
+      customer: "cus_del",
+      customer_email: "cancel@example.com",
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(subscriptionWrites()[0].payload).toMatchObject({
+      stripe_subscription_id: "sub_del",
+      plan: "free",
+      status: "canceled",
+    });
+  });
+
+  it("stores NULL rather than a marketplace cuid in metadata.userId", async () => {
+    // The marketplace writes its own Prisma cuid into the same Stripe account's
+    // metadata.userId. Storing it would attach the row to a user that does not
+    // exist and break every downstream read.
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly", {
+      metadata: { userId: "clx8marketplacecuid" },
+    });
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockGetUserById).toHaveBeenCalledWith("clx8marketplacecuid");
+    expect(subscriptionWrites()).toHaveLength(1);
+    expect(subscriptionWrites()[0].payload.user_id).toBeNull();
+    expect(subscriptionWrites()[0].payload.email).toBe("pay@example.com");
+  });
+
+  it("prefers the hub's own session metadata over a customer-object candidate", async () => {
+    // No customer_email on the payload, so the outbound retrieve happens and the
+    // customer's (marketplace) metadata.userId becomes a second candidate.
+    const event = buildEvent("checkout.session.completed", {
+      id: "cs_test_123",
+      customer: "cus_abc",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveCheckoutSession.mockResolvedValue(buildCheckoutSession());
+    mockRetrieveCustomer.mockResolvedValue({
+      id: "cus_abc",
+      deleted: false,
+      email: "outbound@example.com",
+      metadata: { userId: "clx8marketplacecuid" },
+    });
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockRetrieveCustomer).toHaveBeenCalledWith("cus_abc");
+    expect(subscriptionWrites()[0].payload.user_id).toBe("user_abc");
+    expect(subscriptionWrites()[0].payload.email).toBe("outbound@example.com");
+  });
+
+  it("never writes over a manual operator grant", async () => {
+    probeRow = { id: "row-manual", source: "manual", updated_at: "2026-09-01T00:00:00.000Z" };
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
+    expect(mockCompleteWebhookEvent).toHaveBeenCalled();
+  });
+
+  it("still answers 200 when the durable record write fails (a ledger, not a gate)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    writeError = { message: "42501 permission denied for table billing_subscriptions" };
+    const event = buildSubscriptionEvent("customer.subscription.updated", "active", "price_pro_monthly");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
+    const logged = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(logged.some((message) => message.includes("Durable subscription record NOT written"))).toBe(true);
+    // The globe was still told the tier: only the ledger failed.
+    expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the ledger untouched when the event carries no subscription object", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = buildEvent("invoice.payment_failed", {
+      customer: "cus_fail",
+      customer_email: "fail@example.com",
+      subscription: "sub_fail",
+    });
+    mockConstructEvent.mockReturnValue(event);
+    mockRetrieveSubscription.mockRejectedValue(new Error("network"));
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    // A guessed plan would overwrite a real one, so nothing is written at all.
+    expect(dbWritesFor("billing_subscriptions")).toHaveLength(0);
+    expect(warnSpy.mock.calls.map((call) => String(call[0])).some((m) => m.includes("durable record left untouched"))).toBe(true);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

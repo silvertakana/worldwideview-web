@@ -4,6 +4,14 @@ import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
 import { provisionWorkspace } from "@/lib/billing/provision";
+import { firstVerifiedHubUserId } from "@/lib/billing/hub-user";
+import {
+  epochSecondsToIso,
+  intervalOf,
+  priceIdOf,
+  writeSubscriptionRecord,
+  type StripeSubscriptionLike,
+} from "@/lib/billing/webhook-record";
 import {
   claimWebhookEvent,
   completeWebhookEvent,
@@ -86,7 +94,7 @@ interface PayloadEmailFields {
     customer_email?: string | null;
     customer_details?: { email?: string | null } | null;
     customer?: string | { email?: string | null } | null;
-    metadata?: { email?: string | null } | null;
+    metadata?: { email?: string | null; userId?: string | null } | null;
 }
 
 /**
@@ -107,22 +115,124 @@ function emailFromPayload(obj: PayloadEmailFields): string | null {
     return null;
 }
 
+interface CustomerContext {
+    email: string | null;
+    userId: string | null;
+}
+
 /**
- * Outbound fallback for email resolution: retrieve the customer and read their
- * email. Deleted customers have no email. Never throws — a retrieve failure
- * logs and returns null so the handler proceeds without syncing.
+ * Outbound fallback when the payload carries no email: retrieve the customer and
+ * read BOTH facts this route wants off that one object — the email and the
+ * `metadata.userId` candidate the hub writes when it creates the customer
+ * (checkout/route.ts:90). One retrieve serves both, so resolving the hub user id
+ * costs no extra API call. Deleted customers have neither. Never throws — a
+ * retrieve failure logs and yields two nulls so the handler proceeds without
+ * syncing.
  */
-async function resolveCustomerEmail(stripe: Stripe, customerId: string): Promise<string | null> {
+async function resolveCustomerContext(stripe: Stripe, customerId: string): Promise<CustomerContext> {
     try {
         const customer = await stripe.customers.retrieve(customerId);
-        if (customer.deleted) return null;
-        return customer.email;
+        if (customer.deleted) return { email: null, userId: null };
+        return { email: customer.email, userId: customer.metadata?.userId ?? null };
     } catch (err) {
         console.warn(
             `[webhook] Could not retrieve customer ${customerId}: ${err instanceof Error ? err.message : String(err)}`,
         );
-        return null;
+        return { email: null, userId: null };
     }
+}
+
+interface ResolvedIdentity {
+    email: string;
+    userId: string | null;
+    customerId: string | null;
+}
+
+/**
+ * Who this event is about: an email, and a hub user id that has been PROVEN to
+ * exist (see hub-user.ts — `metadata.userId` is written by the hub and by the
+ * marketplace, so an unvalidated candidate may be a Prisma cuid).
+ *
+ * Returns null when no email can be found: email is the record's identity
+ * (UNIQUE(email)) and the tier sync's key, so without it there is nothing to
+ * record and nothing to sync.
+ */
+async function resolveIdentity(
+    stripe: Stripe,
+    payload: PayloadEmailFields,
+    hubUserIdCandidates: Array<string | null | undefined>,
+): Promise<ResolvedIdentity | null> {
+    const payloadEmail = emailFromPayload(payload) || payload.metadata?.email || null;
+    const customerId = typeof payload.customer === "string" ? payload.customer : null;
+    const outbound = payloadEmail === null && customerId ? await resolveCustomerContext(stripe, customerId) : null;
+
+    const email = payloadEmail ?? outbound?.email ?? null;
+    if (!email) return null;
+
+    return {
+        email,
+        userId: await firstVerifiedHubUserId([...hubUserIdCandidates, outbound?.userId]),
+        customerId,
+    };
+}
+
+interface SubscriptionEventFacts {
+    eventId: string;
+    eventType: string;
+    eventCreated: number | null;
+    email: string;
+    userId: string | null;
+    customerId: string | null;
+    subscription: StripeSubscriptionLike | null;
+    plan: string;
+    status: string;
+    stripeStatus: string | null;
+    /** Epoch seconds for the globe payload; the checkout path fabricates a trial end when Stripe has none. */
+    trialEndsAt: number | null;
+}
+
+/**
+ * The durable record, then the tier push — in that order, so the hub's own
+ * memory of "this customer has this subscription" exists even if the globe call
+ * dies. Neither step can change the HTTP status returned to Stripe.
+ *
+ * Every Stripe-derived column is read from `facts.subscription` and NOT from the
+ * derived `plan`/`status`/`trialEndsAt` above: those carry the checkout path's
+ * fabricated trial fallback and the plan/status mapping this route applies, and
+ * the ledger must hold what Stripe actually says (with `stripe_status` as the raw
+ * value) or a later reconciliation reads drift that is not there.
+ *
+ * A null subscription means the event did not give us the object (the invoice
+ * path's retrieve failed, or a non-subscription checkout): there is nothing
+ * truthful to record, and writing a guessed plan over an existing row is worse
+ * than writing nothing, so the ledger is skipped and said so.
+ */
+async function applySubscriptionEvent(facts: SubscriptionEventFacts): Promise<void> {
+    if (facts.subscription === null) {
+        console.warn(
+            `[webhook] No subscription object on ${facts.eventType} (${facts.eventId}) for ${facts.email}; durable record left untouched`,
+        );
+    } else {
+        const priceId = priceIdOf(facts.subscription);
+        const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
+        await writeSubscriptionRecord({
+            user_id: facts.userId,
+            email: facts.email,
+            stripe_customer_id: facts.customerId,
+            stripe_subscription_id: facts.subscription.id,
+            price_id: priceId,
+            plan: facts.plan,
+            interval: intervalOf(facts.subscription) ?? resolved?.interval ?? null,
+            status: facts.status,
+            stripe_status: facts.stripeStatus,
+            current_period_end: epochSecondsToIso(facts.subscription.current_period_end),
+            trial_ends_at: epochSecondsToIso(facts.subscription.trial_end),
+            cancel_at_period_end: facts.subscription.cancel_at_period_end ?? false,
+            eventCreated: facts.eventCreated,
+        });
+    }
+
+    await syncTierWithRetry(facts.email, facts.plan, facts.status, facts.eventType, facts.trialEndsAt);
 }
 
 export async function POST(req: Request) {
@@ -156,6 +266,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
+  const eventCreated = event.created ?? null;
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -172,25 +284,26 @@ export async function POST(req: Request) {
         // Payload-first email (PMT-009): the checkout payload carries the
         // email itself — no outbound call needed for it. metadata.email stays
         // as a hub-specific fallback, then an outbound customer retrieve.
+        //
+        // The hub user id comes from the hub's own metadata first
+        // (checkout/route.ts sets session metadata and client_reference_id to the
+        // Supabase uid), then from the Stripe customer object if the retrieve
+        // above had to happen anyway.
         const payload = event.data.object as PayloadEmailFields;
-        const email =
-          emailFromPayload(payload) ||
-          payload.metadata?.email ||
-          (typeof payload.customer === "string"
-            ? await resolveCustomerEmail(stripe, payload.customer)
-            : null);
-        if (!email) {
+        const identity = await resolveIdentity(stripe, payload, [
+          session.metadata?.userId,
+          session.client_reference_id,
+        ]);
+        if (!identity) {
           console.warn("[webhook] checkout.session.completed missing email");
           break;
         }
+        const { email, userId } = identity;
 
-        const sub = session.subscription as { trial_end?: number | null } | null;
-        const trialEndsAt = sub?.trial_end ?? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+        const subscription = session.subscription as StripeSubscriptionLike | null;
+        const trialEndsAt = subscription?.trial_end ?? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
 
-        const stripeSub = session.subscription as {
-          items?: { data?: Array<{ price: { id: string } }> };
-        } | null;
-        const priceId = stripeSub?.items?.data?.[0]?.price?.id ?? null;
+        const priceId = priceIdOf(subscription);
         const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
         const plan = resolved?.plan ?? "pro";
 
@@ -230,22 +343,28 @@ export async function POST(req: Request) {
           }
         }
 
-        await syncTierWithRetry(email, plan, "trialing", event.type, trialEndsAt);
+        await applySubscriptionEvent({
+          eventId: event.id,
+          eventType: event.type,
+          eventCreated,
+          email,
+          userId,
+          customerId: typeof session.customer === "string" ? session.customer : identity.customerId,
+          subscription,
+          plan,
+          status: "trialing",
+          stripeStatus: subscription?.status ?? null,
+          trialEndsAt,
+        });
         break;
       }
 
       case "customer.subscription.updated":
       case "customer.subscription.created": {
-        const subscription = event.data.object as {
-          id: string;
-          status: string;
-          customer?: string;
-          customer_email?: string | null;
-          items?: { data?: Array<{ price: { id: string } }> };
-        };
+        const subscription = event.data.object as unknown as StripeSubscriptionLike & { status: string };
 
         const status = SUBSCRIPTION_STATUS_MAP[subscription.status] || "suspended";
-        const priceId = subscription.items?.data?.[0]?.price?.id;
+        const priceId = priceIdOf(subscription);
         const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
         // PMT-013: when a trial ends unpaid (incomplete_expired -> "canceled")
         // or the subscription is canceled, the user is no longer entitled to
@@ -258,29 +377,45 @@ export async function POST(req: Request) {
 
         // Payload-first email (PMT-009); subscriptions rarely carry one, so the
         // outbound customer retrieve remains the primary path here.
-        const email =
-          emailFromPayload(subscription) ||
-          (typeof subscription.customer === "string"
-            ? await resolveCustomerEmail(stripe, subscription.customer)
-            : null);
-
-        if (email) {
-          await syncTierWithRetry(email, plan, status, event.type);
+        const identity = await resolveIdentity(stripe, subscription, [subscription.metadata?.userId]);
+        if (identity) {
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email: identity.email,
+            userId: identity.userId,
+            customerId: identity.customerId,
+            subscription,
+            plan,
+            status,
+            stripeStatus: subscription.status,
+            // `trial_end` is carried through so the globe keeps seeing an
+            // expired trial as an expired trial rather than as "no trial".
+            trialEndsAt: subscription.trial_end ?? null,
+          });
         }
         break;
       }
 
       case "customer.subscription.deleted": {
-        const deletedSub = event.data.object as { customer?: string; customer_email?: string | null };
+        const deletedSub = event.data.object as unknown as StripeSubscriptionLike;
 
-        const email =
-          emailFromPayload(deletedSub) ||
-          (typeof deletedSub.customer === "string"
-            ? await resolveCustomerEmail(stripe, deletedSub.customer)
-            : null);
-
-        if (email) {
-          await syncTierWithRetry(email, "free", "canceled", event.type);
+        const identity = await resolveIdentity(stripe, deletedSub, [deletedSub.metadata?.userId]);
+        if (identity) {
+          await applySubscriptionEvent({
+            eventId: event.id,
+            eventType: event.type,
+            eventCreated,
+            email: identity.email,
+            userId: identity.userId,
+            customerId: identity.customerId,
+            subscription: deletedSub,
+            plan: "free",
+            status: "canceled",
+            stripeStatus: deletedSub.status ?? "canceled",
+            trialEndsAt: deletedSub.trial_end ?? null,
+          });
         }
         break;
       }
@@ -295,30 +430,43 @@ export async function POST(req: Request) {
 
         // Payload-first email (PMT-009): invoices carry customer_email, so the
         // offline stack can assert tier-sync without an outbound retrieve.
-        const email =
-          emailFromPayload(failedInvoice) ||
-          (await resolveCustomerEmail(stripe, failedInvoice.customer));
+        const identity = await resolveIdentity(stripe, failedInvoice, []);
+        if (!identity) break;
 
-        if (email) {
-          // PMT-002: resolve the tier from the subscription's price ID instead
-          // of sending an empty string — the globe's tier-sync rejects an
-          // empty tier with 400. Fall back to "pro": a failed payment is by
-          // definition an attempt at a Pro subscription today.
-          let plan = "pro";
-          try {
-            const sub = (await stripe.subscriptions.retrieve(failedInvoice.subscription, {
-              expand: ["items.data.price"],
-            })) as unknown as { items?: { data?: Array<{ price: { id: string } }> } };
-            const priceId = sub.items?.data?.[0]?.price?.id;
-            const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
-            plan = resolved?.plan ?? "pro";
-          } catch (err) {
-            console.warn(
-              `[webhook] invoice.payment_failed could not resolve plan for ${email}; defaulting to pro: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-          await syncTierWithRetry(email, plan, "past_due", event.type);
+        // PMT-002: resolve the tier from the subscription's price ID instead
+        // of sending an empty string — the globe's tier-sync rejects an
+        // empty tier with 400. Fall back to "pro": a failed payment is by
+        // definition an attempt at a Pro subscription today.
+        let plan = "pro";
+        let subscription: StripeSubscriptionLike | null = null;
+        try {
+          subscription = (await stripe.subscriptions.retrieve(failedInvoice.subscription, {
+            expand: ["items.data.price"],
+          })) as unknown as StripeSubscriptionLike;
+          const priceId = priceIdOf(subscription);
+          const resolved = priceId ? resolvePlanFromPriceId(priceId) : null;
+          plan = resolved?.plan ?? "pro";
+        } catch (err) {
+          console.warn(
+            `[webhook] invoice.payment_failed could not resolve plan for ${identity.email}; defaulting to pro: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
+
+        await applySubscriptionEvent({
+          eventId: event.id,
+          eventType: event.type,
+          eventCreated,
+          email: identity.email,
+          // The subscription retrieve above is the only thing that can name the
+          // hub user on this path, and its metadata is the hub's own.
+          userId: await firstVerifiedHubUserId([subscription?.metadata?.userId]),
+          customerId: identity.customerId ?? failedInvoice.customer ?? null,
+          subscription,
+          plan,
+          status: "past_due",
+          stripeStatus: subscription?.status ?? null,
+          trialEndsAt: null,
+        });
         break;
       }
     }
