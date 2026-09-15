@@ -13,6 +13,17 @@ concurrency:
 
 jobs:
   build:
+    # A called workflow may only keep or reduce the caller's GITHUB_TOKEN
+    # permissions, never elevate them. shared-docker.yml declares
+    # contents/packages/id-token/attestations/security-events at job level, so
+    # the caller must grant at least the same set; otherwise the run aborts as a
+    # startup_failure with zero jobs and no log.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
     uses: silvertakana/worldwideview/.github/workflows/shared-docker.yml@main
     with:
       tags: |
