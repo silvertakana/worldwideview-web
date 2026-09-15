@@ -7,6 +7,10 @@ on:
       - 'supabase/migrations/*.sql'
   workflow_dispatch:
 
+# Least privilege: this job only checks out the repo and runs `supabase db push`.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
