@@ -32,6 +32,28 @@ over. The check works out, difference by difference, which of the two is the one
 Rows an operator entered by hand are never compared. They are listed separately as
 **operator-owned, not reconciled**, and the check will never propose changing one.
 
+## The two queues it also reads
+
+Comparing the two lists catches a record that drifted. It cannot catch a payment that arrived and
+then went nowhere, because a payment that never finished writing its record is missing from *both*
+lists. Two tables hold those rows, and the check now reads them:
+
+| The table | What a row in it means |
+|---|---|
+| `webhook_events` | Stripe told us something, we started handling it, and we never finished. |
+| `billing_failures` | Something we had to do after taking the money - hand over the plan, or sync the tier - failed in a way a Stripe retry cannot fix. |
+
+A payment that has been unfinished for more than 15 minutes, or any entry in `billing_failures`
+that nobody has resolved, fails the run and emails you. The check reports these rows and never
+clears one: deciding that a failed handover is safe to forget is a person's call, and a nightly job
+that guessed would take something away from a customer who paid for it.
+
+**If a table does not exist yet**, the check cannot read it at all. That is a different thing from it
+being empty, so the run says `NOT DEPLOYED` and warns that the durable record is not deployed here,
+and it tells you the run is `INCOMPLETE` rather than clean. It does not fail, because a missing table
+is a missing migration rather than a billing incident - but it never reports agreement it did not
+establish.
+
 ## What it does about a problem
 
 It reports, and then it does exactly one thing.
@@ -53,8 +75,16 @@ trial, or alter any production record.
 ## When it emails you
 
 1. Open the failed run using the link in the email.
-2. Find `RESULT: DRIFT FOUND`. Above it, each problem lists the account email, what our record says,
-   and what Stripe says.
+2. Find the `RESULT:` line.
+   - **`RESULT: DRIFT FOUND`**: the two lists disagree. Each problem above it lists the account
+     email, what our record says, and what Stripe says.
+   - **`RESULT: no drift between the ledger and Stripe, but the durable billing queues need
+     attention`**: the two lists agree, but a payment is stuck. Look at the `durable queues FAILURE:`
+     lines. They name no account: a stuck event is named by its Stripe event id and an outstanding
+     failure by its stage, which is what a developer needs to find the row.
+   - **`RESULT: no drift, and no stuck payment found - but this run was INCOMPLETE`**: nothing is red
+     and there is nothing to fix tonight. Read the `durable queues WARNING:` lines, which usually
+     mean a table's migration has not been applied yet.
 3. Decide the fix:
    - **Stripe is right** (the common case): our record is stale. The next Stripe webhook for that
      account usually corrects it. If it does not, re-send the event from the Stripe dashboard.
@@ -63,6 +93,8 @@ trial, or alter any production record.
    - **A status we do not recognise**: a developer has to extend the status mapping before the check
      can judge it.
    - **Everything listed is operator-owned**: this is not a failure, it is a note. No action.
+   - **A stuck payment, or an unresolved failure**: Stripe retrying the event will not clear these.
+     A developer has to look at the row and decide whether to finish the handover or abandon it.
 4. After fixing, re-run by hand: **Actions -> Billing reconciliation -> Run workflow**.
 
 ## Running it yourself
@@ -72,8 +104,8 @@ SUPABASE_DB_URL=... STRIPE_SECRET_KEY=... CROSS_SERVICE_SECRET=... WWV_GLOBE_URL
   node scripts/billing-reconcile.mjs
 ```
 
-Exit code `0` means the two lists agree. `1` means they do not. It prints the same report the
-scheduled job emails you.
+Exit code `0` means the two lists agree and no payment has been left half-finished. `1` means either
+the lists disagree or something is stuck. It prints the same report the scheduled job emails you.
 
 ## If it fails about a missing setting
 

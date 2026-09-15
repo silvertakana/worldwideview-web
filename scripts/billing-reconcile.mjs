@@ -15,6 +15,14 @@
  * payload and names no account, so this runner decides nothing about who gets
  * locked.
  *
+ * IT ALSO READS THE TWO QUEUES THE COMPARISON CANNOT SEE. An event that arrived
+ * and never finished writing its record is missing from BOTH lists, so comparing
+ * them cannot notice it. scripts/lib/billing-durable-queues.mjs reads
+ * webhook_events (claimed, never completed) and billing_failures (a step that
+ * failed in a way a Stripe redelivery cannot fix) over this same connection, and
+ * this runner fails on anything stuck past 15 minutes or left unresolved. It
+ * reports those rows and never resolves one.
+ *
  * The comparison itself lives in scripts/lib/billing-reconcile-core.mjs and is
  * pure; this file is only the I/O around it.
  */
@@ -24,6 +32,12 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Pool } from 'pg'
 import { reconcile, isSweepEligible } from './lib/billing-reconcile-core.mjs'
+import {
+  BILLING_FAILURES_TABLE,
+  WEBHOOK_EVENTS_TABLE,
+  gradeDurableQueues,
+  readDurableQueues,
+} from './lib/billing-durable-queues.mjs'
 import { requestTierLockSweep } from './lib/globe-tier-lock-sweep.mjs'
 
 const STRIPE_API_DEFAULT = 'https://api.stripe.com/v1'
@@ -261,6 +275,54 @@ async function runSweepPhase(sweepTargets) {
 }
 
 /**
+ * Read the two queues that hold payments which arrived and did not finish, and
+ * report them. Never writes: resolving a failed handover is a person's decision,
+ * and a nightly job that guessed would take something away from a customer who
+ * paid for it.
+ */
+async function runDurableQueuePhase(dbUrl) {
+  // Its own pool, like readLedger: the queue read must not keep the pool the
+  // ledger already closed, and one phase ending cannot strand the other.
+  const pool = new Pool({ connectionString: dbUrl, max: 2 })
+  let reading
+  try {
+    reading = await readDurableQueues((sql, params) => pool.query(sql, params))
+  } finally {
+    await pool.end()
+  }
+
+  const verdict = gradeDurableQueues(reading)
+
+  console.log('')
+  console.log(
+    '[reconcile] durable queues: the two tables that hold payments which arrived and did not finish.',
+  )
+  if (reading.absentTables.includes(WEBHOOK_EVENTS_TABLE)) {
+    console.log(`[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${WEBHOOK_EVENTS_TABLE} unfinished=${reading.unfinishedEvents.length}` +
+        `${reading.canAgeEvents ? '' : ' (no attempt timestamp in this schema)'}`,
+    )
+  }
+  if (reading.absentTables.includes(BILLING_FAILURES_TABLE)) {
+    console.log(`[reconcile] durable queues: ${BILLING_FAILURES_TABLE} NOT DEPLOYED - its queue was not read.`)
+  } else {
+    console.log(
+      `[reconcile] durable queues: ${BILLING_FAILURES_TABLE} unresolved=${reading.unresolvedFailures.length}`,
+    )
+  }
+  for (const warning of verdict.warnings) {
+    console.log(`[reconcile] durable queues WARNING: ${warning}`)
+  }
+  for (const failure of verdict.failures) {
+    console.log(`[reconcile] durable queues FAILURE: ${failure}`)
+  }
+
+  return verdict
+}
+
+/**
  * Returns the exit code rather than setting one, so the whole runner is
  * drivable from a test instead of only from a shell.
  * @returns {Promise<number>} 0 when the two sides agree, 1 when they do not
@@ -297,14 +359,36 @@ export async function main() {
     await runSweepPhase(sweepTargets)
   }
 
-  if (report.ok) {
+  const queues = await runDurableQueuePhase(dbUrl)
+
+  if (!report.ok) {
     console.log('')
-    console.log('[reconcile] RESULT: no drift. The ledger and Stripe agree.')
+    console.log(`[reconcile] RESULT: DRIFT FOUND (${report.counts.total}). See docs/billing-reconciliation.md.`)
+    return 1
+  }
+  if (!queues.ok) {
+    console.log('')
+    console.log(
+      '[reconcile] RESULT: no drift between the ledger and Stripe, but the durable billing queues ' +
+        `need attention (${queues.failures.length}). See the FAILURE lines above and ` +
+        'docs/billing-reconciliation.md.',
+    )
+    return 1
+  }
+  if (queues.warnings.length > 0) {
+    // Not clean, and not a failure either: something could not be checked. The
+    // exit code stays 0 because there is no billing incident to chase, but the
+    // run says so rather than reporting an agreement it did not establish.
+    console.log('')
+    console.log(
+      '[reconcile] RESULT: no drift, and no stuck payment found - but this run was INCOMPLETE ' +
+        `(${queues.warnings.length} warning(s) above). Do not read it as a clean bill of health.`,
+    )
     return 0
   }
   console.log('')
-  console.log(`[reconcile] RESULT: DRIFT FOUND (${report.counts.total}). See docs/billing-reconciliation.md.`)
-  return 1
+  console.log('[reconcile] RESULT: no drift. The ledger and Stripe agree.')
+  return 0
 }
 
 // Run only when executed directly; importing this file (from the test) must not
