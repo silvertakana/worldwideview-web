@@ -38,7 +38,7 @@ vi.mock("@/lib/auth/entitlements", () => ({
 // The REAL constants.ts resolver is used so the price-id → plan mapping is
 // exercised end to end.
 
-import { getHubTierFallback } from "./tier-fallback";
+import { getHubTierFallback, STRIPE_STATUS_TO_HUB_STATUS } from "./tier-fallback";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -549,6 +549,46 @@ describe("getHubTierFallback — hub-authoritative fallback path (ba77bc0)", () 
       status: "trialing",
       trialEndsAt: null,
       isTrialing: true,
+    });
+  });
+});
+
+// ── Stripe status -> hub status vocabulary ────────────────────────
+// The globe's /api/service/tier-sync accepts only
+// active|trialing|past_due|suspended|canceled and rejects every other value
+// with a 400, so this map must never emit anything outside that set. It used to
+// emit "deleted" for incomplete_expired, which the globe rejects.
+describe("STRIPE_STATUS_TO_HUB_STATUS", () => {
+  const GLOBE_ACCEPTED_STATUSES = [
+    "active",
+    "trialing",
+    "past_due",
+    "suspended",
+    "canceled",
+  ];
+
+  it("maps incomplete_expired to canceled, matching the webhook route", () => {
+    expect(STRIPE_STATUS_TO_HUB_STATUS["incomplete_expired"]).toBe("canceled");
+  });
+
+  it("never emits a status the globe's tier-sync rejects", () => {
+    const rejected = Object.values(STRIPE_STATUS_TO_HUB_STATUS).filter(
+      (status) => !GLOBE_ACCEPTED_STATUSES.includes(status),
+    );
+
+    expect(rejected).toEqual([]);
+  });
+
+  it("covers every Stripe subscription status the hub handles", () => {
+    expect(STRIPE_STATUS_TO_HUB_STATUS).toEqual({
+      active: "active",
+      past_due: "past_due",
+      trialing: "trialing",
+      canceled: "canceled",
+      unpaid: "suspended",
+      incomplete: "trialing",
+      incomplete_expired: "canceled",
+      paused: "suspended",
     });
   });
 });
