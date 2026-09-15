@@ -87,7 +87,7 @@ export interface BillingFailureInput {
 
 /**
  * The three stages the CHECK constraint on billing_failures permits
- * (20260915120003 created it with two; 20260915130002 widened it).
+ * (20260915120003 created it with two; 20260915160000 widened it).
  */
 export type FailureStage = "provision" | "tier_sync" | "resolve";
 
