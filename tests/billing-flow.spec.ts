@@ -2,7 +2,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
-import { directTierSync } from './lib/globe-sync';
+import { directTierSync, triggerTierLockSweep } from './lib/globe-sync';
 import { getDefaultPriceId } from '../src/lib/billing/constants';
 
 /**
@@ -13,9 +13,14 @@ import { getDefaultPriceId } from '../src/lib/billing/constants';
  *            Best-effort card entry.
  *   Test 2 — webhook → tier-sync: org_tier flips to pro/trialing, workspace
  *            stays unlocked (regression for the webhook expand-path crash).
- *   Test 3 — cancel → lock: subscription cancel fires customer.subscription.deleted,
- *            org_tier reverts to free/canceled and the workspace locks
- *            (regression for the canceled-status 400 + the lock cascade).
+ *   Test 3 — cancel → deferred lock → deadline sweep: subscription cancel fires
+ *            customer.subscription.deleted; org_tier reverts to free/canceled
+ *            and the workspace is RELEASED with the lock ARMED for the globe's
+ *            downgrade grace window, not locked on arrival. The test then fires
+ *            the armed deadline through the globe's own sweep endpoint and
+ *            asserts the lock lands (regression for the canceled-status 400,
+ *            the grace-window deferral, and the deferral not decaying into
+ *            permanent free access).
  *   Test 4 — cancel at PERIOD END (subscription update with
  *            cancel_at_period_end=true, the customer-friendly path): tier
  *            STAYS pro/trialing and the workspace STAYS unlocked until the
@@ -142,6 +147,23 @@ test.afterAll(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 const CARD_ENTRY_TIMEOUT_MS = 45000;
+
+/**
+ * The globe's tier-downgrade grace window, mirrored from worldwideview
+ * src/lib/org-tier-policy.ts (TIER_DOWNGRADE_GRACE_MS, on main since PR #504).
+ * A cancellation releases the workspace and ARMS
+ * `org_tiers.pendingLockAt = now + this`; the lock is applied later by
+ * POST /api/service/tier-lock-sweep once the deadline has elapsed.
+ * A local copy because the two repos share no module.
+ */
+const TIER_DOWNGRADE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Tolerance on the armed deadline. The globe stamps it from its own clock
+ * slightly before the tier poll observes it, so the remaining window measured
+ * here is a little under the full grace period.
+ */
+const GRACE_WINDOW_SLACK_MS = 5 * 60 * 1000;
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -344,22 +366,28 @@ test('tier sync lands pro/trialing after payment; workspace stays unlocked', asy
   expect(ws, 'seeded workspace missing').toBeTruthy();
   expect(ws!.locked).toBe(false);
   expect(ws!.lockedAt).toBeNull();
-  console.log('[billing] org_tier = pro/trialing, workspace unlocked (webhook → tier-sync ok)');
+  console.log('[billing] org_tier = pro/trialing, workspace unlocked');
 });
 
 // ---------------------------------------------------------------------------
-// Test 3 — cancel → lock
+// Test 3 — cancel → deferred lock → deadline sweep
 // ---------------------------------------------------------------------------
-test('cancel subscription → tier reverts to free/canceled and workspace locks', async () => {
+test('cancel subscription → tier reverts to free/canceled and the lock is deferred to the grace deadline', async () => {
   // Prefer the real Stripe lifecycle: cancel the live subscription so the
   // customer.subscription.deleted webhook fires. Fall back to a direct HMAC
-  // tier-sync only if no real subscription exists (e.g. card entry never ran).
+  // tier-sync when no real subscription exists, which in CI is every run: the
+  // hosted card page never completes its redirect from a datacenter IP, so
+  // Test 1 never creates one. Both calls land on the globe's
+  // POST /api/service/tier-sync -> setOrgTier(), so both observe the same
+  // lock contract asserted below. What only the real path proves is the hub's
+  // own mapping of the Stripe event onto the payload.
   const liveSub = await findActiveSubscription();
+  const reachedGlobeViaWebhook = liveSub !== null;
   if (liveSub) {
     console.log(`[billing] cancelling subscription ${liveSub.id}`);
     await cancelSubscription(liveSub.id);
   } else {
-    console.log('[billing] no live subscription found — using direct HMAC tier-sync fallback');
+    console.log('[billing] no live subscription found, using direct HMAC tier-sync fallback');
     await directTierSync(TEST_EMAIL, 'free', 'canceled');
   }
 
@@ -373,12 +401,66 @@ test('cancel subscription → tier reverts to free/canceled and workspace locks'
     )
     .toBe('free/canceled');
 
+  // The downgrade itself is immediate, the lock is not. A cancellation must not
+  // cost the customer access the moment Stripe reports it: the globe RELEASES
+  // the workspace and ARMS a deadline instead.
+  const armed = await globeDb.getOrgTierLockState(testOrgId);
+  expect(armed, 'org_tiers row missing after cancel').toBeTruthy();
+  expect(armed!.tier).toBe('free');
+  expect(armed!.status).toBe('canceled');
+
   const ws = await globeDb.findWorkspaceByOwner(testUserId);
   expect(ws, 'seeded workspace missing').toBeTruthy();
-  expect(ws!.locked).toBe(true);
-  expect(ws!.lockedReason).toContain('Tier downgraded');
-  expect(ws!.lockedAt).not.toBeNull();
-  console.log('[billing] org_tier = free/canceled, workspace locked (cancel → lock cascade ok)');
+  expect(ws!.locked, 'a cancellation must not lock the workspace on arrival').toBe(false);
+  expect(ws!.lockedAt, 'a deferred lock must not stamp lockedAt').toBeNull();
+  expect(ws!.lockedReason).toBeNull();
+
+  // Armed for the downgrade grace window, never before the period the customer
+  // has already paid through.
+  const pendingLockAt = armed!.pendingLockAt;
+  expect(
+    pendingLockAt,
+    'no armed lock deadline: the globe locked the workspace on arrival instead of deferring it',
+  ).not.toBeNull();
+  const armedForMs = pendingLockAt!.getTime() - Date.now();
+  expect(
+    armedForMs,
+    `armed deadline ${pendingLockAt!.toISOString()} is not a full grace window out`,
+  ).toBeGreaterThan(TIER_DOWNGRADE_GRACE_MS - GRACE_WINDOW_SLACK_MS);
+  if (armed!.periodEndsAt) {
+    expect(
+      pendingLockAt!.getTime(),
+      'the lock may not fire before the period the customer has already paid for',
+    ).toBeGreaterThanOrEqual(armed!.periodEndsAt.getTime());
+  }
+  expect(armed!.pendingLockReason ?? '').toContain('Tier downgraded');
+  console.log(
+    `[billing] org_tier = free/canceled, workspace released + lock armed for ${pendingLockAt!.toISOString()} ` +
+      `(grace window ok; tier reached the globe via ${reachedGlobeViaWebhook ? 'webhook' : 'direct HMAC tier-sync'})`,
+  );
+
+  // The deferral must not decay into permanent free access: fire the armed
+  // deadline by backdating it and running the globe's own sweep, then assert
+  // the lock actually lands. Without this the test would only prove "not
+  // locked yet", which is the opposite failure from the one it guards.
+  // Two days of margin, not one: pg sends a JS Date for a `timestamp(3)` column
+  // and a session-timezone cast can shift it by up to ~14 hours, which must not
+  // be able to push the deadline back into the future.
+  await globeDb.backdatePendingLockAt(testOrgId, new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
+  const sweep = await triggerTierLockSweep();
+  expect(sweep.due, 'the backdated deadline must be due').toBeGreaterThanOrEqual(1);
+  expect(sweep.locked, 'the sweep must lock the downgraded workspace').toBeGreaterThanOrEqual(1);
+
+  const lockedWs = await globeDb.findWorkspaceByOwner(testUserId);
+  expect(lockedWs, 'seeded workspace missing after the deadline sweep').toBeTruthy();
+  expect(lockedWs!.locked, 'the elapsed deadline must lock the workspace').toBe(true);
+  expect(lockedWs!.lockedReason).toContain('Tier downgraded');
+  expect(lockedWs!.lockedAt).not.toBeNull();
+
+  const consumed = await globeDb.getOrgTierLockState(testOrgId);
+  expect(consumed, 'org_tiers row missing after the deadline sweep').toBeTruthy();
+  expect(consumed!.pendingLockAt, 'a fired deadline must be consumed once the lock lands').toBeNull();
+  console.log('[billing] grace deadline fired: workspace locked (deferral ends in a lock, not free access)');
 });
 
 // ---------------------------------------------------------------------------
@@ -391,11 +473,11 @@ test('cancel at period end → tier stays pro/trialing and workspace stays unloc
   // headroom the sibling provision spec configures for its suite.
   test.setTimeout(240000);
 
-  // Test 3 deleted the shared user's subscription (immediate cancel → tier
-  // free/canceled + workspace locked). Restore the paid state through the
-  // direct HMAC tier-sync — the CI-verified fallback path Tests 2-3 use: it
-  // flips org_tiers to pro/trialing and unlocks the workspace via setOrgTier's
-  // upgrade path. A hosted-checkout re-subscribe is deliberately NOT used:
+  // Test 3 left the org at free/canceled with the workspace locked by the fired
+  // deadline sweep. Restore the paid state through the direct HMAC tier-sync,
+  // the path Tests 2-3 take in CI: it flips org_tiers to pro/trialing and
+  // RELEASES the workspace via setOrgTier's upgrade branch (which also disarms
+  // the pending lock). A hosted-checkout re-subscribe is deliberately NOT used:
   // Stripe's hosted page runs an invisible hCaptcha that blocks payment
   // submission from CI datacenter IPs (Stripe-owned bot wall, no fix).
   await directTierSync(TEST_EMAIL, 'pro', 'trialing');

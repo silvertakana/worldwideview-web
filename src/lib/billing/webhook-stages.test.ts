@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockRecordStageFailure, mockFailWebhookEvent } = vi.hoisted(() => ({
+const { mockRecordStageFailure, mockFailWebhookEvent, mockNotify } = vi.hoisted(() => ({
   mockRecordStageFailure: vi.fn(),
   mockFailWebhookEvent: vi.fn(),
+  mockNotify: vi.fn(),
 }));
 
 vi.mock("@/lib/billing/webhook-record", () => ({ recordStageFailure: mockRecordStageFailure }));
 vi.mock("@/lib/billing/webhook-idempotency", () => ({ failWebhookEvent: mockFailWebhookEvent }));
+// The channel is a seam: this file asserts WHICH alert a stage failure raises,
+// and alerts/notify.test.ts owns whether that alert is actually delivered.
+vi.mock("@/lib/alerts/notify", () => ({ notify: mockNotify }));
 
 import {
   abandonIncompleteDelivery,
@@ -31,8 +35,10 @@ let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   mockRecordStageFailure.mockReset();
   mockFailWebhookEvent.mockReset();
+  mockNotify.mockReset();
   mockRecordStageFailure.mockResolvedValue(true);
   mockFailWebhookEvent.mockResolvedValue(undefined);
+  mockNotify.mockResolvedValue(undefined);
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -236,5 +242,138 @@ describe("abandonIncompleteDelivery", () => {
 
     expect(mockRecordStageFailure).toHaveBeenCalledTimes(2);
     expect(mockFailWebhookEvent).toHaveBeenCalled();
+  });
+});
+
+describe("abandonIncompleteDelivery — operator alerts", () => {
+  const permanent: StageFailure = {
+    failure: {
+      stage: "provision",
+      eventId: "evt_9",
+      eventType: "checkout.session.completed",
+      email: "pay@example.com",
+      userId: "uid_9",
+      error: "globe provisioning failed: 400 (invalid email)",
+    },
+    retryable: false,
+  };
+  const retryable: StageFailure = {
+    failure: {
+      stage: "tier_sync",
+      eventId: "evt_9",
+      eventType: "checkout.session.completed",
+      error: "globe tier sync failed: 503",
+    },
+    retryable: true,
+  };
+
+  it("alerts on every failure it files, so a paid customer with no workspace is not only a log line", async () => {
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent, retryable]);
+
+    expect(mockNotify).toHaveBeenCalledTimes(2);
+    expect(mockNotify).toHaveBeenNthCalledWith(
+      1,
+      "critical",
+      "Billing stage failure: provision",
+      expect.stringContaining("globe provisioning failed: 400 (invalid email)"),
+      expect.objectContaining({
+        stage: "provision",
+        eventId: "evt_9",
+        eventType: "checkout.session.completed",
+        userId: "uid_9",
+        retryable: false,
+      }),
+    );
+    expect(mockNotify).toHaveBeenNthCalledWith(
+      2,
+      "warning",
+      "Billing stage failure: tier_sync",
+      expect.stringContaining("globe tier sync failed: 503"),
+      expect.objectContaining({ stage: "tier_sync", retryable: true }),
+    );
+  });
+
+  it("takes the level from the retry verdict, because only one of the two reaches a human", async () => {
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [retryable]);
+
+    // Stripe resolves this one on its own schedule.
+    expect(mockNotify.mock.calls[0][0]).toBe("warning");
+
+    mockNotify.mockClear();
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent]);
+
+    // Nothing but an operator editing metadata or globe state ever will.
+    expect(mockNotify.mock.calls[0][0]).toBe("critical");
+  });
+
+  it("alerts for the checkout that carried no hubUserId, at the permanent level", async () => {
+    const queue: StageFailure[] = [];
+    noteMissingHubUserId(queue, context, "cs_orphan_123");
+
+    await abandonIncompleteDelivery("evt_1", "customer.subscription.deleted", queue);
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      "critical",
+      "Billing stage failure: provision",
+      expect.stringContaining("no hubUserId on checkout session cs_orphan_123"),
+      expect.objectContaining({ retryable: false }),
+    );
+  });
+
+  it("alerts for a provisioning failure the route only logged before", async () => {
+    const queue: StageFailure[] = [];
+    noteProvisionFailure(queue, context, { status: 503, detail: "unavailable" });
+
+    await abandonIncompleteDelivery("evt_1", "customer.subscription.deleted", queue);
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      "warning",
+      "Billing stage failure: provision",
+      expect.stringContaining("globe provisioning failed: 503 (unavailable)"),
+      expect.objectContaining({ stage: "provision", eventId: "evt_1" }),
+    );
+  });
+
+  it("sends identifiers only - the customer's email is never in the alert", async () => {
+    const queue: StageFailure[] = [];
+    noteProvisionFailure(queue, context, { status: 503, detail: "unavailable" });
+
+    await abandonIncompleteDelivery("evt_1", "customer.subscription.deleted", queue);
+
+    expect(JSON.stringify(mockNotify.mock.calls)).not.toContain("cancel@example.com");
+  });
+
+  it("raises no alert for a delivery that filed nothing", async () => {
+    await abandonIncompleteDelivery("evt_1", "checkout.session.completed", []);
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("awaits only the first alert, so the response path is not N timeouts long", async () => {
+    const third: StageFailure = {
+      failure: { stage: "resolve", eventId: "evt_9", eventType: "checkout.session.completed", error: "globe 400" },
+      retryable: false,
+    };
+    // The second and third never settle: only the first may be waited on.
+    mockNotify.mockImplementationOnce(async () => undefined);
+    mockNotify.mockImplementation(() => new Promise<void>(() => {}));
+
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent, retryable, third]);
+
+    // Every failure was raised, and the delivery still returned - which is the
+    // whole point: a hanging channel cannot hold Stripe's response open once per
+    // failure in turn.
+    expect(mockNotify).toHaveBeenCalledTimes(3);
+    expect(mockFailWebhookEvent).toHaveBeenCalledWith("evt_9", expect.stringContaining("resolve"));
+  });
+
+  it("still attempts a critical alert first, before the process could die mid-request", async () => {
+    mockNotify.mockImplementationOnce(async () => undefined);
+
+    await abandonIncompleteDelivery("evt_9", "checkout.session.completed", [permanent, retryable]);
+
+    // The guaranteed attempt is the FIRST failure's alert, awaited, not the last.
+    expect(mockNotify.mock.calls[0][0]).toBe("critical");
+    expect(mockNotify.mock.calls[0][1]).toBe("Billing stage failure: provision");
   });
 });

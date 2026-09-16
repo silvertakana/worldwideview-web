@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { notify } from "@/lib/alerts/notify";
 import { getStripe } from "@/lib/stripe/client";
 import { resolvePlanFromPriceId } from "@/lib/billing/constants";
 import { crossServiceFetch } from "@/lib/cross-service/fetch";
@@ -514,6 +515,17 @@ export async function POST(req: Request) {
     console.error(
       `[webhook] Handling FAILED for ${event.id} (${event.type}); answering 500 so Stripe redelivers:`,
       err,
+    );
+    // D9: alerted BEFORE the ledger write, deliberately. This is the one path
+    // where the handler itself broke, so nothing it did can be trusted and the
+    // alert must not depend on a database call that could be the thing failing.
+    // The error message is scrubbed on the way out (see alerts/notify.ts): an
+    // identity error can carry a customer email, and it never leaves the process.
+    await notify(
+      "critical",
+      `Billing webhook handling failed: ${event.type}`,
+      `Event ${event.id} threw while being handled, so none of its work can be trusted. Stripe was answered 500 and will redeliver. ${message}`,
+      { eventId: event.id, eventType: event.type, retryable: true },
     );
     await failWebhookEvent(event.id, message);
     return NextResponse.json(

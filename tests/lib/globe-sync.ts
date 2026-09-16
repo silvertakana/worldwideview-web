@@ -3,15 +3,23 @@ import crypto from 'node:crypto';
 
 /**
  * Direct HMAC-signed calls to the GLOBE's cross-service endpoints
- * (/api/service/tier-sync, /api/provision).
+ * (/api/service/tier-sync, /api/service/tier-lock-sweep, /api/provision).
  *
  * These mirror the hub's crossServiceFetch() (src/lib/cross-service/sign.ts +
- * fetch.ts) and are the CI-verified path the billing suite uses when the
- * hosted Stripe checkout card payment is not automatable: Stripe's hosted
- * page runs an invisible hCaptcha that blocks payment submission from CI
- * datacenter IPs (a Stripe-owned bot wall with no controllable fix). Tests
- * 2-3 already pass in CI via this direct path; tests 4-5 use the same
- * verified-endpoints approach.
+ * fetch.ts) and are the path the billing suite falls back to when the hosted
+ * Stripe checkout card payment is not automatable. It is not automatable from
+ * CI: every sampled CI run logs `card entry failed`, the form fill completes
+ * and the post-click waitForURL never resolves. Stripe's hosted page runs an
+ * invisible hCaptcha on datacenter IPs (a Stripe-owned bot wall with no
+ * controllable fix), so no checkout-created subscription exists in CI and the
+ * direct path is the one CI always takes.
+ *
+ * The direct path is not a weaker claim than the webhook path for the GLOBE's
+ * behaviour: tier-sync lands on the same setOrgTier() evaluation the hub's
+ * webhook handler reaches, so both observe one lock contract. What only the
+ * webhook path proves is the hub's own mapping of a Stripe event onto the
+ * payload; that mapping is covered by the hub's webhook unit tests and by the
+ * offline L1 simulator, not by this suite.
  *
  * GLOBE-SPECIFIC DEPENDENCY: requires the globe to be reachable at GLOBE_URL
  * (default http://localhost:3000) with CROSS_SERVICE_SECRET matching the
@@ -44,8 +52,18 @@ export function signCrossServiceRequest(
 
 /**
  * Direct HMAC tier sync to the globe (/api/service/tier-sync) — the same call
- * the hub's webhook handler makes. The globe's setOrgTier() upserts
- * org_tiers and unlocks/locks the owner's workspace on upgrade/downgrade.
+ * the hub's webhook handler makes. The globe's setOrgTier() upserts org_tiers
+ * and reshapes the owner's workspace:
+ *   - upgrade (rank increase) or `past_due` -> the workspace is RELEASED
+ *     (locked=false, lockedAt=null) and any armed deadline is disarmed;
+ *   - downgrade (rank decrease) -> the workspace is released and
+ *     `org_tiers.pendingLockAt` is ARMED rather than locking anything. The
+ *     deadline is `now + TIER_DOWNGRADE_GRACE_MS` (14 days), raised to
+ *     `periodEndsAt` when the payload carries a paid-through date the customer
+ *     has already bought. The lock lands later, driven by
+ *     POST /api/service/tier-lock-sweep (see triggerTierLockSweep).
+ * So a downgrade is NOT observable as `workspaces.locked === true`; assert the
+ * armed deadline instead.
  * Throws on non-2xx (tier-sync 404s when the email has no globe org — call
  * provisionGlobeUser first for fresh users).
  */
@@ -92,4 +110,40 @@ export async function provisionGlobeUser(
   if (!res.ok) {
     throw new Error(`provision for ${email} failed (${res.status}): ${text}`);
   }
+}
+
+/** The globe's sweep summary (src/lib/org-tier-lock-sweep.ts, origin/main). */
+export interface TierLockSweepResult {
+  /** Organizations whose armed deadline had elapsed and were evaluated. */
+  due: number;
+  /** Organizations whose workspaces this run actually locked. */
+  locked: number;
+  /** True when the run filled its page, so another run is likely to find work. */
+  hasMore: boolean;
+}
+
+/**
+ * Run the globe's tier-lock deadline sweep (/api/service/tier-lock-sweep).
+ *
+ * This endpoint is what makes a deferred lock fire: the hub only syncs tiers on
+ * webhook events, and a cancellation is a one-off event the provider never
+ * resends, so a deadline armed by a downgrade would otherwise never be
+ * evaluated again and the grace window would become permanent free access.
+ * Called with no body (the route ignores it and takes no parameters); the
+ * signature covers the empty body hash, which is what the globe verifier
+ * rebuilds from the request. Idempotent: enforcement consumes the deadline it
+ * fires. Throws on non-2xx.
+ */
+export async function triggerTierLockSweep(): Promise<TierLockSweepResult> {
+  const sigHeader = signCrossServiceRequest('POST', '/api/service/tier-lock-sweep');
+  const res = await fetch(`${GLOBE_URL}/api/service/tier-lock-sweep`, {
+    method: 'POST',
+    headers: { 'X-Service-Signature': sigHeader },
+  });
+  const text = await res.text();
+  console.log(`[globe-sync] tier-lock-sweep -> ${res.status} ${text.slice(0, 120)}`);
+  if (!res.ok) {
+    throw new Error(`tier-lock-sweep failed (${res.status}): ${text}`);
+  }
+  return JSON.parse(text) as TierLockSweepResult;
 }
