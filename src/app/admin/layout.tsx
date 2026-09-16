@@ -17,6 +17,9 @@ export default async function AdminLayout({
           <Link href="/admin/codes" className={styles.navLink}>
             Codes
           </Link>
+          <Link href="/admin/billing" className={styles.navLink}>
+            Billing
+          </Link>
           <Link href="/admin/overrides" className={styles.navLink}>
             Billing overrides
           </Link>
