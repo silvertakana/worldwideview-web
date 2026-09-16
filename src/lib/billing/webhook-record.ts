@@ -1,3 +1,4 @@
+import { notify } from "@/lib/alerts/notify";
 import type {
   BillingFailureInput,
   StripeSubscriptionInput,
@@ -47,6 +48,37 @@ export function intervalOf(subscription: StripeSubscriptionLike | null | undefin
 }
 
 /**
+ * Pushes out a payment-related durable write that did not land.
+ *
+ * This is the ledger going dark, which is worse than it sounds: the ledger is the
+ * hub's only memory of who paid for what, so a lost subscription write leaves
+ * nothing to reconcile against and nothing to bill from if Stripe's copy is ever
+ * in question. The console.error says so to a stream nobody is reading, which is
+ * why this is a critical alert rather than another log line.
+ *
+ * Identifiers only: `input.email` is deliberately absent, because this is the one
+ * field that names a real person and notify() strips it anyway.
+ */
+async function alertLostSubscriptionWrite(
+  input: StripeSubscriptionInput,
+  action: string,
+  detail: string | undefined,
+): Promise<void> {
+  await notify(
+    "critical",
+    "Billing ledger write lost: subscription record",
+    `The durable subscription record for a Stripe event was NOT written (${action})${detail ? `: ${detail}` : ""}. The hub's ledger is behind Stripe for this customer until the reconciler catches up.`,
+    {
+      table: "billing_subscriptions",
+      action,
+      userId: input.user_id ?? null,
+      customerId: input.stripe_customer_id ?? null,
+      subscriptionId: input.stripe_subscription_id ?? null,
+    },
+  );
+}
+
+/**
  * Writes the durable record and reports what happened.
  *
  * NEVER throws, and never influences the HTTP status returned to Stripe: this is
@@ -64,6 +96,13 @@ export async function writeSubscriptionRecord(input: StripeSubscriptionInput): P
       console.error(
         `[webhook] Durable subscription record NOT written for ${input.email}: ${result.action}${result.detail ? ` (${result.detail})` : ""}`,
       );
+      // Only `error` is a lost write. `manual-protected` is the automation
+      // correctly refusing to overwrite an operator grant - a normal outcome on a
+      // system that has overrides, and alerting on it is how an operator learns
+      // to ignore alerts.
+      if (result.action === "error") {
+        await alertLostSubscriptionWrite(input, result.action, result.detail);
+      }
     } else if (result.action === "ignored") {
       console.warn(
         `[webhook] Durable subscription record left alone for ${input.email}: ${result.detail ?? "out-of-order event"}`,
@@ -73,6 +112,7 @@ export async function writeSubscriptionRecord(input: StripeSubscriptionInput): P
   } catch (err) {
     const detail = asMessage(err);
     console.error(`[webhook] Durable subscription record write THREW for ${input.email}: ${detail}`);
+    await alertLostSubscriptionWrite(input, "error", detail);
     return { ok: false, action: "error", detail };
   }
 }
@@ -95,6 +135,18 @@ export async function recordStageFailure(input: BillingFailureInput): Promise<bo
   if (!recorded) {
     console.error(
       `[webhook] Could not record the ${input.stage} failure for event ${input.eventId ?? "unknown"} (${input.email ?? "no customer email"}); it exists only in this log`,
+    );
+    await notify(
+      "critical",
+      `Billing ledger write lost: ${input.stage} failure not recorded`,
+      `A ${input.stage} stage failure could not be written to billing_failures. It exists only in the application log, no operator queue carries it, and nothing will ever resolve it.`,
+      {
+        table: "billing_failures",
+        stage: input.stage,
+        eventId: input.eventId ?? null,
+        eventType: input.eventType ?? null,
+        userId: input.userId ?? null,
+      },
     );
   }
   return recorded;

@@ -1,0 +1,144 @@
+# =============================================================================
+# Billing reconciliation - Stripe against the hub's durable billing record
+# =============================================================================
+#
+# THE EXIT CODE IS THE ALERTING MECHANISM.
+#   A failed scheduled run emails the repository owner. That email is the ONLY
+#   alerting path this repository has: there is no Slack, no PagerDuty and no
+#   metrics sink wired up here. Do NOT add `continue-on-error`, do NOT wrap the
+#   script to swallow its exit code, and do NOT "fix" a red run by removing the
+#   failure - removing the failure removes the alert. A red run is the feature.
+#   What to do about one is in docs/billing-reconciliation.md.
+#
+# READ-ONLY EXCEPT FOR ONE DELIBERATE STEP
+#   The job issues Stripe GETs and Postgres SELECTs, and then - only when a
+#   grant has lapsed - one signed, bodiless POST to the globe's own tier-lock
+#   sweep. That POST carries no payload and names no account: the globe enforces
+#   the deadlines it has already armed on itself. Nothing here can cancel a
+#   subscription, change a grant, or choose who gets locked.
+#
+# IT FAILS FOR THREE REASONS, AND ALL THREE ARE ALERTS
+#   1. Stripe and the durable billing record disagree.
+#   2. billing_failures has an unresolved row: a customer-facing step failed
+#      (provisioning, or the globe tier-sync) and nobody fixed it.
+#   3. webhook_events has a row claimed and left unfinished for over 15 minutes.
+#      Fifteen minutes, not an hour: the handler's own work is measured in
+#      seconds, so a quarter of an hour with no progress is not still in flight.
+#   A database read that fails also fails the run, deliberately: "0 unresolved
+#   failures" and "we could not look" are different facts and only one of them is
+#   reassuring. The runner never reports health it has not verified.
+#
+# A FOURTH OUTCOME, AND IT IS NOT AN ALERT
+#   A queue that could not be READ AT ALL - the table is not deployed, or an
+#   unfinished row carries no timestamp to age it against - prints a WARNING and
+#   ends the run with `RESULT: ... this run was INCOMPLETE ...` at exit code 0. It
+#   does not email, and it is NOT a clean bill of health: it means nothing was
+#   found wrong in what could be read. Exactly one line means a genuinely clean
+#   run, `RESULT: no drift. The ledger and Stripe agree.`, and the runner can only
+#   print it when both queues were actually read. A queue that EXISTS and cannot
+#   be read is a red failure instead, not this outcome.
+#
+# SCHEMA DEPENDENCY
+#   The two durable queues are read by their COLUMNS, decided from the database
+#   catalogue before a row is touched. webhook_events gains last_attempt_at and
+#   last_error, and processed_at stops being required, in
+#   supabase/migrations/20260915000001_webhook_events_completion_state.sql on
+#   branch fix/billing-launch-hardening.
+#
+#   So an unapplied migration is a shape the reader recognises, not a crash. An
+#   absent table, or a table with no last_attempt_at column, is a WARNING: that
+#   queue was not read, the run still exits 0, and its last line says INCOMPLETE
+#   rather than a clean bill of health. That is deliberately not a red job -
+#   reddening the schedule for a missing deploy would make the alert mean "a
+#   deploy is behind" as often as it means "a customer paid and got nothing" -
+#   but it is NOT a pass either, and the INCOMPLETE line is how you tell.
+#
+#   What IS red is a queue that exists and cannot be read: an uninterpretable
+#   catalogue, a table missing a column the reader needs, a value it cannot read,
+#   a stuck event past the limit, or any unresolved billing_failures row.
+#
+#   Do not "fix" any of this by skipping a query. A check that is silently
+#   skipped prints a clean report about work nobody did, which is the one outcome
+#   this job exists to prevent.
+#
+# WHY THERE IS NO schedule TRIGGER (DELIBERATE, DO NOT "FIX")
+#   The schedule was removed on purpose and this workflow is manual-only until
+#   the launch is complete. Two things are not in place yet:
+#     1. CROSS_SERVICE_SECRET does not exist as a repository secret, so any run
+#        that finds unpaid-but-granted drift FAILS on that missing variable. That
+#        failure is correct - a skipped lock phase looks like a healthy system -
+#        but it means a nightly run would go red for a configuration step rather
+#        than for a customer who paid and got nothing, and an alert that fires
+#        for the wrong reason stops being read.
+#     2. The globe's tier-lock sweep endpoint ships with globe PR #511
+#        fix/billing-tier-lock-policy-defects. Until that PR is deployed the
+#        endpoint answers 404. The runner treats that as NOT DEPLOYED, prints a
+#        banner and keeps exit code 0, but a nightly job that reports an
+#        undeployed dependency every night is still noise nobody should wake up
+#        to before the rest of the launch is ready.
+#
+#   So merging this must not start a nightly job that is guaranteed to fail.
+#   Restore the trigger (a `schedule:` block with `cron: '0 6 * * *'`) only AFTER
+#   the secret exists and the globe PR is deployed - in the same PR that makes
+#   the first scheduled run meaningful. Removing this workflow's failure, or
+#   adding `continue-on-error`, is never the fix: the exit code IS the alert.
+#
+# WHY workflow_dispatch ALONE
+#   A scheduled workflow only runs from the default branch, and GitHub disables a
+#   schedule after 60 days of repository inactivity. Manual dispatch keeps the
+#   check available for an on-demand run right after a billing incident, and it
+#   is what lets this land now without turning on the nightly job.
+#
+# SECRETS AND VARIABLES
+#   SUPABASE_DB_URL   the only credential that reaches the hub database from a
+#                     runner. There is no Supabase URL secret and no
+#                     service-role-key secret, and no environment-scoped
+#                     secrets exist, so PostgREST is not an option here.
+#   STRIPE_SECRET_KEY used read-only; the script only ever issues GET requests.
+#   CROSS_SERVICE_SECRET is NOT a repository secret. Adding it is a human step,
+#                     and until it exists a run that finds unpaid-but-granted
+#                     drift fails loudly on that specific missing variable
+#                     instead of silently skipping the globe lock sweep. That is
+#                     deliberate: a skipped lock phase looks like a healthy
+#                     system. Wiring it here means the sweep starts working the
+#                     moment the secret is added, with no code change.
+#   WWV_GLOBE_URL     the globe's base URL, the other half of the sweep's
+#                     configuration. Not a secret, so it is a repository
+#                     variable with an explicit default here rather than a
+#                     hidden fallback in the script. Set the variable to point
+#                     a run somewhere else (staging); the script itself never
+#                     invents a URL and fails if this is empty.
+# =============================================================================
+
+name: Billing reconciliation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile Stripe against the durable billing record
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run the reconciliation
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          CROSS_SERVICE_SECRET: ${{ secrets.CROSS_SERVICE_SECRET }}
+          WWV_GLOBE_URL: ${{ vars.WWV_GLOBE_URL || 'https://cloud-wwv.dev' }}
+        run: node scripts/billing-reconcile.mjs
