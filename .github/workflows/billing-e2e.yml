@@ -297,7 +297,10 @@ jobs:
 
       - name: Bring up billing test stack
         env:
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          # Dedicated test-account key: STRIPE_SECRET_KEY was rotated to a
+          # Stripe account that lacks the hardcoded price IDs, so billing-e2e
+          # uses its own secret pinned to the account that does.
+          STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           # CRITICAL: route the hub's Stripe SDK at the REAL Stripe API in CI.
           # docker-compose.test.yml defaults STRIPE_HOST/PORT/PROTOCOL to
@@ -422,7 +425,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
           SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          # Same dedicated test-account key (see comment on the compose step above).
+          STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           # NOTE: do NOT set STRIPE_BASE_URL here. The specs' direct Stripe
           # helpers (findActiveSubscription/cancelSubscription/cancelAtPeriodEnd

@@ -168,3 +168,92 @@ describe("POST /api/billing/checkout — runtime kill switch", () => {
     });
   });
 });
+
+// ── Stripe API failure handling ─────────────────────────────────────
+//
+// ANTI-VACUITY: against the pre-guard route these tests FAIL before any
+// assertion is evaluated — the thrown Stripe error propagates out of POST and
+// rejects the awaited promise (Next.js would turn it into an empty-body 500),
+// so `res.status` could never match. They cannot pass against an unguarded
+// route, and they cannot pass by returning the old 200 either.
+
+describe("POST /api/billing/checkout — Stripe API failure", () => {
+  function stripeThrow(type: string, code?: string, param?: string): Error {
+    // Stripe-shaped error without importing the SDK: the route detects it
+    // structurally (type/code/param), mirroring the wire contract.
+    const err = new Error(`Stripe ${type}${code ? ` (code ${code})` : ""}`);
+    if (type) (err as { type?: string }).type = type;
+    if (code) (err as { code?: string }).code = code;
+    if (param) (err as { param?: string }).param = param;
+    return err;
+  }
+
+  it("answers 429 with the Stripe error type when customers.search is rate limited", async () => {
+    mockCustomersSearch.mockRejectedValue(stripeThrow("rate_limit_error"));
+
+    const res = await POST(buildRequest());
+    const body = await bodyOf(res);
+
+    expect(res.status).toBe(429);
+    expect(body.error).toBe("Billing is busy right now. Please try again in a moment.");
+    expect(body.stripe_error).toEqual({ type: "rate_limit_error" });
+    expect(mockSessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it("answers 402 with type+code when the card is declined at session creation", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersCreate.mockResolvedValue({ id: "cus_new" });
+    mockSessionsCreate.mockRejectedValue(stripeThrow("card_error", "insufficient_funds", "card"));
+
+    const res = await POST(buildRequest());
+    const body = await bodyOf(res);
+
+    expect(res.status).toBe(402);
+    expect(body.error).toBe(
+      "Your payment method was declined. Please try another card or contact your bank.",
+    );
+    expect(body.stripe_error).toEqual({
+      type: "card_error",
+      code: "insufficient_funds",
+      param: "card",
+    });
+    expect(mockCustomersCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers 502 with Stripe's type when customer creation is rejected as invalid request", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersCreate.mockRejectedValue(stripeThrow("invalid_request_error"));
+
+    const res = await POST(buildRequest());
+    const body = await bodyOf(res);
+
+    expect(res.status).toBe(502);
+    expect(body.error).toBe("Checkout could not be started. Please try again later.");
+    expect(body.stripe_error).toEqual({ type: "invalid_request_error" });
+    expect(mockSessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it("answers 500 for a non-Stripe exception instead of exposing it as a Stripe failure", async () => {
+    mockSessionsCreate.mockRejectedValue(new TypeError("cannot read properties of undefined"));
+
+    const res = await POST(buildRequest());
+    const body = await bodyOf(res);
+
+    expect(res.status).toBe(500);
+    expect(body.error).toBe("Checkout could not be started. Please try again later.");
+    expect(body.stripe_error).toEqual({ type: "non_stripe_error" });
+  });
+
+  it("must always answer with parseable JSON: even an unknown shape keeps the contract", async () => {
+    // Regression anchor for the CI-e2e breakage: resp.json() never sees an
+    // empty body again, whatever the Stripe client throws.
+    mockSessionsCreate.mockRejectedValue("a raw string, not an Error");
+
+    const res = await POST(buildRequest());
+    const body = await bodyOf(res);
+
+    expect(res.status).toBe(500);
+    expect(body.error).toBe("Checkout could not be started. Please try again later.");
+    expect(body.stripe_error).toEqual({ type: "non_stripe_error" });
+  });
+});
