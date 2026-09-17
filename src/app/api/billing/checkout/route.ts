@@ -106,34 +106,106 @@ export async function POST(req: Request) {
 
   const origin = req.headers.get("origin") || "https://wwv.local";
 
-  let customerId: string;
-  const customers = await stripe.customers.search({
-    query: `metadata['userId']:'${user.id}'`,
-    limit: 1,
-  });
-  if (customers.data.length > 0) {
-    customerId = customers.data[0].id;
-  } else {
-    const customer = await stripe.customers.create({
-      email: user.email || undefined,
-      metadata: { userId: user.id },
+  // The three Stripe calls below were unguarded: any Stripe API failure (rate
+  // limit, invalid key, session-creation failure) escaped as Next.js's
+  // unhandled 500 with an empty body, which clients cannot read as JSON. The
+  // success branch returns exactly what it returned before — only the failure
+  // path gained a JSON response.
+  try {
+    let customerId: string;
+    const customers = await stripe.customers.search({
+      query: `metadata['userId']:'${user.id}'`,
+      limit: 1,
     });
-    customerId = customer.id;
+    if (customers.data.length > 0) {
+      customerId = customers.data[0].id;
+    } else {
+      const customer = await stripe.customers.create({
+        email: user.email || undefined,
+        metadata: { userId: user.id },
+      });
+      customerId = customer.id;
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: 7,
+        metadata: { userId: user.id, plan, interval },
+      },
+      client_reference_id: user.id,
+      metadata: { userId: user.id, plan, interval, email: user.email || "" },
+      success_url: `${origin}/accounts/billing?status=success`,
+      cancel_url: `${origin}/pricing?status=cancelled`,
+    });
+
+    return NextResponse.json({ url: checkoutSession.url });
+  } catch (err) {
+    const stripeErr = stripeErrorOf(err);
+    // Log type/code only: Stripe messages never contain secrets, but they are
+    // not needed for observability and avoid leaking upstream detail text.
+    console.error(
+      `[billing] checkout Stripe call failed - type=${stripeErr.type}${stripeErr.code ? ` code=${stripeErr.code}` : ""}${stripeErr.param ? ` param=${stripeErr.param}` : ""}`,
+    );
+    const body: {
+      error: string;
+      stripe_error: { type: string; code?: string; param?: string };
+    } = {
+      error: stripeErrorMessage(stripeErr.type, stripeErr.code),
+      stripe_error: {
+        type: stripeErr.type,
+        ...(stripeErr.code !== undefined ? { code: stripeErr.code } : {}),
+        ...(stripeErr.param !== undefined ? { param: stripeErr.param } : {}),
+      },
+    };
+    return NextResponse.json(body, { status: stripeErrorStatus(stripeErr.type) });
   }
+}
 
-  const checkoutSession = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
-    subscription_data: {
-      trial_period_days: 7,
-      metadata: { userId: user.id, plan, interval },
-    },
-    client_reference_id: user.id,
-    metadata: { userId: user.id, plan, interval, email: user.email || "" },
-    success_url: `${origin}/accounts/billing?status=success`,
-    cancel_url: `${origin}/pricing?status=cancelled`,
-  });
+// Typed view of Stripe's error shape (node SDK classes expose type/code/param
+// on StripeError subclasses). Structural, so no Stripe import is needed here.
+interface StripeErrorLike {
+  type?: unknown;
+  code?: unknown;
+  param?: unknown;
+}
 
-  return NextResponse.json({ url: checkoutSession.url });
+// Extract the Stripe wire-level error fields from a thrown error. Anything
+// that does not look like a Stripe SDK error maps to a distinct sentinel so a
+// plain internal bug reports 500 instead of pretending to know what Stripe said.
+function stripeErrorOf(err: unknown): {
+  type: string;
+  code?: string;
+  param?: string;
+} {
+  if (!(err instanceof Error)) return { type: "non_stripe_error" };
+  const shaped = err as StripeErrorLike;
+  if (typeof shaped.type !== "string") return { type: "non_stripe_error" };
+  return {
+    type: shaped.type,
+    ...(typeof shaped.code === "string" ? { code: shaped.code } : {}),
+    ...(typeof shaped.param === "string" ? { param: shaped.param } : {}),
+  };
+}
+
+function stripeErrorStatus(type: string): number {
+  if (type === "card_error") return 402;
+  if (type === "rate_limit_error") return 429;
+  if (type === "non_stripe_error") return 500;
+  // Stripe-typed but server/config/transport related (api_error,
+  // api_connection_error, invalid_request_error, authentication_error) are
+  // not the client's doing: report like an upstream failure.
+  return 502;
+}
+
+function stripeErrorMessage(type: string, code: string | undefined): string {
+  if (type === "card_error") {
+    return "Your payment method was declined. Please try another card or contact your bank.";
+  }
+  if (type === "rate_limit_error") {
+    return "Billing is busy right now. Please try again in a moment.";
+  }
+  return "Checkout could not be started. Please try again later.";
 }
