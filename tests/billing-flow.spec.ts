@@ -3,6 +3,14 @@ import { test, expect, type Page } from '@playwright/test';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
 import { directTierSync, triggerTierLockSweep } from './lib/globe-sync';
+import {
+  STRIPE_CARD_DECLINE,
+  attemptPaymentWithCard,
+  findOrCreateCustomer,
+  formatCardNumber,
+  listSubscriptionIds,
+  testCardNumber,
+} from './lib/stripe';
 import { getDefaultPriceId } from '../src/lib/billing/constants';
 
 /**
@@ -30,6 +38,16 @@ import { getDefaultPriceId } from '../src/lib/billing/constants';
  *            a real API-created trialing subscription) instead of a second
  *            hosted-checkout card payment — Stripe's invisible hCaptcha blocks
  *            card submission from CI datacenter IPs (Stripe-owned, no fix).
+ *   Test 5 — declined card: drives the Stripe decline card 4000000000000002
+ *            against the REAL test API and asserts the money-path consequence —
+ *            the decline is rejected, creates no subscription, and grants no
+ *            entitlement (org_tier stays free/canceled, workspace unlocked).
+ *            The in-browser decline render is NOT covered: it is the same
+ *            hosted card form as the success path, behind the same hCaptcha
+ *            wall. See the test body for the exact covered/not-covered split.
+ *
+ * CARD CONFIGURATION: `fillStripeCard` types STRIPE_TEST_CARD (default
+ * 4242424242424242), so a test card can be swapped without editing this file.
  *
  * MOVED from the globe repo (worldwideview.fix-billing-tier) — the hub now owns
  * billing (ADR-0009). The suite still depends on GLOBE-SPECIFIC services:
@@ -184,9 +202,13 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
  * the top checkout frame (NO `name="cardNumber"`-style named iframes anymore).
  * Country defaults to the browser's geo (NZ here) and must be set to US so the
  * 4242 test card + ZIP postcode are accepted.
+ *
+ * The card is env-driven (STRIPE_TEST_CARD, default the success card); the
+ * expiry/CVC/postcode below are accepted by every Stripe test card, so a
+ * decline card fails on the number itself rather than on an unrelated field.
  */
 async function fillStripeCard(page: Page): Promise<void> {
-  await page.getByPlaceholder('1234 1234 1234 1234').fill('4242 4242 4242 4242');
+  await page.getByPlaceholder('1234 1234 1234 1234').fill(formatCardNumber(testCardNumber()));
   await page.getByPlaceholder('MM / YY').fill('12/32');
   await page.getByRole('textbox', { name: 'CVC' }).fill('123');
   await page.getByPlaceholder('Full name on card').fill('Billing E2E User');
@@ -204,6 +226,11 @@ async function fillStripeCard(page: Page): Promise<void> {
   await pay.click();
 }
 
+/** Thin wrapper so Test 4/5 call the shared helper with this suite's identity. */
+function findOrCreateTestCustomer(): Promise<string> {
+  return findOrCreateCustomer(TEST_EMAIL, 'Billing E2E User');
+}
+
 /**
  * Create a REAL trialing Stripe subscription via the REST API (no browser, no
  * hosted checkout, no hCaptcha). Used by Test 4 to have a live subscription to
@@ -214,27 +241,7 @@ async function fillStripeCard(page: Page): Promise<void> {
  * has no webhook listener, so the tier assertions rely on the direct path.
  */
 async function createTrialingSubscription(): Promise<{ id: string; status: string }> {
-  let customerId: string | null = null;
-  const customersRes = await fetch(
-    `${STRIPE_BASE}/customers?email=${encodeURIComponent(TEST_EMAIL)}&limit=10`,
-    { headers: stripeHeaders() },
-  );
-  const customers = await customersRes.json();
-  const existing = (customers.data || []).find(
-    (c: { email: string; id: string }) => c.email === TEST_EMAIL,
-  );
-  if (existing) {
-    customerId = existing.id;
-  } else {
-    const createRes = await fetch(`${STRIPE_BASE}/customers`, {
-      method: 'POST',
-      headers: stripeHeaders(),
-      body: new URLSearchParams({ email: TEST_EMAIL, name: 'Billing E2E User' }).toString(),
-    });
-    const created = await createRes.json();
-    expect(createRes.ok, `stripe customer create failed: ${JSON.stringify(created).slice(0, 120)}`).toBeTruthy();
-    customerId = created.id;
-  }
+  const customerId = await findOrCreateTestCustomer();
 
   // Same pro price the hub's checkout route uses (getPriceId('pro', 'month'));
   // env override wins when CI injects a rotated test-account price; otherwise
@@ -245,7 +252,7 @@ async function createTrialingSubscription(): Promise<{ id: string; status: strin
     method: 'POST',
     headers: stripeHeaders(),
     body: new URLSearchParams({
-      customer: customerId!,
+      customer: customerId,
       'items[0][price]': priceId,
       trial_period_days: '7',
       'metadata[source]': 'billing-e2e-test4',
@@ -550,4 +557,112 @@ test('cancel at period end → tier stays pro/trialing and workspace stays unloc
   } catch (err) {
     console.warn('[billing] cleanup delete failed (leaving period-end sub active):', String(err).slice(0, 120));
   }
+});
+
+// ---------------------------------------------------------------------------
+// Test 5 — declined card → no entitlement granted
+// ---------------------------------------------------------------------------
+
+/**
+ * Drive a REAL declined card against Stripe test mode and assert the money-path
+ * contract: a decline grants NOTHING on our side.
+ *
+ * WHY NOT THE HOSTED CHECKOUT PAGE (structural, not a shortcut):
+ *   Tests 1-2 already establish that the hosted page's card form cannot be
+ *   submitted from CI datacenter IPs — Stripe runs an invisible hCaptcha there
+ *   (Stripe-owned bot wall, no fix), so `fillStripeCard` times out waiting for
+ *   a post-click redirect. The decline card does not remove that wall: it is
+ *   the SAME form, submitted the same way, so an in-browser decline is exactly
+ *   as unreachable as an in-browser success. Asserting it here would produce a
+ *   test that can only pass on a developer machine and times out in CI — the
+ *   opposite of coverage.
+ *
+ *   The user-visible decline text itself ("Your card was declined") is rendered
+ *   by Stripe INSIDE its hosted page, which is sandboxed from our app and not
+ *   ours to assert. What IS ours, and what this test asserts, is the consequence
+ *   that actually matters for launch: a decline must not grant entitlement.
+ *
+ * WHAT THIS TEST DOES COVER (real Stripe test API, the decline card, our price):
+ *   1. the decline card `4000000000000002` is genuinely rejected by Stripe
+ *      (`card_declined` / `generic_decline`), i.e. the card this suite can be
+ *      pointed at with STRIPE_TEST_CARD behaves as a decline and not as a
+ *      silent success;
+ *   2. no subscription is created for the customer, so nothing can later sync a
+ *      paid tier — asserted against Stripe's own subscription list;
+ *   3. the globe-side state is untouched: org_tier stays free/canceled and the
+ *      workspace stays unlocked, so the decline granted no entitlement.
+ *
+ * WHAT THIS TEST DOES NOT COVER (stated so it is not mistaken for coverage):
+ *   the in-browser decline render on Stripe's hosted page, and the redirect/
+ *   cancel_url round-trip after a decline. Both live behind the same hCaptcha
+ *   wall as the success path; the hub's own handler semantics for a failed
+ *   payment are covered by the webhook unit tests and the offline L1 simulator
+ *   (invoice.payment_failed fixture), not by this browser suite.
+ */
+test('declined card → no subscription and no entitlement granted', async () => {
+  test.setTimeout(120000);
+
+  // The decline card must be driven explicitly: the suite default is the
+  // success card, and running this test with STRIPE_TEST_CARD set to something
+  // that does not decline would silently turn the assertion into a no-op.
+  const card = STRIPE_CARD_DECLINE;
+
+  // Test 4 left the org at pro/trialing. Reset to the free baseline so a
+  // "no entitlement" assertion below cannot pass merely because some earlier
+  // state happened to be free already, and so a LEAKED grant would be visible.
+  await directTierSync(TEST_EMAIL, 'free', 'canceled');
+  await expect
+    .poll(
+      async () => {
+        const row = await globeDb.getOrgTier(testOrgId);
+        return row ? `${row.tier}/${row.status}` : null;
+      },
+      { timeout: 45000, intervals: [1500] },
+    )
+    .toBe('free/canceled');
+
+  // Use the seeded user's own Stripe customer so the assertion below is about
+  // the customer this suite actually bills, not a detached throwaway.
+  const customerId = await findOrCreateTestCustomer();
+  const subsBefore = await listSubscriptionIds(customerId);
+
+  // Attempt the payment with the DECLINE card. Stripe rejects it server-side;
+  // there is no entitlement to observe because the charge never succeeds.
+  const decline = await attemptPaymentWithCard(customerId, card);
+  expect(
+    decline.ok,
+    `the decline card ${card} must be REJECTED by Stripe (a success here means ` +
+      `the suite is not actually exercising a decline)`,
+  ).toBe(false);
+  expect(
+    decline.code,
+    `expected Stripe to reject the card with card_declined, got ${decline.code ?? decline.message ?? 'no code'}`,
+  ).toBe('card_declined');
+  console.log(`[billing] decline card rejected as expected: ${decline.code}/${decline.declineCode}`);
+
+  // No subscription appeared, so no tier sync can ever fire for this attempt.
+  const subsAfter = await listSubscriptionIds(customerId);
+  expect(
+    subsAfter,
+    `a declined payment must not create a subscription (before=${subsBefore.length}, after=${subsAfter.length})`,
+  ).toEqual(subsBefore);
+
+  // Our side granted nothing: still free, still unlocked.
+  const tierAfter = await globeDb.getOrgTier(testOrgId);
+  expect(tierAfter, 'org_tiers row missing after the decline').toBeTruthy();
+  expect(`${tierAfter!.tier}/${tierAfter!.status}`).toBe('free/canceled');
+
+  const wsAfter = await globeDb.findWorkspaceByOwner(testUserId);
+  expect(wsAfter, 'seeded workspace missing after the decline').toBeTruthy();
+  expect(wsAfter!.locked, 'a declined payment must not lock the workspace').toBe(false);
+
+  test.info().annotations.push({
+    type: 'issue',
+    description:
+      'Decline driven against the real Stripe test API, not the hosted checkout page: ' +
+      'Stripe\'s hosted card form (success OR decline) is behind an invisible hCaptcha that ' +
+      'blocks submission from CI datacenter IPs. The in-browser decline render is therefore ' +
+      'NOT covered; the entitlement consequence is.',
+  });
+  console.log('[billing] decline granted nothing: no subscription, org_tier = free/canceled, workspace unlocked');
 });

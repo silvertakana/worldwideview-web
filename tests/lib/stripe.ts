@@ -17,6 +17,177 @@ export function stripeHeaders(): Record<string, string> {
 }
 
 /**
+ * Stripe TEST card numbers. Public, non-secret identifiers — safe to commit.
+ * The success card is the suite default; the decline card drives the decline
+ * scenario. See fillStripeCard in billing-flow.spec.ts for the env override.
+ */
+export const STRIPE_CARD_SUCCESS = '4242424242424242';
+export const STRIPE_CARD_DECLINE = '4000000000000002';
+
+/**
+ * The single-use test token that maps to the decline card.
+ *
+ * Stripe refuses raw card numbers on the API ("Sending credit card numbers
+ * directly to the Stripe API is generally unsafe") unless raw-card-data access
+ * is explicitly enabled on the account, so the decline is driven through the
+ * documented test token instead. `tok_chargeDeclined` is Stripe's canonical
+ * always-declined card (the 4000 0000 0000 0002 number above).
+ */
+export const STRIPE_TOKEN_CHARGE_DECLINED = 'tok_chargeDeclined';
+
+/**
+ * The card the suite types into hosted checkout.
+ *
+ * Defaults to the success card, so every pre-existing test is unchanged when
+ * STRIPE_TEST_CARD is unset. Set it to drive a different test card without
+ * editing the spec.
+ */
+export function testCardNumber(): string {
+  return process.env.STRIPE_TEST_CARD || STRIPE_CARD_SUCCESS;
+}
+
+/** Stripe's hosted form displays card numbers grouped in fours. */
+export function formatCardNumber(digits: string): string {
+  return digits.replace(/(.{4})/g, '$1 ').trim();
+}
+
+/**
+ * The Stripe customer for an email, created on first use. Shared so the
+ * period-end and decline scenarios agree on which customer they bill.
+ */
+export async function findOrCreateCustomer(email: string, name: string): Promise<string> {
+  const customersRes = await fetch(`${STRIPE_BASE}/customers?email=${encodeURIComponent(email)}&limit=10`, {
+    headers: stripeHeaders(),
+  });
+  const customers = await customersRes.json();
+  const existing = (customers.data || []).find(
+    (c: { email: string; id: string }) => c.email === email,
+  );
+  if (existing) return existing.id as string;
+
+  const createRes = await fetch(`${STRIPE_BASE}/customers`, {
+    method: 'POST',
+    headers: stripeHeaders(),
+    body: new URLSearchParams({ email, name }).toString(),
+  });
+  const created = await createRes.json();
+  if (!createRes.ok || !created.id) {
+    throw new Error(`stripe customer create failed: ${JSON.stringify(created).slice(0, 120)}`);
+  }
+  return created.id as string;
+}
+
+/** Every subscription id on a customer, sorted so two reads compare cleanly. */
+export async function listSubscriptionIds(customerId: string): Promise<string[]> {
+  const res = await fetch(`${STRIPE_BASE}/subscriptions?customer=${customerId}&limit=100`, {
+    headers: stripeHeaders(),
+  });
+  const body = await res.json();
+  const ids = ((body.data || []) as Array<{ id: string }>).map((s) => s.id);
+  return ids.sort();
+}
+
+/** The outcome of a declined-card payment attempt, as Stripe reported it. */
+export interface DeclineResult {
+  ok: boolean;
+  code: string | null;
+  declineCode: string | null;
+  message: string | null;
+}
+
+/**
+ * Drive the decline card and attempt a real charge, returning Stripe's verdict
+ * instead of throwing.
+ *
+ * A decline is NOT observable when a card is merely stored: Stripe accepts the
+ * number and only rejects it when money actually moves. The card is therefore
+ * materialized as a payment method and then USED for a confirmed off-session
+ * PaymentIntent, which is where Stripe returns `card_declined`.
+ *
+ * `cardNumber` is accepted for readability at the call site and must equal the
+ * decline card's number; the account blocks raw card data, so the number is
+ * mapped to Stripe's documented test token rather than sent verbatim.
+ *
+ * Doing this over the REST API is what makes the decline reachable without a
+ * browser, and therefore without the hosted page's hCaptcha (see the spec's
+ * Test 5 notes).
+ */
+export async function attemptPaymentWithCard(
+  customerId: string,
+  cardNumber: string,
+): Promise<DeclineResult> {
+  if (cardNumber !== STRIPE_CARD_DECLINE) {
+    throw new Error(
+      `attemptPaymentWithCard drives the decline path only; got card ${cardNumber}`,
+    );
+  }
+
+  const pmRes = await fetch(`${STRIPE_BASE}/payment_methods`, {
+    method: 'POST',
+    headers: stripeHeaders(),
+    body: new URLSearchParams({
+      type: 'card',
+      'card[token]': STRIPE_TOKEN_CHARGE_DECLINED,
+    }).toString(),
+  });
+  const pm = await pmRes.json();
+  if (!pmRes.ok || !pm.id) {
+    return {
+      ok: false,
+      code: pm?.error?.code ?? null,
+      declineCode: pm?.error?.decline_code ?? null,
+      message: pm?.error?.message ?? 'payment method creation failed',
+    };
+  }
+
+  const attachRes = await fetch(`${STRIPE_BASE}/payment_methods/${pm.id}/attach`, {
+    method: 'POST',
+    headers: stripeHeaders(),
+    body: new URLSearchParams({ customer: customerId }).toString(),
+  });
+  if (!attachRes.ok) {
+    const attached = await attachRes.json();
+    return {
+      ok: false,
+      code: attached?.error?.code ?? null,
+      declineCode: attached?.error?.decline_code ?? null,
+      message: attached?.error?.message ?? 'payment method attach failed',
+    };
+  }
+
+  // Confirm the charge against the stored card. Stripe rejects the DECLINE card
+  // here; a success card would return `succeeded`. Off-session confirmation
+  // mirrors the merchant-initiated billing a declined renewal would hit.
+  const piRes = await fetch(`${STRIPE_BASE}/payment_intents`, {
+    method: 'POST',
+    headers: stripeHeaders(),
+    body: new URLSearchParams({
+      amount: '1900',
+      currency: 'usd',
+      customer: customerId,
+      payment_method: pm.id as string,
+      confirm: 'true',
+      off_session: 'true',
+    }).toString(),
+  });
+  const pi = await piRes.json();
+  console.log(
+    `[billing] decline-card charge attempt -> ${piRes.status}, code=${pi?.error?.code ?? pi?.status ?? 'none'}`,
+  );
+
+  if (piRes.ok && !pi?.error) {
+    return { ok: true, code: null, declineCode: null, message: null };
+  }
+
+  return {
+    ok: false,
+    code: pi?.error?.code ?? null,
+    declineCode: pi?.error?.decline_code ?? null,
+    message: pi?.error?.message ?? null,
+  };
+}
+
+/**
  * Best-effort: cancel every NON-TERMINAL subscription across EVERY Stripe
  * customer matching the email. Used at setup/teardown boundaries so leftover
  * subscriptions from prior CI runs (teardown purges globe rows and deletes the
