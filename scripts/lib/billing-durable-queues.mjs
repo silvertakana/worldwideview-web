@@ -30,7 +30,7 @@
  * TWO SHAPES OF webhook_events, NOT ONE
  *   20260806000001 created the table as
  *   `processed_at TIMESTAMPTZ NOT NULL DEFAULT now()`, a shape in which an
- *   unfinished row cannot exist at all. 20260915000001 drops that DEFAULT and
+ *   unfinished row cannot exist at all. 20260915140000 drops that DEFAULT and
  *   that NOT NULL in one statement and adds `last_error` and `last_attempt_at`
  *   in a second, so a half-applied migration leaves a nullable `processed_at`
  *   with no timestamp to age an unfinished event against. Which shape is in
@@ -86,7 +86,7 @@ export const SAMPLE_LIMIT = 20
  * webhook currently being processed, so it cannot be called stuck here - and it
  * cannot be called fine either, which is why gradeDurableQueues reports it as
  * the INCOMPLETE answer it is. Closing the gap needs a `claimed_at` column on the
- * 20260915000001 migration, not a change in this module.
+ * 20260915140000 migration, not a change in this module.
  */
 
 /**

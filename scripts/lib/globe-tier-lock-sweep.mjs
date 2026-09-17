@@ -39,9 +39,11 @@
  *   object all fail the run rather than being skipped.
  *
  * AN ABSENT ENDPOINT IS NOT A RED RUN
- *   The globe this runner calls is PR #511 `fix/billing-tier-lock-policy-defects`.
- *   Until that PR is deployed, `POST /api/service/tier-lock-sweep` does not exist
- *   and the globe answers 404. That is a deploy that is behind, not a customer
+ *   The globe this runner calls is the tier-lock sweep endpoint merged to the
+ *   globe repo's main via PR #515 (`fix/billing-tier-lock-policy-defects-rebased`,
+ *   merged 2026-09-15, the rebased replacement for the closed PR #511).
+ *   Until the globe deployment that carries that merged PR is live, `POST
+ *   /api/service/tier-lock-sweep` does not exist and the globe answers 404. That is a deploy that is behind, not a customer
  *   who paid and got nothing, and the two must not share an alert: a nightly job
  *   that reddens every night until an unrelated deploy lands is a job whose red
  *   stops meaning anything, and the whole point of this runner is that its red
@@ -64,12 +66,12 @@
  *   missing one fails by name rather than aiming a signed request at whatever
  *   URL happened to be lying around.
  *
- * CROSS_SERVICE_SECRET is NOT a repository secret today (verified against
- * `gh secret list`: the repo has exactly LITELLM_API_KEY, OPENCODE_API_KEY,
- * STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and SUPABASE_DB_URL). Adding it is a
- * human step. Until it exists, a run that finds unpaid-but-granted drift fails
- * here on that specific missing variable rather than silently skipping the
- * sweep: a quietly skipped lock phase looks exactly like a healthy system.
+ * CROSS_SERVICE_SECRET exists as a GitHub repository secret (verified 2026-09-17
+ * via `gh secret list`: added 2026-09-15T12:31:42Z, alongside LITELLM_API_KEY,
+ * OPENCODE_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and SUPABASE_DB_URL).
+ * A run that finds unpaid-but-granted drift still fails on that specific missing
+ * variable rather than silently skipping the sweep: a quietly skipped lock phase
+ * looks exactly like a healthy system.
  *
  * THE SIGNING IS A PORT, NOT AN INVENTION
  *   The canonical string and header shape below are a port of the hub's own
@@ -292,8 +294,9 @@ async function sweepOnce(baseUrl, secret) {
   const text = await response.text()
   if (!response.ok) {
     // 404 is the ONE status that is not an alert. The route this runner calls
-    // ships with the globe's PR #511, so until that PR is deployed the globe
-    // answers 404 for a path that does not exist yet - a deploy that is behind,
+    // ships with the globe's merged PR #515 (the rebased replacement for the
+    // closed PR #511), so until a globe deployment carrying that merge is live
+    // the globe answers 404 for a path that does not exist yet - a deploy that is behind,
     // not a billing incident. Reddening the schedule for it would make the red
     // mean "a deploy is behind" as often as it means "a customer paid and got
     // nothing", and an alert that means two things means nothing.
@@ -391,8 +394,9 @@ export async function requestTierLockSweep({ emails = [] } = {}) {
       console.log(
         `[reconcile] sweep NOT DEPLOYED: the globe answered HTTP ${SWEEP_NOT_DEPLOYED_STATUS} for ` +
           `POST ${baseUrl}${TIER_LOCK_SWEEP_PATH}, so no lock deadline was enforced on this run. ` +
-          'That endpoint ships with globe PR #511 fix/billing-tier-lock-policy-defects; until it is ' +
-          'deployed, the sweep cannot run. This is NOT a red run and NOT a clean sweep: nothing ' +
+          'That endpoint shipped with globe PR #515 (fix/billing-tier-lock-policy-defects-rebased, the ' +
+          'merged replacement for the closed PR #511); until a globe deployment carrying it is live, ' +
+          'the sweep cannot run. This is NOT a red run and NOT a clean sweep: nothing ' +
           'here says the armed deadlines were enforced, so lapsed free-plan grants stay unlocked ' +
           'until the deploy lands. It is not reported as drift because a deploy that is behind is ' +
           'not a customer who paid and got nothing, and the alert must keep meaning the second thing.',

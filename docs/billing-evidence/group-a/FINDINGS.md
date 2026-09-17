@@ -49,7 +49,7 @@ answered by observed network traffic rather than by a spy.
 **Ledger environment.** Container `supabase_db_worldwideview-web.billing-rehearsal`, database
 `postgres`, table `public.webhook_events`, reached through Kong/PostgREST at
 `http://127.0.0.1:54321`. Migration
-`supabase/migrations/20260915000001_webhook_events_completion_state.sql` was applied to it by
+`supabase/migrations/20260915140000_webhook_events_completion_state.sql` was applied to it by
 the orchestrator (it was at the pre-fix shape, `processed_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 before this work). All Group A fixture rows use the `evt_groupa_%` prefix and are enumerated in
 the transcript's post-state section.
