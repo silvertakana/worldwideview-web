@@ -56,8 +56,7 @@ cannot be called fine: it is printed, and it makes the run `INCOMPLETE`.
 ### The migration this depends on, and what it really does
 
 `webhook_events` grows `last_attempt_at` and `last_error`, and stops requiring `processed_at`, in
-`supabase/migrations/20260915000001_webhook_events_completion_state.sql` (branch
-`fix/billing-launch-hardening`).
+`supabase/migrations/20260915140000_webhook_events_completion_state.sql`.
 
 An earlier version of this page said that a database without that migration fails the job with
 `column "last_attempt_at" does not exist`. That is wrong, and the code is the reason. The check asks
