@@ -4,16 +4,23 @@ import { useState, useEffect } from "react";
 import { Check } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { BILLING_ENABLED, BILLING_PAUSED_MESSAGE } from "@/lib/billing/constants";
+import {
+  BILLING_ENABLED,
+  BILLING_PAUSED_MESSAGE,
+  PRICING_DISPLAY,
+  formatPrice,
+} from "@/lib/billing/constants";
 import TrackedLink from "@/components/TrackedLink";
 import AnimateIn from "@/components/AnimateIn";
 import styles from "./page.module.css";
 
+// The prices come from PRICING_DISPLAY so this page cannot show a different
+// number, or a different currency, from the one Stripe Checkout charges in.
 const TIERS = [
   {
     name: "Local: Free",
     desc: "Clone, run, and own your data.",
-    price: "$0",
+    price: formatPrice(PRICING_DISPLAY.local.amount, PRICING_DISPLAY.local.currency),
     label: "forever",
     highlighted: false,
     cta: { label: "Download", href: "/download" },
@@ -28,7 +35,7 @@ const TIERS = [
   {
     name: "Cloud: Pro",
     desc: "Full cloud instance with real-time data, team collaboration, and all plugins.",
-    price: "$19",
+    price: formatPrice(PRICING_DISPLAY.proMonthly.amount, PRICING_DISPLAY.proMonthly.currency),
     label: "/month",
     highlighted: true,
     features: [
