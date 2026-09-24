@@ -20,15 +20,17 @@ export default function RedeemForm() {
     try {
       const result = await redeemCode(code)
 
-      if (result?.error) {
+      if ('error' in result) {
         setError(result.error)
+        // Left un-reset before, so one rejection disabled the button for good:
+        // a mistyped code could not be retyped. The partial failure (the code
+        // landed, the globe was not told) reaches this branch too, and its
+        // message tells the customer not to enter the code again.
+        setLoading(false)
         return
       }
 
-      if (result?.success) {
-        router.push('/accounts/instances')
-        return
-      }
+      router.push('/accounts/instances')
     } catch {
       setError('Something went wrong. Please try again.')
     }
