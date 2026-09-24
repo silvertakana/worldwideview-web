@@ -10,12 +10,22 @@ import {
   bulkUnrevokeCodes,
   bulkDeleteCodes,
 } from './actions'
+import { CODE_TIERS, codeTierLabel, isCodeTier } from '@/lib/billing/code-tiers'
 import styles from './CodesTable.module.css'
 import type { AccessCode } from './page'
 
-const TIERS = ['beta_tester', 'early_access', 'pro', 'enterprise'] as const
 const STATUS_FILTERS = ['all', 'available', 'revoked', 'expired', 'redeemed'] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
+
+/**
+ * A code may only be SET to a tier the globe accepts (CODE_TIERS), but codes
+ * issued before that restriction exist and still carry a hub-only tier. Their own
+ * tier stays selectable so the row renders and can be migrated; anything else
+ * would silently rewrite the tier of a code an operator only wanted to annotate.
+ */
+function tierOptions(current: string): readonly string[] {
+  return (CODE_TIERS as readonly string[]).includes(current) ? CODE_TIERS : [current, ...CODE_TIERS]
+}
 
 function getStatus(code: AccessCode): { label: string; className: string } {
   if (code.revoked_at) return { label: 'Revoked', className: styles.statusRevoked }
@@ -78,6 +88,15 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
     return result
   }, [codes, statusFilter, tierFilter, searchQuery, sortField, sortDir])
 
+  // Codes issued before the tier restriction still exist and still carry a
+  // hub-only tier, so the filter offers whatever the loaded rows actually hold.
+  // Listing only CODE_TIERS would make a legacy row unreachable by filter.
+  const filterTiers = useMemo(() => {
+    const seen = new Set<string>(CODE_TIERS)
+    for (const code of codes) if (code.tier) seen.add(code.tier)
+    return [...seen]
+  }, [codes])
+
   const allVisibleSelected = filteredAndSorted.length > 0 && filteredAndSorted.every(c => selectedIds.has(c.id))
   const hasRevokedSelected = filteredAndSorted.some(c => selectedIds.has(c.id) && c.revoked_at)
 
@@ -126,7 +145,10 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
     const result = await updateCode(editingId, {
       grants_days: editData.grants_days,
       max_uses: editData.max_uses,
-      tier: editData.tier,
+      // Only sent when it actually changed. A legacy row's own tier is one the
+      // validator refuses to SET, and re-sending it unchanged would block a
+      // notes-only edit on a code nobody is trying to re-tier.
+      ...(editData.tier === codes.find(c => c.id === editingId)?.tier ? {} : { tier: editData.tier }),
       notes: editData.notes,
     })
     if (result.error) {
@@ -210,7 +232,7 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
         </select>
         <select value={tierFilter} onChange={e => setTierFilter(e.target.value)} className={s.filterSelect}>
           <option value="all">All Tiers</option>
-          {TIERS.map(t => (<option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>))}
+          {filterTiers.map(t => (<option key={t} value={t}>{codeTierLabel(t)}</option>))}
         </select>
       </div>
       {selectedIds.size > 0 && (
@@ -257,7 +279,11 @@ export function CodesTable({ codes }: { codes: AccessCode[] }) {
                     )}</td>
                     <td>{isEditing ? (
                       <select value={editData!.tier} onChange={e => setEditData(d => d ? {...d, tier: e.target.value} : null)} onKeyDown={handleEditKeyDown} className={s.editSelect}>
-                        {TIERS.map(t => (<option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>))}
+                        {tierOptions(code.tier).map(t => (
+                          <option key={t} value={t}>
+                            {codeTierLabel(t)}{isCodeTier(t) ? '' : ' (legacy)'}
+                          </option>
+                        ))}
                       </select>
                     ) : (
                       <span className={s.editable} onClick={() => startEdit(code)} title="Click to edit">{code.tier}</span>

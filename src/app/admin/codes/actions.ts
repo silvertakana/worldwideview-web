@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { randomInt } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { CODE_TIERS_HELP, DEFAULT_CODE_TIER, isCodeTier } from '@/lib/billing/code-tiers'
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
@@ -31,11 +32,17 @@ export async function generateCodes(
   quantity: number,
   grantsDays: number,
   notes: string,
-  tier: string = 'beta_tester',
+  tier: string = DEFAULT_CODE_TIER,
 ): Promise<{ codes: string[]; error?: string }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminGuard(user)) return { codes: [], error: 'Unauthorized' }
+
+  // A server action is a public endpoint, so the form's dropdown is a convenience
+  // and THIS is the guard. Previously nothing validated the tier here and the
+  // string reached the insert as-is, so any caller could mint a code whose tier
+  // the globe rejects - a grant that redeems into nothing.
+  if (!isCodeTier(tier)) return { codes: [], error: CODE_TIERS_HELP }
 
   const records = Array.from({ length: quantity }, () => ({
     code: generateSingleCode(),
@@ -78,8 +85,6 @@ export async function revokeCode(
   return { success: true }
 }
 
-const VALID_TIERS = ['beta_tester', 'early_access', 'pro', 'enterprise'] as const
-
 export async function updateCode(
   codeId: string,
   data: { grants_days?: number; max_uses?: number; tier?: string; notes?: string },
@@ -94,8 +99,8 @@ export async function updateCode(
   if (data.max_uses !== undefined && (data.max_uses < 1 || !Number.isInteger(data.max_uses))) {
     return { success: false, error: 'max_uses must be a positive integer' }
   }
-  if (data.tier !== undefined && !VALID_TIERS.includes(data.tier as typeof VALID_TIERS[number])) {
-    return { success: false, error: `tier must be one of: ${VALID_TIERS.join(', ')}` }
+  if (data.tier !== undefined && !isCodeTier(data.tier)) {
+    return { success: false, error: CODE_TIERS_HELP }
   }
 
   const admin = createAdminClient()

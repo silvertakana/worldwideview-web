@@ -1,6 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import {
+  CODE_TIERS,
+  CODE_TIERS_HELP,
+  DEFAULT_CODE_TIER,
+  codeTierLabel,
+} from '@/lib/billing/code-tiers'
 import { generateCodes } from './actions'
 import styles from './GenerateForm.module.css'
 
@@ -17,7 +23,7 @@ export function GenerateForm() {
     const quantity = Math.min(Math.max(Number(formData.get('quantity') ?? 1), 1), 100)
     const grantsDays = Math.max(Number(formData.get('grantsDays') ?? 30), 1)
     const notes = String(formData.get('notes') ?? '')
-    const tier = String(formData.get('tier') ?? 'beta_tester')
+    const tier = String(formData.get('tier') ?? DEFAULT_CODE_TIER)
 
     const result = await generateCodes(quantity, grantsDays, notes, tier)
     if (result.error) {
@@ -68,17 +74,20 @@ export function GenerateForm() {
 
         <div className={styles.field}>
           <label htmlFor="tier" className={styles.label}>Tier</label>
+          {/* Only tiers the globe's tier-sync accepts are offered: anything else
+              redeems into a grant the globe refuses, so the customer gets a hub
+              row and no access. See src/lib/billing/code-tiers.ts. */}
           <select
             id="tier"
             name="tier"
             className={styles.input}
-            defaultValue="beta_tester"
+            defaultValue={DEFAULT_CODE_TIER}
           >
-            <option value="beta_tester">Beta Tester</option>
-            <option value="early_access">Early Access</option>
-            <option value="pro">Pro</option>
-            <option value="enterprise">Enterprise</option>
+            {CODE_TIERS.map(tier => (
+              <option key={tier} value={tier}>{codeTierLabel(tier)}</option>
+            ))}
           </select>
+          <p className={styles.hint}>{CODE_TIERS_HELP}</p>
         </div>
 
         <div className={styles.field}>
