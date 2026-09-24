@@ -23,6 +23,9 @@ export default async function AdminLayout({
           <Link href="/admin/overrides" className={styles.navLink}>
             Billing overrides
           </Link>
+          <Link href="/admin/failures" className={styles.navLink}>
+            Billing failures
+          </Link>
         </nav>
       </header>
       <main className={styles.content}>{children}</main>

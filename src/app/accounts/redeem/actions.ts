@@ -4,6 +4,11 @@ import { createHash } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hasTier } from '@/lib/auth/entitlements'
+import { GLOBE_TIERS, isGlobeTier } from '@/lib/billing/globe-tiers'
+import { pushTierToGlobe } from '@/lib/billing/globe-sync'
+import { recordFailure } from '@/lib/billing/records'
+import { resolveEffectiveHubTier, tierRank } from '@/lib/billing/tier-rank'
+import { notify } from '@/lib/alerts/notify'
 
 // Correlation handle for the redemption logs. A code is a single-use credential,
 // so the raw value must never reach a log: a truncated digest keeps one attempt
@@ -16,7 +21,73 @@ function codeFingerprint(code: string): string {
 // 5-character segments from an alphabet that contains no SQL wildcards.
 const CODE_PATTERN = /^WWV-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/
 
-export async function redeemCode(code: string) {
+/**
+ * Shown to the customer when the entitlement landed and the globe was not told.
+ * It says the code is spent, because it is: re-entering it returns "already used"
+ * and would read as though their redemption was rejected.
+ */
+const GLOBE_FAILURE_MESSAGE =
+  'Your code was accepted, but we could not switch on your cloud access yet. Support has been alerted and will finish this for you, so please do not enter the code again.'
+
+export type RedeemResult =
+  | { success: true; tier: string }
+  | {
+      /**
+       * The partial failure, shaped like grantManualOverride's `{ ok: false, stage:
+       * "globe" }` (src/lib/billing/manual-override.ts): `granted` marks that the
+       * first of the two writes landed, so a caller can tell "you have access we
+       * have not switched on" apart from "nothing happened". The message is
+       * written to be shown to the customer verbatim.
+       */
+      error: string
+      granted?: boolean
+      stage?: 'globe'
+    }
+
+/**
+ * One open failure row per customer, so a repeated attempt counts up (attempts on
+ * billing_failures) instead of filling the operator queue with duplicates. The
+ * webhook keys its rows by Stripe event id and manual overrides use their own
+ * prefix, so the three never collide.
+ */
+function redeemFailureKey(userId: string): string {
+  return `redeem:${userId}`
+}
+
+async function reportGlobeGrantFailure(input: {
+  userId: string
+  email: string | null
+  codeId: string
+  tier: string
+  detail: string
+}): Promise<void> {
+  await recordFailure({
+    userId: input.userId,
+    email: input.email,
+    eventId: redeemFailureKey(input.userId),
+    eventType: 'redeem_code',
+    stage: 'tier_sync',
+    error: input.detail,
+  })
+
+  // Identifiers only, and deliberately NO customer email: notify() strips every
+  // email it is given, by design and by test (src/lib/alerts/notify.ts). The hub
+  // user id is the handle the operator acts on - pasted into /admin/overrides it
+  // resolves the customer, their entitlements and the globe's own view.
+  await notify(
+    'critical',
+    'Access code redeemed but the globe was never told',
+    `${input.detail} The code is consumed and the entitlement is recorded, so the customer holds access the globe is not granting: they cannot create an instance until this push succeeds.`,
+    {
+      userId: input.userId,
+      codeId: input.codeId,
+      tier: input.tier,
+      eventId: redeemFailureKey(input.userId),
+    },
+  )
+}
+
+export async function redeemCode(code: string): Promise<RedeemResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'You must be signed in to redeem a code.' }
@@ -115,6 +186,59 @@ export async function redeemCode(code: string) {
   }
 
   console.log('[redeem] entitlement inserted', { userId: user.id, codeId: accessCode.id, tier: accessCode.tier })
+
+  // ── the second write, which did not exist ───────────────────────────────────
+  //
+  // Access lives on the globe: the entitlement row above is the hub's record of
+  // the decision, and until this call the globe was never told about it. A
+  // redeemed code therefore produced a row and no access - the same two-write
+  // failure grantManualOverride exists to catch, on the one path that never got
+  // the second write. Same order, same partial-failure report.
+  const email = user.email ?? ''
+
+  // WHICH TIER, and why it is not simply accessCode.tier. Redeeming a code must
+  // never REDUCE what a customer already has, so a Team subscriber redeeming a
+  // Pro code must not have the globe downgraded to Pro by the act of redeeming.
+  // The tier pushed is therefore the customer's effective tier across every
+  // source (Stripe, entitlements, operator override), floored at the tier this
+  // code just granted - a resolution that comes back "free" because a read failed
+  // must not revoke anything either.
+  const resolution = await resolveEffectiveHubTier(user.id, email)
+  const tier = tierRank(resolution.tier) >= tierRank(accessCode.tier) ? resolution.tier : accessCode.tier
+
+  if (!email) {
+    const detail = 'the account has no email address, and the globe files a tier under the customer email'
+    console.error('[redeem] cannot push to the globe', { userId: user.id, codeId: accessCode.id, reason: detail })
+    await reportGlobeGrantFailure({ userId: user.id, email: null, codeId: accessCode.id, tier, detail })
+    return { error: GLOBE_FAILURE_MESSAGE, granted: true, stage: 'globe' }
+  }
+
+  if (!isGlobeTier(tier)) {
+    // The customer's only tier is one the globe cannot express: a code issued
+    // before generation was restricted to globe tiers (src/lib/billing/code-tiers.ts),
+    // with nothing above it to lift them into range. The hub has granted it and the
+    // globe cannot mirror it, so this is the same partial failure as a rejected
+    // push, and is recorded and alerted rather than left as a silent no-op.
+    const detail = `the resolved tier "${tier}" is not one the globe's tier-sync accepts (${GLOBE_TIERS.join(', ')})`
+    console.error('[redeem] cannot push to the globe', { userId: user.id, codeId: accessCode.id, tier })
+    await reportGlobeGrantFailure({ userId: user.id, email, codeId: accessCode.id, tier, detail })
+    return { error: GLOBE_FAILURE_MESSAGE, granted: true, stage: 'globe' }
+  }
+
+  const pushed = await pushTierToGlobe({ email, tier })
+  if (!pushed.ok) {
+    console.error('[redeem] globe push failed', { userId: user.id, codeId: accessCode.id, tier, failure: pushed.failure })
+    await reportGlobeGrantFailure({
+      userId: user.id,
+      email,
+      codeId: accessCode.id,
+      tier,
+      detail: pushed.detail,
+    })
+    return { error: GLOBE_FAILURE_MESSAGE, granted: true, stage: 'globe' }
+  }
+
+  console.log('[redeem] globe updated', { userId: user.id, tier, detail: pushed.detail })
 
   console.log('[redeem] success', { userId: user.id, tier: accessCode.tier })
 

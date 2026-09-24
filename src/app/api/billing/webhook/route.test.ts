@@ -1422,3 +1422,135 @@ describe("POST /api/billing/webhook — operator alerts (D9)", () => {
     expect(mockNotify).not.toHaveBeenCalled();
   });
 });
+
+// ── invoice.upcoming: the advance warning for a comped cohort ───────
+//
+// The thank-you buyers get their free month from a coupon, NOT a trial, so
+// customer.subscription.trial_will_end never fires for them. invoice.upcoming is
+// the only advance notice this system can give, and these tests pin both halves
+// of it: it must warn when a real charge is coming, and it must stay silent on
+// the zero-amount cycle the coupon itself produces.
+describe("POST /api/billing/webhook — invoice.upcoming", () => {
+  const CHARGE_DATE = 1790000000; // fixed epoch seconds, for a deterministic date
+
+  function upcomingInvoice(overrides: Record<string, unknown> = {}) {
+    return {
+      // An upcoming invoice is a PREVIEW: `id` is nullable in Stripe's own types
+      // and nothing below reads it. Idempotency is the event id, as elsewhere.
+      status: "draft",
+      amount_due: 1900,
+      currency: "usd",
+      customer: "cus_abc",
+      subscription: "sub_abc",
+      next_payment_attempt: CHARGE_DATE,
+      subtotal: 1900,
+      ...overrides,
+    };
+  }
+
+  it("warns with the amount, the currency, the date and the customer", async () => {
+    const event = buildEvent("invoice.upcoming", upcomingInvoice(), "evt_upcoming_1");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    const [level, title, message, context] = mockNotify.mock.calls[0];
+    expect(level).toBe("warning");
+    expect(title).toBe("Upcoming charge: US$19 on 2026-09-21");
+    expect(message).toContain("US$19");
+    expect(message).toContain("2026-09-21");
+    expect(context).toMatchObject({
+      eventId: "evt_upcoming_1",
+      eventType: "invoice.upcoming",
+      amountDue: 1900,
+      currency: "USD",
+      customerId: "cus_abc",
+      subscriptionId: "sub_abc",
+      chargeDate: "2026-09-21",
+    });
+  });
+
+  it("stays silent on the comped cycle, where amount_due is zero", async () => {
+    // The coupon's own cycle: a 100%-off first month previews as $0, and "you are
+    // about to be charged US$0" is a false alarm that would train the founder to
+    // ignore the alert.
+    const event = buildEvent("invoice.upcoming", upcomingInvoice({ amount_due: 0 }), "evt_upcoming_free");
+    mockConstructEvent.mockReturnValue(event);
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(res.status).toBe(200);
+    expect(mockNotify).not.toHaveBeenCalled();
+    // Still a completed delivery: nothing to do is not a failure, and leaving the
+    // event unfinished would make Stripe redeliver it forever.
+    expect(mockCompleteWebhookEvent).toHaveBeenCalledWith("evt_upcoming_free");
+  });
+
+  it("treats a missing amount_due as nothing to charge", async () => {
+    const event = buildEvent("invoice.upcoming", upcomingInvoice({ amount_due: undefined }), "evt_upcoming_none");
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("still warns when the preview invoice is discounted", async () => {
+    // The discount is reported, never a gate. A gate on it would make this
+    // handler dead code: a duration:once coupon is spent on the first invoice and
+    // is gone by the renewal this event is warning about.
+    const event = buildEvent(
+      "invoice.upcoming",
+      upcomingInvoice({ subtotal: 3800, amount_due: 1900, discounts: [{ coupon: "THANKYOU-FIRSTMONTH" }] }),
+      "evt_upcoming_disc",
+    );
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify.mock.calls[0][0]).toBe("warning");
+    expect(mockNotify.mock.calls[0][3]).toMatchObject({ discounted: true });
+  });
+
+  it("absorbs a redelivery of the same event instead of warning twice", async () => {
+    const event = buildEvent("invoice.upcoming", upcomingInvoice(), "evt_upcoming_dupe");
+    mockConstructEvent.mockReturnValue(event);
+    mockClaimWebhookEvent.mockResolvedValue("completed");
+
+    const res = await POST(buildRequest(JSON.stringify(event)));
+
+    expect(await res.json()).toEqual({ received: true, duplicate: true });
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("never lets the customer's email reach the alert", async () => {
+    // notify() redacts email addresses by design (see alerts/notify.test.ts), so
+    // the alert is only useful if it carries ids instead. This asserts the
+    // handler's own contribution, independently of notify()'s scrubbing.
+    const event = buildEvent(
+      "invoice.upcoming",
+      upcomingInvoice({ customer_email: "pay@example.com" }),
+      "evt_upcoming_email",
+    );
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mockNotify.mock.calls[0])).not.toContain("pay@example.com");
+    expect(mockNotify.mock.calls[0][3]).toMatchObject({ customerId: "cus_abc" });
+  });
+
+  it("touches nothing: no globe call and no ledger write for a preview", async () => {
+    const event = buildEvent("invoice.upcoming", upcomingInvoice(), "evt_upcoming_inert");
+    mockConstructEvent.mockReturnValue(event);
+
+    await POST(buildRequest(JSON.stringify(event)));
+
+    expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+    expect(dbWrites).toHaveLength(0);
+  });
+});

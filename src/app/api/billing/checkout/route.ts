@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe/client";
 import { getPriceId, BILLING_PAUSED_MESSAGE } from "@/lib/billing/constants";
@@ -17,6 +18,11 @@ const PLAN_ID_MAP: Record<string, { plan: PlanOption; interval: IntervalOption }
   "team-monthly": { plan: "team", interval: "month" },
   "team-annual": { plan: "team", interval: "year" },
 };
+
+// The metadata tag the thank-you buyers were created with by hand in the Stripe
+// dashboard. Used twice below - to pick the right customer record, and to decide
+// whether the session gets a trial - so it lives in one place.
+const THANKYOU_COHORT = "early-access-thankyou";
 
 export async function POST(req: Request) {
   // Runtime kill switch: stops NEW purchases only.
@@ -113,26 +119,110 @@ export async function POST(req: Request) {
   // path gained a JSON response.
   try {
     let customerId: string;
+    // The customer this session bills, and the one whose metadata below decides
+    // whether the thank-you cohort path applies. Both lookups return a whole
+    // Customer, so the metadata costs no extra call.
+    let foundCustomer: Stripe.Customer | null = null;
+
     const customers = await stripe.customers.search({
       query: `metadata['userId']:'${user.id}'`,
       limit: 1,
     });
     if (customers.data.length > 0) {
-      customerId = customers.data[0].id;
+      foundCustomer = customers.data[0];
+    } else if (user.email) {
+      // The early-access buyers were created by hand in the Stripe dashboard and
+      // carry no userId, so the metadata search above always misses them and this
+      // route used to mint a SECOND customer for the same person. A
+      // customer-restricted promo code is then rejected with
+      // promotion_code_customer_mismatch (400), so their personal code could not
+      // be redeemed even with a code field on the checkout page. Matching on the
+      // account email is what makes those codes reachable.
+      //
+      // customers.list, not the search API: the search index lags writes by
+      // seconds, and this path runs the moment a buyer signs up, which is exactly
+      // when a just-written record is most likely to be missing from it. A
+      // lookup that fails intermittently here reads as a random bug.
+      //
+      // limit is deliberately more than 1. customers.list is newest-first, and a
+      // buyer who tried to check out before this fix owns a second, empty
+      // customer record created by the old code: taking data[0] would pick the
+      // empty one and the restricted code would be refused again - the same
+      // failure, wearing a disguise.
+      const byEmail = await stripe.customers.list({ email: user.email, limit: 10 });
+      // Prefer the record that names the cohort; otherwise take the newest.
+      const matched =
+        byEmail.data.find((c) => c.metadata?.wwv_cohort === THANKYOU_COHORT) ?? byEmail.data[0];
+      if (matched) {
+        foundCustomer = matched;
+        if (matched.metadata?.userId !== user.id) {
+          // Adopt it, so the next checkout hits on userId and this stops being a
+          // fallback. Awaited rather than fired and forgotten: if adopting fails
+          // the checkout fails, which is the right way round - the alternative is
+          // quietly minting a duplicate customer and handing the buyer a code
+          // Stripe will reject.
+          //
+          // The existing metadata is spread back in deliberately: these customers
+          // carry the cohort tags (wwv_cohort, wwv_first_name, wwv_ticket), and a
+          // metadata update replaces the object, so dropping them would both
+          // destroy the record and disable the cohort path below.
+          await stripe.customers.update(matched.id, {
+            metadata: { ...matched.metadata, userId: user.id },
+          });
+        }
+      }
+    }
+
+    if (foundCustomer) {
+      customerId = foundCustomer.id;
     } else {
       const customer = await stripe.customers.create({
         email: user.email || undefined,
         metadata: { userId: user.id },
       });
       customerId = customer.id;
+      foundCustomer = customer;
     }
+
+    // "One month free" is the coupon's job, and only the coupon's job. Stacking a
+    // 7-day trial on top of a duration:once 100%-off coupon is what makes the
+    // free period long rather than a month: either Stripe spends the coupon on
+    // the trial's zero-amount invoice and the buyer is charged at day 8, or the
+    // trial runs first and the first real charge lands around day 38. Neither is
+    // the day 31 the offer promises. Suppressing the trial for this cohort is
+    // what makes the free month exactly a month and the charge date exactly day
+    // 31 - the sequence stripe-ops already proved in live mode: coupon applied,
+    // amount_total 0 today, US$19.00/month from day 30.
+    //
+    // Everyone else keeps the 7-day trial; this is not a change to the public
+    // offer. The cohort case that is NOT handled: a buyer who signs up with a
+    // different address than their code was restricted to matches no record, so
+    // this branch never runs and Stripe refuses the code. That refusal is
+    // fail-closed and visible - the code is rejected, nobody is charged full
+    // price - and it is recoverable by hand from the dashboard.
+    const isThankyouCohort = foundCustomer?.metadata?.wwv_cohort === THANKYOU_COHORT;
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Puts the "Add promotion code" box on the hosted page. Without it a buyer
+      // has nowhere to type a personal code, which is the other half of why the
+      // hand-built promo codes were unreachable.
+      //
+      // THE PROTECTION IS IN THE CODE, NOT THE COUPON. Coupon THANKYOU-FIRSTMONTH
+      // is unrestricted - a coupon has no customer field - so applying it
+      // directly would give every stranger a free month, with the UI still
+      // looking right and every test still passing. What limits it to one person
+      // is the promotion code's customer restriction, which only exists because
+      // the buyer types the code string here. Replacing this line with
+      // `discounts: [{ coupon: ... }]` would silently remove that limit.
+      //
+      // Mutually exclusive with a `discounts` array; this route passes neither
+      // `discounts` nor the deprecated `discount`.
+      allow_promotion_codes: true,
       subscription_data: {
-        trial_period_days: 7,
+        ...(isThankyouCohort ? {} : { trial_period_days: 7 }),
         metadata: { userId: user.id, plan, interval },
       },
       client_reference_id: user.id,

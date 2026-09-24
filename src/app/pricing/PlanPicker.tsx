@@ -3,11 +3,8 @@
 import { useState, useCallback } from "react";
 import { Check } from "lucide-react";
 import type { PricingPlan } from "@/app/api/pricing/route";
+import { PRICING_DISPLAY, formatPrice } from "@/lib/billing/constants";
 import styles from "./page.module.css";
-
-function formatPrice(cents: number): string {
-  return (cents / 100).toFixed(0);
-}
 
 function formatInterval(interval: "month" | "year"): string {
   return interval === "month" ? "mo" : "yr";
@@ -137,7 +134,11 @@ export default function PlanPicker({ plans, userId, userEmail, hasSubscription }
               <p className={styles.tierDesc}>Get started with the basics</p>
             </div>
             <div className={styles.price}>
-              <span className={styles.priceValue}>$0</span>
+              {/* The Free card has no plan object to read a currency from, so it
+                  uses the same table the pricing page and the API read. */}
+              <span className={styles.priceValue}>
+                {formatPrice(PRICING_DISPLAY.local.amount, PRICING_DISPLAY.local.currency)}
+              </span>
               <span className={styles.priceLabel}>/mo</span>
             </div>
             <div className={styles.features}>
@@ -171,7 +172,9 @@ export default function PlanPicker({ plans, userId, userEmail, hasSubscription }
               <p className={styles.tierDesc}>For professionals and small teams</p>
             </div>
             <div className={styles.price}>
-              <span className={styles.priceValue}>${formatPrice(proPlan.amount)}</span>
+              <span className={styles.priceValue}>
+                {formatPrice(proPlan.amount, proPlan.currency)}
+              </span>
               <span className={styles.priceLabel}>/{formatInterval(selectedInterval)}</span>
             </div>
             <div className={styles.features}>

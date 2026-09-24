@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { readFileSync } from 'fs'
 import path from 'path'
 
-const { mockGetUser, mockInsert, mockRevalidatePath } = vi.hoisted(() => ({
+const { mockGetUser, mockInsert, mockUpdate, mockRevalidatePath } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockInsert: vi.fn(),
+  mockUpdate: vi.fn(),
   mockRevalidatePath: vi.fn(),
 }))
 
@@ -18,9 +19,12 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 // The real module imports 'server-only', which throws outside a React server.
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ from: () => ({ update: mockUpdate }) }),
+}))
 
-import { generateCodes } from './actions'
+import { generateCodes, updateCode } from './actions'
+import { CODE_TIERS, CODE_TIERS_HELP, DEFAULT_CODE_TIER } from '@/lib/billing/code-tiers'
 
 // Mirrors CODE_CHARS in ./actions.ts. It cannot be imported: a 'use server'
 // module may only export async functions and generateCodeSegment is private.
@@ -32,10 +36,13 @@ const ADMIN = { id: 'admin_1', app_metadata: { role: 'admin' } }
 beforeEach(() => {
   mockGetUser.mockReset()
   mockInsert.mockReset()
+  mockUpdate.mockReset()
   mockRevalidatePath.mockReset()
 
   mockGetUser.mockResolvedValue({ data: { user: ADMIN } })
   mockInsert.mockResolvedValue({ error: null })
+  // update() returns a chain; the awaited tail resolves the write result.
+  mockUpdate.mockReturnValue({ eq: () => Promise.resolve({ error: null }) })
 })
 
 describe('generateCodes', () => {
@@ -86,5 +93,86 @@ describe('generateCodes', () => {
     // The arithmetic behind the bias, kept alongside the guard above.
     expect(256 % ALPHABET.length).toBe(8)
     expect(ALPHABET.length).toBe(31)
+  })
+})
+
+// ── the tier restriction ────────────────────────────────────────────
+//
+// The hole this closes was not theoretical. Nothing validated the tier, so a
+// caller could mint a code for beta_tester or early_access - tiers the globe's
+// tier-sync does not accept (globe-tiers.ts) and that rank BELOW pro - and every
+// redemption of such a code recorded an entitlement the globe could never
+// mirror. The customer's access existed on paper only.
+describe('generateCodes tier restriction', () => {
+  it.each([
+    ['a hub-only tier that ranks below pro', 'beta_tester'],
+    ['the other hub-only tier', 'early_access'],
+    ['the free tier', 'free'],
+    ['an unknown string', 'superuser'],
+    ['an empty string', ''],
+  ])('refuses to mint a code for %s', async (_label, tier) => {
+    const { codes, error } = await generateCodes(1, 30, 'launch', tier)
+
+    expect(codes).toEqual([])
+    expect(error).toBe(CODE_TIERS_HELP)
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('mints a code for every tier it offers', async () => {
+    for (const tier of CODE_TIERS) {
+      mockInsert.mockClear()
+
+      const { codes, error } = await generateCodes(2, 30, '', tier)
+
+      expect(error).toBeUndefined()
+      expect(codes).toHaveLength(2)
+      expect(mockInsert).toHaveBeenCalledWith([
+        expect.objectContaining({ tier, max_uses: 1, grants_days: 30 }),
+        expect.objectContaining({ tier, max_uses: 1, grants_days: 30 }),
+      ])
+    }
+  })
+
+  it('defaults to a tier the globe accepts when the caller passes none', async () => {
+    const { error } = await generateCodes(1, 30, '')
+
+    expect(error).toBeUndefined()
+    expect(mockInsert).toHaveBeenCalledWith([expect.objectContaining({ tier: DEFAULT_CODE_TIER })])
+  })
+
+  it('still refuses an unauthorized caller', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user_1', app_metadata: {} } } })
+
+    const { codes, error } = await generateCodes(1, 30, '', 'beta_tester')
+
+    expect(codes).toEqual([])
+    expect(error).toBe('Unauthorized')
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateCode tier restriction', () => {
+  it('refuses to move an existing code onto a tier the globe rejects', async () => {
+    const result = await updateCode('code_1', { tier: 'beta_tester' })
+
+    expect(result).toEqual({ success: false, error: CODE_TIERS_HELP })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('allows a valid tier change', async () => {
+    const result = await updateCode('code_1', { tier: 'enterprise' })
+
+    expect(result).toEqual({ success: true })
+    expect(mockUpdate).toHaveBeenCalledWith({ tier: 'enterprise' })
+  })
+
+  it('still allows a notes-only edit of a legacy row', async () => {
+    // Rows issued before the restriction exist, and they must stay editable:
+    // blocking them would leave an operator unable to annotate or expire the very
+    // codes this change is cleaning up.
+    const result = await updateCode('code_1', { notes: 'legacy row, do not reissue' })
+
+    expect(result).toEqual({ success: true })
+    expect(mockUpdate).toHaveBeenCalledWith({ notes: 'legacy row, do not reissue' })
   })
 })

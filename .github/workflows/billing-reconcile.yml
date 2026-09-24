@@ -42,8 +42,7 @@
 #   The two durable queues are read by their COLUMNS, decided from the database
 #   catalogue before a row is touched. webhook_events gains last_attempt_at and
 #   last_error, and processed_at stops being required, in
-#   supabase/migrations/20260915000001_webhook_events_completion_state.sql on
-#   branch fix/billing-launch-hardening.
+#   supabase/migrations/20260915140000_webhook_events_completion_state.sql.
 #
 #   So an unapplied migration is a shape the reader recognises, not a crash. An
 #   absent table, or a table with no last_attempt_at column, is a WARNING: that
@@ -61,33 +60,37 @@
 #   skipped prints a clean report about work nobody did, which is the one outcome
 #   this job exists to prevent.
 #
-# WHY THERE IS NO schedule TRIGGER (DELIBERATE, DO NOT "FIX")
-#   The schedule was removed on purpose and this workflow is manual-only until
-#   the launch is complete. Two things are not in place yet:
-#     1. CROSS_SERVICE_SECRET does not exist as a repository secret, so any run
-#        that finds unpaid-but-granted drift FAILS on that missing variable. That
-#        failure is correct - a skipped lock phase looks like a healthy system -
-#        but it means a nightly run would go red for a configuration step rather
-#        than for a customer who paid and got nothing, and an alert that fires
-#        for the wrong reason stops being read.
-#     2. The globe's tier-lock sweep endpoint ships with globe PR #511
-#        fix/billing-tier-lock-policy-defects. Until that PR is deployed the
-#        endpoint answers 404. The runner treats that as NOT DEPLOYED, prints a
-#        banner and keeps exit code 0, but a nightly job that reports an
-#        undeployed dependency every night is still noise nobody should wake up
-#        to before the rest of the launch is ready.
+# WHY THE SCHEDULE IS BACK
+#   The nightly trigger was removed while two things were outstanding. Both were
+#   re-verified on 2026-09-24, and the second one does NOT block the schedule:
+#     1. CROSS_SERVICE_SECRET IS a repository secret (added 2026-09-15; confirmed
+#        against `gh secret list`). A run that finds unpaid-but-granted drift can
+#        therefore reach the globe's lock sweep instead of failing on a missing
+#        configuration variable - which is the failure that made a nightly run
+#        premature, because it goes red for a config step rather than for a
+#        customer who paid and got nothing, and an alert that fires for the wrong
+#        reason stops being read.
+#     2. The globe's tier-lock sweep endpoint IS merged on the globe's main
+#        (PR #515, commit e66d794c - the rebased replacement for the closed
+#        #511), but it is NOT in the deployed build: POST
+#        <globe>/api/service/tier-lock-sweep answers 404 while its sibling
+#        routes on the same host answer 401. Verified against cloud-wwv.dev,
+#        the URL this job uses. So the sweep is a no-op until the globe is
+#        redeployed.
 #
-#   So merging this must not start a nightly job that is guaranteed to fail.
-#   Restore the trigger (a `schedule:` block with `cron: '0 6 * * *'`) only AFTER
-#   the secret exists and the globe PR is deployed - in the same PR that makes
-#   the first scheduled run meaningful. Removing this workflow's failure, or
-#   adding `continue-on-error`, is never the fix: the exit code IS the alert.
+#   Point 2 is a caveat, not a reason to stay dark, because of how the runner
+#   already handles it: a 404 is NOT DEPLOYED - a banner, and exit code 0. It
+#   cannot turn a green night red, and that banner is only reachable when there
+#   IS sweep-eligible drift, i.e. on a night that has already failed for one of
+#   the three reasons above. So from the first scheduled run the alert that
+#   matters is live: drift, unresolved billing_failures and stuck webhook_events
+#   all still exit 1 and still email. Only the automatic lock waits on the
+#   globe's deploy, and until then the run says so in its own log.
 #
-# WHY workflow_dispatch ALONE
 #   A scheduled workflow only runs from the default branch, and GitHub disables a
-#   schedule after 60 days of repository inactivity. Manual dispatch keeps the
-#   check available for an on-demand run right after a billing incident, and it
-#   is what lets this land now without turning on the nightly job.
+#   schedule after 60 days of repository inactivity. workflow_dispatch stays
+#   alongside the cron for that reason: it keeps the check available for an
+#   on-demand run right after a billing incident, without waiting for 06:00.
 #
 # SECRETS AND VARIABLES
 #   SUPABASE_DB_URL   the only credential that reaches the hub database from a
@@ -95,13 +98,13 @@
 #                     service-role-key secret, and no environment-scoped
 #                     secrets exist, so PostgREST is not an option here.
 #   STRIPE_SECRET_KEY used read-only; the script only ever issues GET requests.
-#   CROSS_SERVICE_SECRET is NOT a repository secret. Adding it is a human step,
-#                     and until it exists a run that finds unpaid-but-granted
-#                     drift fails loudly on that specific missing variable
-#                     instead of silently skipping the globe lock sweep. That is
-#                     deliberate: a skipped lock phase looks like a healthy
-#                     system. Wiring it here means the sweep starts working the
-#                     moment the secret is added, with no code change.
+#   CROSS_SERVICE_SECRET a repository secret since 2026-09-15 (confirmed against
+#                     `gh secret list`), and the credential that lets this job
+#                     ask the globe to enforce deadlines it has armed on itself.
+#                     If it is ever removed, a run that finds unpaid-but-granted
+#                     drift fails loudly on this specific missing variable rather
+#                     than silently skipping the sweep: a skipped lock phase
+#                     looks like a healthy system.
 #   WWV_GLOBE_URL     the globe's base URL, the other half of the sweep's
 #                     configuration. Not a secret, so it is a repository
 #                     variable with an explicit default here rather than a
@@ -113,6 +116,8 @@
 name: Billing reconciliation
 
 on:
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 permissions:
