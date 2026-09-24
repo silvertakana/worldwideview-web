@@ -150,7 +150,12 @@ const CURRENCY_SYMBOLS: Record<string, string> = { USD: "US$" };
 
 /** Reads as "US$19" for (1900, "USD"). */
 export function formatPrice(amount: number, currency: string): string {
-  const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
+  // Uppercased here, not by the caller. Stripe returns currency codes lowercased
+  // ("usd"), and a lookup that missed would fall back to printing "usd 19" - a
+  // wrong label produced silently, which is the exact class of bug this table
+  // exists to remove. Normalising in one place makes every caller correct.
+  const code = currency.toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[code] ?? `${code} `;
   const whole = amount / 100;
   return `${symbol}${Number.isInteger(whole) ? whole : whole.toFixed(2)}`;
 }
