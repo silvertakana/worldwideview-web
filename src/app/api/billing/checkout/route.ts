@@ -131,6 +131,7 @@ export async function POST(req: Request) {
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      allow_promotion_codes: true,
       subscription_data: {
         trial_period_days: 7,
         metadata: { userId: user.id, plan, interval },
