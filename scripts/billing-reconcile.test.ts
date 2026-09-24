@@ -365,12 +365,22 @@ describe('billing-reconcile runner: the comparison', () => {
   })
 
   it('fails specifically when the database credential is missing', async () => {
+    // Empty, not deleted. The runner's own loadEnvFiles() refills a variable
+    // that is UNDEFINED from .env or .env.local, and this file runs with the
+    // developer's .env.local on disk, so a delete here would put the real
+    // credential straight back and the run would carry on past the guard into a
+    // database read this test never stubs. An empty value is never refilled
+    // (the loader only fills `undefined`) and is still falsy to the guard, so
+    // the missing-credential path is what actually gets exercised.
     process.env.SUPABASE_DB_URL = ''
 
     await expect(main()).rejects.toThrow(/SUPABASE_DB_URL is not set/)
   })
 
   it('fails specifically when the Stripe credential is missing', async () => {
+    // Same reason as the database credential above: deleting it would let the
+    // loader restore it from .env.local and the run would fail later, on
+    // something else, for the wrong reason.
     process.env.STRIPE_SECRET_KEY = ''
 
     await expect(main()).rejects.toThrow(/STRIPE_SECRET_KEY is not set/)
