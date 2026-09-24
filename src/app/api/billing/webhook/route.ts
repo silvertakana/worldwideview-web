@@ -32,6 +32,10 @@ import {
   completeWebhookEvent,
   failWebhookEvent,
 } from "@/lib/billing/webhook-idempotency";
+import {
+  alertUpcomingCharge,
+  type UpcomingInvoiceLike,
+} from "@/lib/billing/upcoming-invoice";
 
 const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
   active: "active",
@@ -490,6 +494,24 @@ export async function POST(req: Request) {
             periodEndsAt: null,
           }),
         );
+        break;
+      }
+
+      case "invoice.upcoming": {
+        // Stripe's preview of a charge it has not made yet, fired a few days
+        // ahead of the renewal. It is the only advance warning the thank-you
+        // cohort ever gets: their free month is a coupon and not a trial, so
+        // customer.subscription.trial_will_end never fires for them and their
+        // first signal would otherwise be a refund request.
+        //
+        // Nothing here reconciles, grants or writes. The delivery is claimed on
+        // event.id like every other handler above, which is what keeps a Stripe
+        // redelivery from raising the warning twice.
+        await alertUpcomingCharge({
+          eventId: event.id,
+          eventType: event.type,
+          invoice: event.data.object as unknown as UpcomingInvoiceLike,
+        });
         break;
       }
     }
