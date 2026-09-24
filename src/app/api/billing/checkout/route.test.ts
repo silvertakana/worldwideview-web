@@ -16,6 +16,8 @@ const {
   mockGetStripe,
   mockCustomersSearch,
   mockCustomersCreate,
+  mockCustomersList,
+  mockCustomersUpdate,
   mockSessionsCreate,
   mockGetUser,
   mockIsBillingPaused,
@@ -23,6 +25,8 @@ const {
   mockGetStripe: vi.fn(),
   mockCustomersSearch: vi.fn(),
   mockCustomersCreate: vi.fn(),
+  mockCustomersList: vi.fn(),
+  mockCustomersUpdate: vi.fn(),
   mockSessionsCreate: vi.fn(),
   mockGetUser: vi.fn(),
   mockIsBillingPaused: vi.fn(),
@@ -72,6 +76,8 @@ beforeEach(() => {
   mockGetStripe.mockReset();
   mockCustomersSearch.mockReset();
   mockCustomersCreate.mockReset();
+  mockCustomersList.mockReset();
+  mockCustomersUpdate.mockReset();
   mockSessionsCreate.mockReset();
   mockGetUser.mockReset();
   mockIsBillingPaused.mockReset();
@@ -80,10 +86,19 @@ beforeEach(() => {
     data: { user: { id: "user_1", email: "pay@example.com" } },
   });
   mockGetStripe.mockReturnValue({
-    customers: { search: mockCustomersSearch, create: mockCustomersCreate },
+    customers: {
+      search: mockCustomersSearch,
+      create: mockCustomersCreate,
+      list: mockCustomersList,
+      update: mockCustomersUpdate,
+    },
     checkout: { sessions: { create: mockSessionsCreate } },
   });
   mockCustomersSearch.mockResolvedValue({ data: [{ id: "cus_existing" }] });
+  // Default: the email fallback finds nobody, so the metadata-search hit above
+  // is what every pre-existing test in this file still exercises.
+  mockCustomersList.mockResolvedValue({ data: [] });
+  mockCustomersUpdate.mockResolvedValue({ id: "cus_thankyou" });
   mockSessionsCreate.mockResolvedValue({ url: "https://checkout.stripe.test/cs_1" });
 
   // Default verdict for this suite: billing is live.
@@ -255,5 +270,187 @@ describe("POST /api/billing/checkout — Stripe API failure", () => {
     expect(res.status).toBe(500);
     expect(body.error).toBe("Checkout could not be started. Please try again later.");
     expect(body.stripe_error).toEqual({ type: "non_stripe_error" });
+  });
+});
+
+// ── Personal promo codes ────────────────────────────────────────────
+//
+// The early-access buyers hold a customer-restricted 100%-off promo code. Two
+// separate defects made those codes impossible to redeem, and each fix has its
+// own assertion below so reverting either one fails a test instead of quietly
+// re-breaking the code: with no `allow_promotion_codes` the hosted page rendered
+// no code field at all, and with no email fallback the route billed a customer
+// it had just created, which a customer-restricted code rejects with 400
+// promotion_code_customer_mismatch.
+
+const THANKYOU_CUSTOMER = {
+  id: "cus_thankyou",
+  email: "david@example.com",
+  metadata: {
+    wwv_cohort: "early-access-thankyou",
+    wwv_first_name: "David",
+    wwv_ticket: "T-42",
+  },
+};
+
+function sessionParams(): Record<string, unknown> {
+  return mockSessionsCreate.mock.calls[0][0] as Record<string, unknown>;
+}
+
+function subscriptionData(): Record<string, unknown> {
+  return sessionParams().subscription_data as Record<string, unknown>;
+}
+
+describe("POST /api/billing/checkout — personal promo codes", () => {
+  it("enables the hosted page's promotion-code field", async () => {
+    await POST(buildRequest());
+
+    expect(sessionParams().allow_promotion_codes).toBe(true);
+    // Mutually exclusive with `allow_promotion_codes`; passing either would make
+    // Stripe reject the session.
+    expect("discounts" in sessionParams()).toBe(false);
+    expect("discount" in sessionParams()).toBe(false);
+  });
+
+  it("bills the pre-created customer the email fallback finds, not a new one", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({ data: [THANKYOU_CUSTOMER] });
+
+    const res = await POST(buildRequest());
+
+    expect(res.status).toBe(200);
+    expect(mockCustomersList).toHaveBeenCalledWith({ email: "pay@example.com", limit: 10 });
+    expect(mockCustomersCreate).not.toHaveBeenCalled();
+    expect(sessionParams().customer).toBe("cus_thankyou");
+  });
+
+  it("prefers the cohort record when the buyer owns more than one customer", async () => {
+    // The trap stripe-ops found: customers.list is newest-first, so a buyer who
+    // tried to check out before this fix owns an empty record created by the old
+    // code. Taking data[0] would pick THAT one, and the customer-restricted code
+    // would be refused exactly as before.
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({
+      data: [{ id: "cus_orphan", metadata: {} }, THANKYOU_CUSTOMER],
+    });
+
+    await POST(buildRequest());
+
+    expect(sessionParams().customer).toBe("cus_thankyou");
+    expect("trial_period_days" in subscriptionData()).toBe(false);
+  });
+
+  it("takes the newest record when no record carries the cohort tag", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({
+      data: [{ id: "cus_newest", metadata: {} }, { id: "cus_older", metadata: {} }],
+    });
+
+    await POST(buildRequest());
+
+    // No cohort tag anywhere means no basis to prefer the older record, and the
+    // newest is what the account email was last used with.
+    expect(sessionParams().customer).toBe("cus_newest");
+    expect(subscriptionData().trial_period_days).toBe(7);
+  });
+
+  it("adopts the customer it found, keeping the cohort tags it already carried", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({ data: [THANKYOU_CUSTOMER] });
+
+    await POST(buildRequest());
+
+    // The point of the backfill is that the NEXT lookup hits on userId. A
+    // metadata update REPLACES the object, so dropping wwv_cohort here would both
+    // destroy the record and re-enable the trial for this cohort.
+    expect(mockCustomersUpdate).toHaveBeenCalledWith("cus_thankyou", {
+      metadata: {
+        wwv_cohort: "early-access-thankyou",
+        wwv_first_name: "David",
+        wwv_ticket: "T-42",
+        userId: "user_1",
+      },
+    });
+  });
+
+  it("leaves an already-adopted customer alone on a repeat checkout", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({
+      data: [{ ...THANKYOU_CUSTOMER, metadata: { ...THANKYOU_CUSTOMER.metadata, userId: "user_1" } }],
+    });
+
+    await POST(buildRequest());
+
+    expect(mockCustomersUpdate).not.toHaveBeenCalled();
+    expect(sessionParams().customer).toBe("cus_thankyou");
+  });
+
+  it("still creates a customer when neither the userId search nor the email matches", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({ data: [] });
+    mockCustomersCreate.mockResolvedValue({ id: "cus_new" });
+
+    await POST(buildRequest());
+
+    expect(mockCustomersCreate).toHaveBeenCalledWith({
+      email: "pay@example.com",
+      metadata: { userId: "user_1" },
+    });
+    expect(sessionParams().customer).toBe("cus_new");
+  });
+
+  it("never searches by email when the account has no email", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersCreate.mockResolvedValue({ id: "cus_new" });
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user_1", email: null } } });
+
+    await POST(buildRequest());
+
+    // customers.list takes an email; handing it undefined asks Stripe for every
+    // customer in the account and bills whichever one came back first.
+    expect(mockCustomersList).not.toHaveBeenCalled();
+    expect(sessionParams().customer).toBe("cus_new");
+  });
+
+  it("gives the thank-you cohort NO trial, when found by email", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({ data: [THANKYOU_CUSTOMER] });
+
+    await POST(buildRequest());
+
+    const sub = subscriptionData();
+    // `in` rather than toBeUndefined(): the bug being guarded is a spread that
+    // emits the key holding undefined, which toBeUndefined() would pass.
+    expect("trial_period_days" in sub).toBe(false);
+    expect(sub.metadata).toEqual({ userId: "user_1", plan: "pro", interval: "month" });
+  });
+
+  it("gives the thank-you cohort NO trial on a repeat checkout found by userId", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [THANKYOU_CUSTOMER] });
+
+    await POST(buildRequest());
+
+    expect("trial_period_days" in subscriptionData()).toBe(false);
+  });
+
+  it("keeps the 7-day trial for everyone else", async () => {
+    mockCustomersSearch.mockResolvedValue({
+      data: [{ id: "cus_existing", metadata: { userId: "user_1" } }],
+    });
+
+    await POST(buildRequest());
+
+    expect(subscriptionData().trial_period_days).toBe(7);
+  });
+
+  it("keeps the 7-day trial for an email-matched customer with no cohort tag", async () => {
+    mockCustomersSearch.mockResolvedValue({ data: [] });
+    mockCustomersList.mockResolvedValue({
+      data: [{ id: "cus_public", metadata: { userId: "user_1" } }],
+    });
+
+    await POST(buildRequest());
+
+    expect(subscriptionData().trial_period_days).toBe(7);
   });
 });
