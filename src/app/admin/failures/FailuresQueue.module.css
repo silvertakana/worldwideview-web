@@ -1,0 +1,119 @@
+.page {
+  max-width: 1100px;
+}
+
+.heading {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-sm);
+}
+
+.intro {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 var(--space-sm);
+}
+
+.count {
+  margin: var(--space-md) 0 var(--space-sm);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.empty {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.bannerError {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.tableWrap {
+  margin-top: var(--space-md);
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th,
+.table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+  color: var(--color-text-primary);
+}
+
+.table th {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.age {
+  display: block;
+  font-weight: 500;
+}
+
+.subtle {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+}
+
+.mono {
+  display: block;
+  margin-top: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.reason {
+  min-width: 260px;
+  line-height: 1.45;
+}
+
+.buttonSecondary {
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition-fast);
+}
+
+.buttonSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
