@@ -365,13 +365,13 @@ describe('billing-reconcile runner: the comparison', () => {
   })
 
   it('fails specifically when the database credential is missing', async () => {
-    delete process.env.SUPABASE_DB_URL
+    process.env.SUPABASE_DB_URL = ''
 
     await expect(main()).rejects.toThrow(/SUPABASE_DB_URL is not set/)
   })
 
   it('fails specifically when the Stripe credential is missing', async () => {
-    delete process.env.STRIPE_SECRET_KEY
+    process.env.STRIPE_SECRET_KEY = ''
 
     await expect(main()).rejects.toThrow(/STRIPE_SECRET_KEY is not set/)
   })

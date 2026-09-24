@@ -58,7 +58,17 @@ export function getPriceId(plan: PlanOption, interval: IntervalOption): string {
 }
 
 export function resolvePlanFromPriceId(priceId: string): PriceEntry | null {
-  return PRICE_ID_MAP.find((entry) => entry.priceId === priceId) ?? null;
+  const entry = PRICE_ID_MAP.find((e) => e.priceId === priceId);
+  if (entry && entry.priceId) {
+    return entry;
+  }
+  for (const [key, defaultId] of Object.entries(DEFAULT_PRICE_IDS)) {
+    if (defaultId === priceId) {
+      const [plan, interval] = key.split(":") as [PlanOption, IntervalOption];
+      return { plan, interval, priceId };
+    }
+  }
+  return null;
 }
 
 /**
