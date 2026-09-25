@@ -276,4 +276,18 @@ describe("InstancesPage — access states", () => {
     expect(document.querySelector('a[href*="redeem"]')).toBeNull();
     expect(screen.queryByRole("link", { name: "Upgrade" })).toBeNull();
   });
+
+  it("reports a denied account's instance count without a misleading allowance", async () => {
+    // An unpaid account can still hold a workspace it created while it was
+    // paying. Its allowance is 0, so "1 / 0" would read as a broken counter;
+    // the count alone is the honest line.
+    mockAccount({ ...UNPAID_ACCOUNT, instanceCount: 1 });
+
+    await renderLoaded();
+
+    expect(screen.getByText("Instances: 1")).toBeInTheDocument();
+    expect(screen.queryByText(/Instances: 1 \//)).toBeNull();
+    // Still pointed at the plans page, never at a code.
+    expect(screen.getByRole("link", { name: "Upgrade" })).toHaveAttribute("href", "/pricing");
+  });
 });

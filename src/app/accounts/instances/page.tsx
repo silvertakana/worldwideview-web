@@ -248,7 +248,12 @@ export default function InstancesPage() {
               )}
             </div>
             <span className={styles.accountInstanceCount}>
-              Instances: {account.instanceCount} / {account.instanceLimit === null || account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}
+              Instances: {account.instanceCount}
+              {/* A denied account has no allowance, so rendering "/ 0" beside a
+                  workspace it already holds would read as a broken count rather
+                  than as "no plan". */}
+              {account.accessActive &&
+                ` / ${account.instanceLimit === null || account.instanceLimit === Infinity ? 'Unlimited' : account.instanceLimit}`}
             </span>
             {BILLING_ENABLED && account.isTrialing && account.trialDaysRemaining !== null && (
               <span className={`${styles.accountTrialText} ${account.trialDaysRemaining <= 0 ? styles.accountTrialExpired : ''}`}>
