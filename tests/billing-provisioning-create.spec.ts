@@ -80,6 +80,12 @@ import { deleteSupabaseUserByEmail, ensureSupabaseUser, supabaseAdmin } from './
  * page shows "Unlimited". The instance count is asserted via the CTA's
  * disappearance (the CTA renders only when instanceCount === 0) plus the
  * globe DB workspace row and the /accounts/instances UI list.
+ *
+ * NO RETRIES (tests/playwright.billing.config.ts sets retries: 0). Each test
+ * seeds ONE user, ONE checkout and ONE subscription against shared state the
+ * run mutates, so a retry would re-run the same assertions against state the
+ * first attempt already changed - reporting a second, different failure
+ * instead of the real one. A flake here is a signal to fix the assertion.
  */
 
 export const PASSWORD = 'Provisioning-2026!!';
@@ -553,8 +559,14 @@ test('provisioning-create silent-skip banner: shows for paid-but-unprovisioned, 
   // Fresh SSR render — the globe tier now succeeds, so the banner disappears.
   await page.goto('/accounts/billing');
   await expect(page.getByText(/couldn.?t be fully set up/i)).toHaveCount(0, { timeout: 45000 });
-  await expect(page.getByText(/Pro - Trial/i)).toBeVisible({ timeout: 10000 });
-  console.log('[provisioning-create] Banner cleared after provisioning + tier-sync (Pro - Trial shown)');
+  // Assert the trial state through the sentence rather than the "Pro - Trial"
+  // badge: the badge's text is not unique in the DOM (the page transiently
+  // resolves it to more than one element while it fills in, which fails strict
+  // mode), while the sentence below is rendered only in the trialling state
+  // (src/app/accounts/billing/page.tsx). `.first()` is the guard the sibling
+  // assertion above already uses.
+  await expect(page.getByText(/You are on the Pro plan \(trial\)\./).first()).toBeVisible({ timeout: 30000 });
+  console.log('[provisioning-create] Banner cleared after provisioning + tier-sync (trial state sentence shown)');
 });
 
 // ---------------------------------------------------------------------------
