@@ -93,3 +93,22 @@ repo had none, which is exactly why the globe deployed itself and the hub did no
 - **No package manager inside the container.** An operator cannot install anything inside the
   running image. That is deliberate: it is also what removes the image's largest cluster of
   advisories.
+
+## Amendment (2026-09-26): the gate measures every severity, not just the two it names
+
+The Context above says the scan "found 15 things; the 9 that gated the build". The count of
+gating findings was wrong, and the error was in the gate's favour.
+
+`aquasecurity/trivy-action` unsets `TRIVY_SEVERITY` unless `limit-severities-for-sarif` is `true`
+(`entrypoint.sh`), and the shared workflow leaves that input unset. The scan therefore runs at
+every severity while `exit-code: 1` still fails the step, so `severity: CRITICAL,HIGH` limits only
+what the uploaded SARIF keeps. Every finding gates, and a single medium is enough.
+
+That is why deleting pm2 and the npm CLI was necessary but not sufficient. It closed 40 of the
+dashboard's 41 Trivy alerts (13 high, 17 medium, 10 low) and left exactly one:
+`CVE-2026-45819` in `baseline-browser-mapping@2.10.37` (fixed in 2.11.0), reached through both
+`next` (`^2.9.19`) and `browserslist` (`^2.10.12`).
+
+Decision 2 is unchanged: no allowlist, no `.trivyignore`, no threshold change. The image is fixed
+rather than the gate weakened, so `package.json` carries a `pnpm` override that raises the package
+to a patched release for every parent that pulls it in.
