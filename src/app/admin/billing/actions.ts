@@ -64,10 +64,10 @@ export async function setBillingPaused(
     actor_user_id: user.id,
   })
 
-  // This invalidates the in-process cache only for the worker that handled the
-  // request. Production runs `pm2-runtime server.js -i 4`, so the other workers
-  // keep serving the cached value until the 10-second TTL lapses: "instant"
-  // means "within 10 seconds".
+  // The cache lives in this process, and production runs a single server process
+  // (see ADR-0010), so the next request reads the new flag immediately. Running
+  // several containers would reintroduce the 10-second TTL as the real bound:
+  // "instant" would then mean "within 10 seconds".
   invalidateBillingKillSwitchCache()
 
   // Revalidated as soon as the flag moved, and not only on full success: on the
