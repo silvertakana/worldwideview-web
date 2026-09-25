@@ -104,8 +104,8 @@ gating findings was wrong, and the error was in the gate's favour.
 every severity while `exit-code: 1` still fails the step, so `severity: CRITICAL,HIGH` limits only
 what the uploaded SARIF keeps. Every finding gates, and a single medium is enough.
 
-That is why deleting pm2 and the npm CLI was necessary but not sufficient. Removing them took the
-image from 21 findings to 1, and the survivor was
+That is why deleting pm2 and the npm CLI was necessary but not sufficient. It closed 40 of the
+dashboard's 41 Trivy alerts (13 high, 17 medium, 10 low) and left exactly one:
 `CVE-2026-45819` in `baseline-browser-mapping@2.10.37` (fixed in 2.11.0), reached through both
 `next` (`^2.9.19`) and `browserslist` (`^2.10.12`).
 
