@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
-import { hasInstanceEntitlement, getHighestTier, markEntitlementUsed } from '../../../../lib/auth/entitlements'
+import { markEntitlementUsed } from '../../../../lib/auth/entitlements'
+import { NO_ACCESS_MESSAGE, resolveCloudAccess, toGlobeTier } from '../../../../lib/billing/cloud-access'
 
 // A setup token authorises completing an instance's setup, so it must not reach
 // the log: neither as a bare field nor embedded in a setup URL.
@@ -62,17 +63,18 @@ export async function POST(request: Request) {
 
   console.log('[provision] subdomain validated', { subdomain: body.subdomain })
 
-  const entitled = await hasInstanceEntitlement(user.id)
-  if (!entitled) {
-    console.warn('[provision] no entitlement', { userId: user.id, email: user.email })
-    return NextResponse.json(
-      { error: 'No active entitlement. Redeem an access code at /accounts/redeem.' },
-      { status: 403 },
-    )
+  const access = await resolveCloudAccess({ userId: user.id, email: user.email })
+  if (!access.allowed) {
+    console.warn('[provision] no cloud access', {
+      userId: user.id,
+      email: user.email,
+      failedSources: Object.keys(access.errors),
+    })
+    return NextResponse.json({ error: NO_ACCESS_MESSAGE }, { status: 403 })
   }
 
-  const tier = await getHighestTier(user.id)
-  console.log('[provision] entitlement ok', { userId: user.id, tier })
+  const tier = await toGlobeTier(access.tier, user.email)
+  console.log('[provision] access ok', { userId: user.id, tier, source: access.source })
 
   // Best-effort: create globe user account + setup token before creating workspace
   let setupTokenFromProvision: string | undefined

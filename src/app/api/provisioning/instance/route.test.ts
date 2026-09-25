@@ -13,14 +13,14 @@ vi.hoisted(() => {
 
 const {
   mockGetUser,
-  mockHasInstanceEntitlement,
-  mockGetHighestTier,
+  mockResolveCloudAccess,
+  mockToGlobeTier,
   mockMarkEntitlementUsed,
   mockCrossServiceFetch,
 } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
-  mockHasInstanceEntitlement: vi.fn(),
-  mockGetHighestTier: vi.fn(),
+  mockResolveCloudAccess: vi.fn(),
+  mockToGlobeTier: vi.fn(),
   mockMarkEntitlementUsed: vi.fn(),
   mockCrossServiceFetch: vi.fn(),
 }));
@@ -36,19 +36,54 @@ vi.mock("@/lib/cross-service/fetch", () => ({
 }));
 
 // The real entitlements module boots a Supabase admin client; module-mocking
-// keeps the auth + entitlement decision logic of the route under test without
-// any DB dependency (same approach as tier-fallback.test.ts).
+// keeps the auth + bookkeeping behaviour of the route under test without any DB
+// dependency (same approach as tier-fallback.test.ts).
 vi.mock("@/lib/auth/entitlements", () => ({
-  hasInstanceEntitlement: mockHasInstanceEntitlement,
-  getHighestTier: mockGetHighestTier,
   markEntitlementUsed: mockMarkEntitlementUsed,
 }));
 
+// The access decision itself is cloud-access.test.ts's subject, where it runs
+// for real against stubbed stores. Here it is a boundary: what matters is that
+// the route asks THIS authority and relays its answer - the 403, and the globe
+// tier - instead of consulting user_entitlements directly. NO_ACCESS_MESSAGE is
+// duplicated as a literal on purpose; cloud-access.test.ts pins it against the
+// real module, so a copy change fails there rather than silently passing here.
+vi.mock("@/lib/billing/cloud-access", () => ({
+  NO_ACCESS_MESSAGE: "No active plan. Choose a plan at /pricing to create your workspace.",
+  resolveCloudAccess: mockResolveCloudAccess,
+  toGlobeTier: mockToGlobeTier,
+}));
+
 import { GET, POST } from "./route";
+import type { CloudAccess } from "@/lib/billing/cloud-access";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
 const USER = { id: "user_abc", email: "pay@example.com" };
+
+function access(overrides: Partial<CloudAccess> = {}): CloudAccess {
+  return {
+    allowed: true,
+    source: "subscription",
+    tier: "pro",
+    plan: "pro",
+    instanceLimit: null,
+    tiers: { subscription: "pro", override: null, "legacy-code": null },
+    errors: {},
+    ...overrides,
+  };
+}
+
+function deniedAccess(): CloudAccess {
+  return access({
+    allowed: false,
+    source: "none",
+    tier: "free",
+    plan: "local",
+    instanceLimit: 0,
+    tiers: { subscription: null, override: null, "legacy-code": null },
+  });
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -72,16 +107,16 @@ function provisionCall(index: number) {
 
 beforeEach(() => {
   mockGetUser.mockReset();
-  mockHasInstanceEntitlement.mockReset();
-  mockGetHighestTier.mockReset();
+  mockResolveCloudAccess.mockReset();
+  mockToGlobeTier.mockReset();
   mockMarkEntitlementUsed.mockReset();
   mockCrossServiceFetch.mockReset();
 
-  // Defaults: authenticated user, entitled, highest tier pro. Each test
+  // Defaults: authenticated user, paid access, globe tier pro. Each test
   // overrides what it needs; an unconfigured test fails via its assertions.
   mockGetUser.mockResolvedValue({ data: { user: USER } });
-  mockHasInstanceEntitlement.mockResolvedValue(true);
-  mockGetHighestTier.mockResolvedValue("pro");
+  mockResolveCloudAccess.mockResolvedValue(access());
+  mockToGlobeTier.mockResolvedValue("pro");
   mockMarkEntitlementUsed.mockResolvedValue(undefined);
 
   // The route logs heavily at every step; silence it so the suite output
@@ -169,6 +204,28 @@ describe("POST /api/provisioning/instance — instance creation", () => {
     });
   });
 
+  it("asks the access authority for this user and stamps the globe tier it returns", async () => {
+    // A legacy code holder: the hub tier has no globe equivalent, so the stamp
+    // comes from whatever toGlobeTier resolved, not from the hub tier itself.
+    mockResolveCloudAccess.mockResolvedValue(
+      access({ tier: "beta_tester", plan: "beta_tester", source: "legacy-code", instanceLimit: 1 }),
+    );
+    mockToGlobeTier.mockResolvedValue("pro");
+    mockCrossServiceFetch
+      .mockResolvedValueOnce(jsonResponse({ setupToken: "tok_123" }))
+      .mockResolvedValueOnce(jsonResponse({ subdomain: "acme" }));
+
+    const res = await POST(buildRequest({ subdomain: "acme" }));
+
+    expect(mockResolveCloudAccess).toHaveBeenCalledWith({
+      userId: "user_abc",
+      email: "pay@example.com",
+    });
+    expect(mockToGlobeTier).toHaveBeenCalledWith("beta_tester", "pay@example.com");
+    expect(provisionCall(1).body.tier).toBe("pro");
+    expect(res.status).toBe(200);
+  });
+
   it("derives the display name from the email local-part when name is omitted", async () => {
     mockCrossServiceFetch
       .mockResolvedValueOnce(jsonResponse({ setupToken: "tok_123" }))
@@ -197,14 +254,14 @@ describe("POST /api/provisioning/instance — instance creation", () => {
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when the user has no active entitlement, without any globe call", async () => {
-    mockHasInstanceEntitlement.mockResolvedValue(false);
+  it("returns 403 pointing at the plans page when the account has no cloud access", async () => {
+    mockResolveCloudAccess.mockResolvedValue(deniedAccess());
 
     const res = await POST(buildRequest({ subdomain: "acme" }));
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
-      error: "No active entitlement. Redeem an access code at /accounts/redeem.",
+      error: "No active plan. Choose a plan at /pricing to create your workspace.",
     });
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
     expect(mockMarkEntitlementUsed).not.toHaveBeenCalled();
@@ -283,4 +340,3 @@ describe("POST /api/provisioning/instance — instance creation", () => {
     }
   });
 });
-
