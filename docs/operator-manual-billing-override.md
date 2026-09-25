@@ -75,5 +75,18 @@ whatever the customer has left (a real Stripe subscription, or an access code).
 - It does not write the customer's durable Stripe record. An override sits on top
   of the billing record; it never overwrites one. If a customer later pays, Stripe
   keeps updating their record normally.
-- It does not grant Beta Tester or Early Access. Use an access code for those.
+- It does not grant Beta Tester or Early Access. Use an access code for those: issue one on
+  **Admin Dashboard -> Access codes** and send the customer the redeem link
+  (`/accounts/redeem`). Redeeming works exactly as it always did - only the customer-facing
+  menu item is gone - so this is now something you hand out, not something a customer finds.
 - It never expires on its own. A grant stays until somebody revokes it.
+
+## "It says I need a plan, but I never had a code"
+
+Customers no longer redeem codes to get in, and the code screens are no longer in the menu:
+paying is the way in. When a customer is refused with *"No active plan. Choose a plan at
+/pricing to create your workspace"*, check Stripe first - that message means no store had a
+grant for them (not a Stripe subscription, not an override, not a redeemed code). If they
+really did pay, this is the partial case above: grant the override and watch the banner.
+The full reasoning is in
+[adr-0009](../architecture/decisions/adr-0009-payment-only-access.md).

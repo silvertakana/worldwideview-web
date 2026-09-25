@@ -149,8 +149,8 @@ export function CustomerPanel({ customer, globe, pending, retryTier, onGrant, on
       <section className={styles.card}>
         <h3 className={styles.cardHeading}>Legacy code access</h3>
         <p className={styles.hint}>
-          Access codes are retired: a paid subscription or an operator override is the normal path.
-          These rows exist only to keep an account that redeemed a code working.
+          Access codes are disabled, not deleted: a paid subscription or an operator override is the
+          normal path. These rows exist only to keep an account that redeemed a code working.
         </p>
         {entitlements.length > 0 ? (
           <ul className={styles.list}>
