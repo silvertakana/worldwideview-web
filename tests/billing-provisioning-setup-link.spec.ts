@@ -68,8 +68,12 @@ const WORKSPACE_DOMAIN = process.env.NEXT_PUBLIC_WORKSPACE_DOMAIN || 'wwv.local'
 
 /**
  * Grant a pro entitlement by inserting a user_entitlements row through the
- * service-role PostgREST API - same mechanism the create spec uses. Without
- * this row the create-instance route returns 403.
+ * service-role PostgREST API - same mechanism the create spec uses. The
+ * create-instance route is gated by src/lib/billing/cloud-access.ts, which
+ * resolves access from billing_subscriptions, billing_overrides and
+ * user_entitlements in that order; this seeds the third store, i.e. the
+ * redeemed-code path that must keep working for accounts already holding a
+ * code. Without a grant in one of those three the route returns 403.
  */
 async function grantProEntitlement(userId: string): Promise<void> {
   const res = await supabaseAdmin('/rest/v1/user_entitlements', {

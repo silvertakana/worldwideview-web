@@ -24,11 +24,6 @@ export async function hasTier(userId: string, tier: string): Promise<boolean> {
   return entitlements.some(e => e.tier === tier)
 }
 
-export async function hasInstanceEntitlement(userId: string): Promise<boolean> {
-  const entitlements = await getUserEntitlements(userId)
-  return entitlements.length > 0
-}
-
 // Same relative order as the globe's src/lib/org-tier.ts TIER_RANK. `team` is
 // purchasable here, so leaving it out let the `?? 0` fallback score a Team
 // entitlement as free, i.e. below every other paid tier.

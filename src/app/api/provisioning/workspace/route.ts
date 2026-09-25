@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '../../../../lib/supabase/server'
 import { crossServiceFetch } from '../../../../lib/cross-service/fetch'
-import { getHighestTier } from '../../../../lib/auth/entitlements'
+import { NO_ACCESS_MESSAGE, resolveCloudAccess } from '../../../../lib/billing/cloud-access'
 
 async function requireUser(): Promise<{ user: { id: string; email: string }; response: null } | { user: null; response: NextResponse }> {
   const supabase = await createClient()
@@ -34,17 +34,8 @@ export async function GET() {
     instances?: GlobeInstance[]
   }
 
-  // Get user's tier from hub entitlements (source of truth)
-  const userTier = await getHighestTier(user.id)
-
-  const TIER_INSTANCE_LIMITS: Record<string, number | null> = {
-    free: null,
-    beta_tester: 1,
-    early_access: 3,
-    pro: null,
-    enterprise: null,
-  }
-  const instanceLimit = TIER_INSTANCE_LIMITS[userTier] ?? null
+  // Access and tier come from the billing authority, not the access-code table.
+  const access = await resolveCloudAccess({ userId: user.id, email: user.email })
 
   // Map instances to workspaces format
   const workspaces = (instancesData.instances || []).map((inst) => ({
@@ -58,14 +49,16 @@ export async function GET() {
   return NextResponse.json({
     workspaces,
     account: {
-      tier: userTier,
-      plan: userTier === 'free' ? 'local' : userTier,
+      tier: access.tier,
+      plan: access.plan,
       status: 'active',
       trialEndsAt: null,
       instanceCount: workspaces.length,
-      instanceLimit,
+      instanceLimit: access.instanceLimit,
       isTrialing: false,
       trialDaysRemaining: null,
+      accessActive: access.allowed,
+      accessSource: access.source,
     },
   })
 }
@@ -85,6 +78,15 @@ export async function POST(request: Request) {
 
   if (!body.subdomain) {
     return NextResponse.json({ error: 'subdomain is required' }, { status: 400 })
+  }
+
+  // The same gate as POST /api/provisioning/instance: this route mints a globe
+  // organization and a setup token, so it must not be a second door around the
+  // access decision. The Stripe webhook does not come through here - it calls
+  // provisionWorkspace() directly, because it carries no session cookie.
+  const access = await resolveCloudAccess({ userId: user.id, email: user.email })
+  if (!access.allowed) {
+    return NextResponse.json({ error: NO_ACCESS_MESSAGE }, { status: 403 })
   }
 
   const res = await crossServiceFetch('/api/provision', {

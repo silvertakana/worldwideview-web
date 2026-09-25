@@ -11,11 +11,11 @@ vi.hoisted(() => {
 
 const {
   mockGetUser,
-  mockGetHighestTier,
+  mockResolveCloudAccess,
   mockCrossServiceFetch,
 } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
-  mockGetHighestTier: vi.fn(),
+  mockResolveCloudAccess: vi.fn(),
   mockCrossServiceFetch: vi.fn(),
 }));
 
@@ -29,18 +29,56 @@ vi.mock("@/lib/cross-service/fetch", () => ({
   crossServiceFetch: mockCrossServiceFetch,
 }));
 
-// The real entitlements module boots a Supabase admin client; module-mocking
-// keeps the tier + limit logic of the route under test without any DB
-// dependency (same approach as tier-fallback.test.ts).
-vi.mock("@/lib/auth/entitlements", () => ({
-  getHighestTier: mockGetHighestTier,
+// The access decision itself is cloud-access.test.ts's subject, where it runs
+// for real against stubbed stores. Here it is a boundary: what matters is that
+// the route relays this authority's tier, plan, limit and source instead of
+// deriving them from the access-code table. NO_ACCESS_MESSAGE is duplicated as
+// a literal on purpose; cloud-access.test.ts pins it against the real module,
+// so a copy change fails there rather than silently passing here.
+vi.mock("@/lib/billing/cloud-access", () => ({
+  NO_ACCESS_MESSAGE: "No active plan. Choose a plan at /pricing to create your workspace.",
+  resolveCloudAccess: mockResolveCloudAccess,
 }));
 
 import { GET, POST } from "./route";
+import type { AccessSource, CloudAccess } from "@/lib/billing/cloud-access";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
 const USER = { id: "user_abc", email: "pay@example.com" };
+
+function access(overrides: Partial<CloudAccess> = {}): CloudAccess {
+  return {
+    allowed: true,
+    source: "subscription",
+    tier: "pro",
+    plan: "pro",
+    instanceLimit: null,
+    tiers: { subscription: "pro", override: null, "legacy-code": null },
+    errors: {},
+    ...overrides,
+  };
+}
+
+function deniedAccess(): CloudAccess {
+  return access({
+    allowed: false,
+    source: "none",
+    tier: "free",
+    plan: "local",
+    instanceLimit: 0,
+    tiers: { subscription: null, override: null, "legacy-code": null },
+  });
+}
+
+/** What the authority decides for a tier, so the route's relay can be checked. */
+const ACCOUNT_CASES: Array<[string, number | null, string, boolean, AccessSource]> = [
+  ["free", 0, "local", false, "none"],
+  ["beta_tester", 1, "beta_tester", true, "legacy-code"],
+  ["early_access", 3, "early_access", true, "legacy-code"],
+  ["pro", null, "pro", true, "subscription"],
+  ["enterprise", null, "enterprise", true, "override"],
+];
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -64,13 +102,13 @@ function provisionCall(index: number) {
 
 beforeEach(() => {
   mockGetUser.mockReset();
-  mockGetHighestTier.mockReset();
+  mockResolveCloudAccess.mockReset();
   mockCrossServiceFetch.mockReset();
 
-  // Defaults: authenticated user, highest tier pro. Each test overrides
-  // what it needs; an unconfigured test fails via its assertions.
+  // Defaults: authenticated user, paid access. Each test overrides what it
+  // needs; an unconfigured test fails via its assertions.
   mockGetUser.mockResolvedValue({ data: { user: USER } });
-  mockGetHighestTier.mockResolvedValue("pro");
+  mockResolveCloudAccess.mockResolvedValue(access());
 
   // Silence the route's console output so the suite stays readable.
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -85,46 +123,51 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────
 
 describe("GET /api/provisioning/workspace — workspace list with tier limits", () => {
-  it.each([
-    ["free", null, "local"],
-    ["beta_tester", 1, "beta_tester"],
-    ["early_access", 3, "early_access"],
-    ["pro", null, "pro"],
-    ["enterprise", null, "enterprise"],
-  ])("maps tier %s to instanceLimit %s and plan %s", async (tier, limit, plan) => {
-    mockGetHighestTier.mockResolvedValue(tier);
-    mockCrossServiceFetch.mockResolvedValue(
-      jsonResponse({
-        instances: [
+  it.each(ACCOUNT_CASES)(
+    "relays %s as instanceLimit %s, plan %s, accessActive %s (source %s)",
+    async (tier, limit, plan, allowed, source) => {
+      mockResolveCloudAccess.mockResolvedValue(
+        access({ tier, plan, instanceLimit: limit, allowed, source }),
+      );
+      mockCrossServiceFetch.mockResolvedValue(
+        jsonResponse({
+          instances: [
+            { id: "i1", subdomain: "acme", name: "Acme", status: "active", createdAt: "2026-01-01" },
+          ],
+        }),
+      );
+
+      const res = await GET();
+
+      expect(mockResolveCloudAccess).toHaveBeenCalledWith({
+        userId: "user_abc",
+        email: "pay@example.com",
+      });
+      expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
+      expect(mockCrossServiceFetch.mock.calls[0][0]).toBe("/api/instance");
+      expect(mockCrossServiceFetch.mock.calls[0][1]).toEqual({
+        searchParams: { userId: "user_abc", email: "pay@example.com" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        workspaces: [
           { id: "i1", subdomain: "acme", name: "Acme", status: "active", createdAt: "2026-01-01" },
         ],
-      }),
-    );
-
-    const res = await GET();
-
-    expect(mockCrossServiceFetch).toHaveBeenCalledTimes(1);
-    expect(mockCrossServiceFetch.mock.calls[0][0]).toBe("/api/instance");
-    expect(mockCrossServiceFetch.mock.calls[0][1]).toEqual({
-      searchParams: { userId: "user_abc", email: "pay@example.com" },
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      workspaces: [
-        { id: "i1", subdomain: "acme", name: "Acme", status: "active", createdAt: "2026-01-01" },
-      ],
-      account: {
-        tier,
-        plan,
-        status: "active",
-        trialEndsAt: null,
-        instanceCount: 1,
-        instanceLimit: limit,
-        isTrialing: false,
-        trialDaysRemaining: null,
-      },
-    });
-  });
+        account: {
+          tier,
+          plan,
+          status: "active",
+          trialEndsAt: null,
+          instanceCount: 1,
+          instanceLimit: limit,
+          isTrialing: false,
+          trialDaysRemaining: null,
+          accessActive: allowed,
+          accessSource: source,
+        },
+      });
+    },
+  );
 
   it("returns an empty workspace list with zero instanceCount when the globe has no instances", async () => {
     mockCrossServiceFetch.mockResolvedValue(jsonResponse({ instances: [] }));
@@ -209,6 +252,18 @@ describe("POST /api/provisioning/workspace — workspace provisioning", () => {
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "Unauthorized" });
+    expect(mockCrossServiceFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 pointing at the plans page when the account has no cloud access", async () => {
+    mockResolveCloudAccess.mockResolvedValue(deniedAccess());
+
+    const res = await POST(buildRequest({ subdomain: "acme" }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "No active plan. Choose a plan at /pricing to create your workspace.",
+    });
     expect(mockCrossServiceFetch).not.toHaveBeenCalled();
   });
 

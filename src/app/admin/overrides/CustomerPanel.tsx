@@ -109,7 +109,7 @@ export function CustomerPanel({ customer, globe, pending, retryTier, onGrant, on
         ) : (
           <p className={styles.warning}>
             NO durable record. The hub has no subscription on file for this customer, so if they have
-            access it is coming from an override or an access-code entitlement - not from a payment.
+            access it is coming from an operator override or a legacy access code - not from a payment.
           </p>
         )}
       </section>
@@ -147,7 +147,11 @@ export function CustomerPanel({ customer, globe, pending, retryTier, onGrant, on
       </section>
 
       <section className={styles.card}>
-        <h3 className={styles.cardHeading}>Access-code entitlements</h3>
+        <h3 className={styles.cardHeading}>Legacy code access</h3>
+        <p className={styles.hint}>
+          Access codes are disabled, not deleted: a paid subscription or an operator override is the
+          normal path. These rows exist only to keep an account that redeemed a code working.
+        </p>
         {entitlements.length > 0 ? (
           <ul className={styles.list}>
             {entitlements.map((entitlement) => (

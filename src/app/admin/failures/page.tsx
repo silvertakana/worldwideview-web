@@ -70,7 +70,7 @@ export default async function AdminFailuresPage() {
       <h2 className={styles.heading}>Billing failures</h2>
       <p className={styles.intro}>
         Every step that failed after the hub had already recorded a decision, oldest first. A row
-        here means a customer paid or redeemed a code and did not get what it bought.
+        here means a customer paid and did not get what they bought.
       </p>
       <p className={styles.intro}>
         Marking a row handled closes it and nothing more: it does not retry the step. A globe tier
