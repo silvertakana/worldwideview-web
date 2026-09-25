@@ -53,7 +53,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-RUN npm install -g pm2@latest
+# Nothing here installs or shells out to a package manager: the standalone bundle
+# carries its own dependencies. The CLI the base image ships is removed along with
+# its bundled dependency tree, which is where this image's open advisories live.
+# See ADR-0010.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
 
 LABEL org.opencontainers.image.title="WorldWideView Web Hub"
 LABEL org.opencontainers.image.description="Landing page, authentication, billing, and account management for the WorldWideView platform"
@@ -66,4 +70,6 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000 HOSTNAME=0.0.0.0
 
-CMD ["pm2-runtime", "server.js", "-i", "4"]
+# One server process, started directly. Coolify restarts the container if this
+# process exits, so no in-image process manager is needed. See ADR-0010.
+CMD ["node", "server.js"]

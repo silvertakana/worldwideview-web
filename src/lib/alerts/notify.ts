@@ -34,16 +34,16 @@
  *
  * WHAT THE DE-DUPLICATION ACTUALLY IS, because the honest answer is narrower than
  * "identical alerts are collapsed". The window lives in this module's process
- * memory, and the hub runs as FOUR pm2 workers (see the Dockerfile's
- * `pm2-runtime server.js -i 4`). Stripe's redeliveries are load-balanced across
- * those workers like any other request, so an identical alert that lands on a
- * different worker is NOT collapsed: the real ceiling is up to one send per
- * worker per window, i.e. as many as four where one is described above. Sharing
- * the state would mean Redis, a table or a sticky-routing rule, and none of those
- * are worth acquiring to make an alert quieter - four POSTs is not the failure
- * mode this module exists to prevent. Measure the collapse only against a single
- * worker; always compare it against the ledger rows, which are shared and are
- * therefore four times as many rows as alerts.
+ * memory, so the guarantee is one send per window PER PROCESS, not per platform.
+ * The hub runs a single server process (see ADR-0010), which makes those the same
+ * thing: Stripe's redeliveries all reach this one window, and an identical alert
+ * inside it is collapsed exactly as described above. Running several containers
+ * would reopen the gap - an identical alert landing on a different process is NOT
+ * collapsed, and the ceiling becomes one send per process per window. Sharing the
+ * state would mean Redis, a table or a sticky-routing rule, and none of those are
+ * worth acquiring to make an alert quieter: a few POSTs is not the failure mode
+ * this module exists to prevent. Always compare the collapse against the ledger
+ * rows, which are shared and authoritative.
  *
  * Server-only: it reads process.env at call time and must never be imported from
  * a client component.

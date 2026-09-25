@@ -48,7 +48,7 @@ pnpm dev    # Start the local development server
 pnpm build  # Runs `next build` to produce the `.next/standalone` output
 ```
 
-- **Deployment**: The `Dockerfile` uses a minimal Node.js 22 runtime: it copies `.next/standalone` and runs `pm2-runtime server.js -i 4`. The app is a real Node.js server in production (no Nginx, no `nginx.conf`, no `out/` directory).
+- **Deployment**: The `Dockerfile` uses a minimal Node.js 22 runtime: it copies `.next/standalone` and runs it directly with `node server.js`. The image carries no package manager and no process manager, and Coolify restarts the container if the process exits ([ADR-0010](docs/architecture/decisions/adr-0010-hub-runtime-and-ship-path.md)). The app is a real Node.js server in production (no Nginx, no `nginx.conf`, no `out/` directory).
 - **Fresh worktree bootstrap**: worktrees start with no `node_modules` and no env files. Run `pnpm install`, then copy `.env.local`, plus `certs/` (the dev script's `--experimental-https` needs `certs/wwv.local+4-key.pem` / `certs/wwv.local+4.pem`), from the main checkout or a sibling worktree. `pnpm dev` serves at `https://wwv.local:3001`. The main checkout is read-only and often stale: read `origin/main` or use a worktree.
 
 ---
