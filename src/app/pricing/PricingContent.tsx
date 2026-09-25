@@ -148,16 +148,7 @@ export default function PricingContent({ paused }: { paused: boolean }) {
                   >
                     Start Free Trial
                   </TrackedLink>
-                ) : (
-                  <TrackedLink
-                    href="/accounts/redeem"
-                    className={styles.ctaBtn}
-                    eventName="pricing_cta_click"
-                    eventData={{ tier: tier.name, label: "Join the Beta" }}
-                  >
-                    Join the Beta
-                  </TrackedLink>
-                )
+                ) : null
               ) : tier.cta ? (
                 <TrackedLink
                   href={tier.cta.href}

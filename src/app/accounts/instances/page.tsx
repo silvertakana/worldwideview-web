@@ -26,6 +26,10 @@ interface AccountInfo {
   instanceLimit: number | null
   isTrialing: boolean
   trialDaysRemaining: number | null
+  // The billing authority's verdict. `tier` is only a label now, so access is
+  // never inferred from it again.
+  accessActive: boolean
+  accessSource: 'subscription' | 'override' | 'legacy-code' | 'none'
 }
 
 function daysRemaining(endDate: string | null | undefined): number | null {
@@ -41,15 +45,9 @@ const STATUS_LABELS: Record<string, string> = {
   deleted: 'Deleted',
 }
 
-interface EntitlementInfo {
-  hasEntitlement: boolean
-  entitlementUsed: boolean
-}
-
 export default function InstancesPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [account, setAccount] = useState<AccountInfo | null>(null)
-  const [entitlement, setEntitlement] = useState<EntitlementInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -65,19 +63,12 @@ export default function InstancesPage() {
   // .then/.finally callback, so mounting this page never performs a
   // synchronous setState from an effect.
   const fetchWorkspaces = useCallback(() => {
-    Promise.all([
-      fetch('/api/provisioning/workspace'),
-      fetch('/api/auth/entitlement'),
-    ])
-      .then(async ([wsRes, entRes]) => {
+    fetch('/api/provisioning/workspace')
+      .then(async (wsRes) => {
         const wsData = await wsRes.json()
         const workspaces: Workspace[] = wsData.workspaces || []
         if (workspaces) setWorkspaces(workspaces)
         if (wsData.account) setAccount(wsData.account)
-        if (entRes.ok) {
-          const entData = await entRes.json()
-          setEntitlement(entData)
-        }
         return workspaces
       })
       .then((workspaces: Workspace[]) => {
@@ -225,9 +216,8 @@ export default function InstancesPage() {
   const isSuspended = account?.status === 'suspended'
   const isDeleted = account?.status === 'deleted'
   const atInstanceLimit = account ? account.instanceLimit !== null && account.instanceCount >= account.instanceLimit : false
-  const needsEntitlement = !entitlement || !entitlement.hasEntitlement
-  const entitlementAlreadyUsed = entitlement?.entitlementUsed
-  const canCreate = !isSuspended && !isDeleted && !atInstanceLimit && !needsEntitlement && !entitlementAlreadyUsed
+  const accessActive = account?.accessActive === true
+  const canCreate = !isSuspended && !isDeleted && !atInstanceLimit && accessActive
 
   const createButtonLabel = () => {
     if (isSuspended) return 'Account Suspended'
@@ -280,13 +270,13 @@ export default function InstancesPage() {
             )}
           </div>
           <div className={styles.accountBannerAction}>
-            {account.tier === 'free' ? (
-              <a href="/accounts/redeem" className={styles.accountUpgradeBtn}>
-                Redeem Code
+            {!account.accessActive ? (
+              <a href="/pricing" className={styles.accountUpgradeBtn}>
+                Upgrade
               </a>
-            ) : ['beta_tester', 'early_access'].includes(account.tier) ? (
+            ) : account.accessSource === 'legacy-code' ? (
               <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                Access code active
+                Legacy access active
               </span>
             ) : isSuspended ? (
               <a href="/accounts/billing" className={styles.accountUpdatePaymentBtn}>
@@ -426,13 +416,13 @@ export default function InstancesPage() {
         </div>
       )}
 
-      {needsEntitlement && workspaces.length === 0 ? (
+      {!accessActive && workspaces.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
           <p style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)', marginBottom: 'var(--space-md)' }}>
-            You need an access code to create an instance.
+            Choose a plan to create your workspace.
           </p>
           <a
-            href="/accounts/redeem"
+            href="/pricing"
             style={{
               display: 'inline-block',
               padding: 'var(--space-sm) var(--space-lg)',
@@ -443,14 +433,8 @@ export default function InstancesPage() {
               textDecoration: 'none',
             }}
           >
-            Redeem Code
+            View plans
           </a>
-        </div>
-      ) : entitlementAlreadyUsed && workspaces.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
-          <p style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)' }}>
-            You&apos;ve already created your instance.
-          </p>
         </div>
       ) : showForm ? (
         <CreateInstanceForm onCreated={() => { setShowForm(false); fetchWorkspaces() }} />

@@ -161,9 +161,6 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                       Billing
                     </Link>
                   )}
-                  <Link href="/accounts/redeem" className={styles.dropdownItem} role="menuitem" onClick={closeDropdown}>
-                    Redeem Code
-                  </Link>
                   <div className={styles.dropdownDivider} />
                   <button className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`} role="menuitem" onClick={handleSignOut}>
                     Sign Out
@@ -232,15 +229,6 @@ export default function Header({ initialUser = null }: { initialUser?: User | nu
                 Billing
               </Link>
             )}
-            <Link
-              href="/accounts/redeem"
-              className={`${styles.mobileLink} ${
-                activePath === '/accounts/redeem' ? styles.mobileLinkActive : ''
-              }`}
-              onClick={() => setMenuOpen(false)}
-            >
-              Redeem Code
-            </Link>
             <button
               className={`${styles.mobileLink} ${styles.mobileSignOut}`}
               onClick={() => { setMenuOpen(false); handleSignOut(); }}

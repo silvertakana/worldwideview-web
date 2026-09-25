@@ -24,6 +24,25 @@ const ACCOUNT = {
   instanceLimit: 10,
   isTrialing: false,
   trialDaysRemaining: null,
+  accessActive: true,
+  accessSource: "subscription",
+};
+
+const UNPAID_ACCOUNT = {
+  ...ACCOUNT,
+  tier: "free",
+  plan: "local",
+  instanceCount: 0,
+  accessActive: false,
+  accessSource: "none",
+};
+
+const LEGACY_ACCOUNT = {
+  ...ACCOUNT,
+  tier: "early_access",
+  plan: "early_access",
+  accessActive: true,
+  accessSource: "legacy-code",
 };
 
 function json(body: unknown, status = 200) {
@@ -36,11 +55,12 @@ function json(body: unknown, status = 200) {
 }
 
 // These are the calls the component makes on mount:
-// 1. GET /api/provisioning/workspace + GET /api/auth/entitlement  (parallel)
+// 1. GET /api/provisioning/workspace
 // 2. GET /api/provisioning/workspace/{id}/status  (per workspace)
+// The access verdict now arrives inside the workspace response, so there is no
+// separate entitlement fetch to mock.
 const MOUNT_FETCHES = {
   workspace: () => json({ workspaces: [WS], account: ACCOUNT }),
-  entitlement: () => json({ orgId: "org_1", hasEntitlement: true, entitlementUsed: false }),
   status: () => json({ setupCompleted: true }),
 };
 
@@ -54,7 +74,6 @@ beforeEach(() => {
   // Default: return successful responses for mount
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/provisioning/workspace") return MOUNT_FETCHES.workspace();
-    if (url === "/api/auth/entitlement") return MOUNT_FETCHES.entitlement();
     if (url.includes("/status")) return MOUNT_FETCHES.status();
     return Promise.reject(new Error(`Unmocked fetch: ${url}`));
   });
@@ -118,7 +137,6 @@ describe("InstancesPage — delete race condition", () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === "DELETE") return Promise.reject(new Error("Connection refused"));
       if (url === "/api/provisioning/workspace") return MOUNT_FETCHES.workspace();
-      if (url === "/api/auth/entitlement") return MOUNT_FETCHES.entitlement();
       if (url.includes("/status")) return MOUNT_FETCHES.status();
       return Promise.reject(new Error(`Unmocked fetch: ${url}`));
     });
@@ -161,7 +179,6 @@ describe("InstancesPage — delete race condition", () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === "DELETE") return deletePromise;
       if (url === "/api/provisioning/workspace") return MOUNT_FETCHES.workspace();
-      if (url === "/api/auth/entitlement") return MOUNT_FETCHES.entitlement();
       if (url.includes("/status")) return MOUNT_FETCHES.status();
       return Promise.reject(new Error(`Unmocked fetch: ${url}`));
     });
@@ -198,7 +215,6 @@ describe("InstancesPage — setup status", () => {
     // Override the status fetch to report an un-set-up workspace.
     mockFetch.mockImplementation((url: string) => {
       if (url === "/api/provisioning/workspace") return MOUNT_FETCHES.workspace();
-      if (url === "/api/auth/entitlement") return MOUNT_FETCHES.entitlement();
       if (url.includes("/status")) return json({ setupCompleted: false });
       return Promise.reject(new Error(`Unmocked fetch: ${url}`));
     });
@@ -211,5 +227,53 @@ describe("InstancesPage — setup status", () => {
     // (page.tsx:363-370).
     expect(screen.getByRole("button", { name: "Setup" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Launch" })).toBeNull();
+  });
+});
+
+describe("InstancesPage — access states", () => {
+  function mockAccount(account: unknown, workspaces: unknown[] = [WS]) {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/provisioning/workspace") return json({ workspaces, account });
+      if (url.includes("/status")) return MOUNT_FETCHES.status();
+      return Promise.reject(new Error(`Unmocked fetch: ${url}`));
+    });
+  }
+
+  it("offers no redeem affordance to an unpaid account and sends it to /pricing", async () => {
+    mockAccount(UNPAID_ACCOUNT, []);
+
+    await renderLoaded();
+
+    expect(document.querySelector('a[href*="redeem"]')).toBeNull();
+    expect(screen.queryByText(/redeem/i)).toBeNull();
+
+    expect(screen.getByText("Choose a plan to create your workspace.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View plans" })).toHaveAttribute("href", "/pricing");
+    // The banner action is the upgrade CTA as well, never a code redemption.
+    expect(screen.getByRole("link", { name: "Upgrade" })).toHaveAttribute("href", "/pricing");
+  });
+
+  it("offers no redeem affordance to a paying subscription", async () => {
+    mockAccount(ACCOUNT);
+
+    await renderLoaded();
+
+    expect(document.querySelector('a[href*="redeem"]')).toBeNull();
+    expect(screen.queryByText(/redeem/i)).toBeNull();
+    expect(screen.getByRole("link", { name: "Manage Billing" })).toHaveAttribute(
+      "href",
+      "/accounts/billing",
+    );
+    expect(screen.queryByText("Legacy access active")).toBeNull();
+  });
+
+  it("marks a legacy code holder as legacy access instead of offering an upgrade", async () => {
+    mockAccount(LEGACY_ACCOUNT);
+
+    await renderLoaded();
+
+    expect(screen.getByText("Legacy access active")).toBeInTheDocument();
+    expect(document.querySelector('a[href*="redeem"]')).toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade" })).toBeNull();
   });
 });
