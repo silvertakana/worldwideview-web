@@ -5,7 +5,8 @@
 # docker-compose.dev.yml (same 7 services, same env-var parameterization,
 # bind mounts, WATCHPACK_POLLING, internal network) and ADDS the test-only
 # services: stripe-mock, webhook-simulator (on-demand), playwright-runner
-# (on-demand). Design doc: .agents/research/billing-test-architecture.md.
+# (on-demand). This header is the design reference for the stack; the signed
+# webhook simulator is documented in test/simulator/README.md.
 #
 # SECURITY NOTE
 #   The inline secrets are TEST-ONLY DEFAULT values. ${VAR:-default}
@@ -27,10 +28,10 @@
 #      Containers reach it at host.docker.internal:54321 via the
 #      host-gateway extra_hosts entries below (works on Docker Desktop and
 #      Linux CI runners). Start it BEFORE `docker compose up`.
-#   2. The GLOBE_DIR checkout must contain Dockerfile.dev. The local globe
-#      worktree (worldwideview.fix-billing-tier) currently only ships a
-#      placeholder Dockerfile.test, so one-time copy from the main checkout:
-#          copy C:\dev\wwv\worldwideview\Dockerfile.dev  ->  C:\dev\wwv\worldwideview.fix-billing-tier\Dockerfile.dev
+#   2. The GLOBE_DIR checkout must contain Dockerfile.dev. A checkout that
+#      ships only the placeholder Dockerfile.test needs a one-time copy from a
+#      globe checkout that has the real one:
+#          copy <globe-checkout>/Dockerfile.dev  ->  <GLOBE_DIR>/Dockerfile.dev
 #      (dev-only file; CI checkouts have it natively).
 #   3. Default source dirs (relative to THIS file's directory, i.e. the hub
 #      worktree) are ecosystem siblings. Override via env vars in CI:
