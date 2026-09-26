@@ -112,3 +112,22 @@ dashboard's 41 Trivy alerts (13 high, 17 medium, 10 low) and left exactly one:
 Decision 2 is unchanged: no allowlist, no `.trivyignore`, no threshold change. The image is fixed
 rather than the gate weakened, so `package.json` carries a `pnpm` override that raises the package
 to a patched release for every parent that pulls it in.
+
+## Amendment (2026-09-26): closing the gate exposed two steps that could not have worked
+
+The Consequences above say the SBOM, the signature, the provenance attestation and the smoke
+test run on every push again. Making that true took two more fixes, because two of those four
+steps had never actually executed - the red gate had always blocked them.
+
+- **`Sign image with Cosign`** assumed `cosign` was on the runner's PATH. The hosted runner
+  image no longer ships it, so the first time the step was reached it failed with exit 127.
+  The shared workflow now installs it (`sigstore/cosign-installer`), the way the globe's own
+  publish workflow always has.
+- **`Smoke test`** boots the image with no configuration. `NEXT_PUBLIC_*` values are inlined
+  at build time, and the build was passing none of them, so the middleware constructed a
+  Supabase client from empty values and answered 500 for every path, `/api/health` included.
+  The published image was never the artifact Coolify builds and deploys. The workflow now
+  passes the same nine public values at build time, from repository variables.
+
+Both were invisible for the same reason the gate's severity handling was: a red gate hides
+everything behind it, and a step that has never run has never been tested.

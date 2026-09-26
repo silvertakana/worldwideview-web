@@ -30,4 +30,21 @@ jobs:
         type=sha,prefix=sha-
         type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       smoke-test-path: /
+      # NEXT_PUBLIC_* values are inlined at build time. Without them the image
+      # cannot serve a single request: the middleware builds a Supabase client
+      # per request and 500s on empty values, which is what the smoke test was
+      # failing on. Coolify passes these at build time; the published image has
+      # to be built the same way, or the smoke test asserts against an artifact
+      # nobody could run. Both values are public by design - they ship in every
+      # browser bundle.
+      build-args: |
+        NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+        NEXT_PUBLIC_AUTH_HOST_URL=${{ vars.NEXT_PUBLIC_AUTH_HOST_URL }}
+        NEXT_PUBLIC_WWV_COOKIE_DOMAIN=${{ vars.NEXT_PUBLIC_WWV_COOKIE_DOMAIN }}
+        NEXT_PUBLIC_INSTANCE_URL_PATTERN=${{ vars.NEXT_PUBLIC_INSTANCE_URL_PATTERN }}
+        NEXT_PUBLIC_BILLING_ENABLED=${{ vars.NEXT_PUBLIC_BILLING_ENABLED }}
+        NEXT_PUBLIC_MARKETPLACE_URL=${{ vars.NEXT_PUBLIC_MARKETPLACE_URL }}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
     secrets: inherit
