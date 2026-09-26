@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { Pool } from 'pg';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { GlobeDb } from './lib/globe-db';
 import { loadHubEnv } from './lib/env';
@@ -117,9 +118,12 @@ function sha256Hex(value: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Screenshots (UAT gate - vision-model verification artifacts).
+// Screenshots (UAT gate - vision-model verification artifacts). Written to a
+// portable per-machine directory; set UAT_SHOT_DIR to collect them somewhere a
+// vision model can read.
 // ---------------------------------------------------------------------------
-const SHOT_DIR = 'C:/dev/wwv/temp/uat-screenshots';
+const SHOT_DIR =
+  process.env.UAT_SHOT_DIR ?? path.join(os.tmpdir(), 'wwv-uat-screenshots');
 
 async function saveScreenshot(page: Page, name: string): Promise<string> {
   fs.mkdirSync(SHOT_DIR, { recursive: true });
