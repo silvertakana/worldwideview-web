@@ -30,10 +30,10 @@ import {
 
 type QueryFn = (sql: string, params?: unknown[]) => Promise<{ rows: unknown }>
 
-/** The real migration's columns for webhook_events, once 20260915000001 is applied. */
+/** The real migration's columns for webhook_events, once 20260915140000 is applied. */
 const EXTENDED_EVENT_COLUMNS = ['id', 'event_id', 'processed_at', 'last_error', 'last_attempt_at']
 
-/** The same table with only half of 20260915000001 applied: nullable, but no stamp. */
+/** The same table with only half of 20260915140000 applied: nullable, but no stamp. */
 const PARTIAL_EVENT_COLUMNS = ['id', 'event_id', 'processed_at']
 
 const FAILURE_COLUMNS = [

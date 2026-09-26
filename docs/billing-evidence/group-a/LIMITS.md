@@ -40,7 +40,7 @@ reviewer does not have to guess which parts are inference and which are observat
 
 ## Environment mutations this run made
 
-7. **The rehearsal database was migrated.** `20260915000001_webhook_events_completion_state.sql`
+7. **The rehearsal database was migrated.** `20260915140000_webhook_events_completion_state.sql`
    was applied to `supabase_db_worldwideview-web.billing-rehearsal` / `postgres` / `public.webhook_events`.
    It was at the pre-fix shape before, and it is at the fix shape now. For the falsification step
    the `processed_at` DEFAULT and NOT NULL were reverted, the pre-fix run was taken, and the
