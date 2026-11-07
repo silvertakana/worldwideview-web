@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Read-only billing reconciliation runner.
  *
