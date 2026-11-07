@@ -58,3 +58,7 @@ certificates
 .dev-server.log
 .vscode/
 graphify-out/
+
+# planning and internal maintainer material - kept in a private workspace repository,
+# never published from here. .agents/ is already ignored above.
+.planning/
