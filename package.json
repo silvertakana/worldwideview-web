@@ -1,6 +1,6 @@
 {
   "name": "worldwideview-web",
-  "version": "0.23.2",
+  "version": "0.24.0",
   "private": true,
   "scripts": {
     "clean": "node -e \"const fs=require('fs');fs.rmSync('.next',{recursive:true,force:true})\"",
@@ -10,6 +10,7 @@
     "lint:urls": "node scripts/lint-urls.mjs",
     "lint": "eslint && node scripts/lint-urls.mjs",
     "test": "vitest run",
+    "billing-usage-report": "node scripts/billing-usage-report.mjs",
     "test:e2e": "playwright test --config=tests/playwright.billing.config.ts",
     "typecheck": "tsc --noEmit"
   },

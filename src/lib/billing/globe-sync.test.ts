@@ -5,7 +5,7 @@ const { mockCrossServiceFetch } = vi.hoisted(() => ({ mockCrossServiceFetch: vi.
 vi.mock("@/lib/cross-service/fetch", () => ({ crossServiceFetch: mockCrossServiceFetch }));
 
 import { GLOBE_TIERS, isGlobeTier } from "@/lib/billing/globe-tiers";
-import { pushTierToGlobe, readGlobeTier } from "@/lib/billing/globe-sync";
+import { pushTierToGlobe, readGlobeTier, readGlobeUsage } from "@/lib/billing/globe-sync";
 
 interface FetchOpts {
   method?: string;
@@ -173,5 +173,136 @@ describe("readGlobeTier", () => {
     expect(result).toMatchObject({ ok: false, failure: "unreachable" });
     if (result.ok) throw new Error("expected a failure");
     expect(result.detail).toContain("connect ECONNREFUSED");
+  });
+});
+
+/* ─────────────────────── readGlobeUsage ─────────────────────── */
+
+/** The globe's own usage payload, as the signed route returns it. */
+function usageBody() {
+  return {
+    period: { start: "2026-11-01T00:00:00.000Z", end: "2026-12-01T00:00:00.000Z", label: "2026-11" },
+    keys: [
+      {
+        keyId: "key-1",
+        userId: "user-1",
+        name: "prod",
+        prefix: "wwv_aaaaaaaa",
+        calls: 984,
+        tools: [
+          { toolName: "investigate_area", calls: 900, lastCallAt: "2026-11-07T09:12:00.000Z" },
+          { toolName: "search_entities", calls: 84, lastCallAt: "2026-11-07T09:10:00.000Z" },
+        ],
+      },
+    ],
+    totalCalls: 984,
+    toolTotals: [
+      { toolName: "investigate_area", calls: 900 },
+      { toolName: "search_entities", calls: 84 },
+    ],
+  };
+}
+
+describe("readGlobeUsage", () => {
+  it("gets the period from the signed route and returns the parsed usage", async () => {
+    mockCrossServiceFetch.mockResolvedValue(json(usageBody()));
+
+    const result = await readGlobeUsage({ period: "2026-11" });
+
+    const { path, opts } = lastCall();
+    expect(path).toBe("/api/service/usage");
+    expect(opts.method).toBeUndefined(); // GET is the default, never a write
+    expect(opts.searchParams).toEqual({ period: "2026-11" });
+    if (!result.ok) throw new Error("expected usage");
+    expect(result.usage.period.label).toBe("2026-11");
+    expect(result.usage.totalCalls).toBe(984);
+    expect(result.usage.keys[0]).toMatchObject({ keyId: "key-1", name: "prod", calls: 984 });
+    expect(result.usage.keys[0].tools[0]).toEqual({
+      toolName: "investigate_area",
+      calls: 900,
+      lastCallAt: "2026-11-07T09:12:00.000Z",
+    });
+  });
+
+  it("passes the email through when one address is asked about", async () => {
+    mockCrossServiceFetch.mockResolvedValue(json(usageBody()));
+
+    await readGlobeUsage({ email: "pay@example.com", period: "2026-10" });
+
+    expect(lastCall().opts.searchParams).toEqual({ email: "pay@example.com", period: "2026-10" });
+  });
+
+  it("maps 404 to no-organization, naming the address it asked about", async () => {
+    mockCrossServiceFetch.mockResolvedValue(json({ error: "Account not found for email" }, 404));
+
+    const result = await readGlobeUsage({ email: "nobody@example.com", period: "2026-11" });
+
+    expect(result).toMatchObject({ ok: false, failure: "no-organization" });
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.detail).toContain("nobody@example.com");
+  });
+
+  it("maps 401 to unreachable, because a wrong secret is our problem", async () => {
+    mockCrossServiceFetch.mockResolvedValue(json({ error: "Unauthorized" }, 401));
+
+    const result = await readGlobeUsage({ period: "2026-11" });
+
+    expect(result).toMatchObject({ ok: false, failure: "unreachable" });
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.detail).toContain("CROSS_SERVICE_SECRET");
+  });
+
+  it("treats a malformed body as unreachable, never as zero calls", async () => {
+    // A body that parses but cannot be read as usage is the dangerous case: a
+    // zero-call default would be invoiced.
+    for (const body of [
+      {},
+      { keys: [], totalCalls: 0 },
+      { period: { start: "x", end: "y", label: "z" }, keys: "nope", totalCalls: 0 },
+      { period: { start: "x", end: "y", label: "z" }, keys: [], totalCalls: "many" },
+    ]) {
+      mockCrossServiceFetch.mockResolvedValue(json(body));
+      const result = await readGlobeUsage({ period: "2026-11" });
+      expect(result.ok, JSON.stringify(body)).toBe(false);
+      if (result.ok) continue;
+      expect(result.failure).toBe("unreachable");
+    }
+  });
+
+  it("accepts a well-formed month in which nothing was called as zero calls", async () => {
+    // The distinction the malformed-body test depends on: an EMPTY month is a
+    // real answer, an UNREADABLE body is not. Conflating them would either
+    // invent calls or hide a month of them.
+    mockCrossServiceFetch.mockResolvedValue(
+      json({ period: { start: "2026-11-01T00:00:00.000Z", end: "2026-12-01T00:00:00.000Z", label: "2026-11" }, keys: [], totalCalls: 0 }),
+    );
+
+    const result = await readGlobeUsage({ period: "2026-11" });
+
+    if (!result.ok) throw new Error("expected a zero-call usage report");
+    expect(result.usage.totalCalls).toBe(0);
+    expect(result.usage.keys).toEqual([]);
+  });
+
+  it("drops a key row that does not carry a keyId and a count", async () => {
+    mockCrossServiceFetch.mockResolvedValue(
+      json({
+        ...usageBody(),
+        keys: [{ keyId: "key-1", calls: 5, name: null, prefix: null, userId: null, tools: [] }, { calls: 9 }],
+      }),
+    );
+
+    const result = await readGlobeUsage({ period: "2026-11" });
+
+    if (!result.ok) throw new Error("expected usage");
+    expect(result.usage.keys).toHaveLength(1);
+  });
+
+  it("reports an unreachable globe as unreachable", async () => {
+    mockCrossServiceFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const result = await readGlobeUsage({ period: "2026-11" });
+
+    expect(result).toMatchObject({ ok: false, failure: "unreachable" });
   });
 });
