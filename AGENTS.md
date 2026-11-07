@@ -58,3 +58,11 @@ pnpm build  # Runs `next build` to produce the `.next/standalone` output
 | Symptom | Reference |
 |---|---|
 | OAuth callback redirects to `/login`, "Authentication failed", `unable to verify the first certificate`, chunked `sb-*` cookies, Mode 1 / Mode 2 / Pattern C | [`docs/troubleshooting/oauth-auth-flow.md`](docs/troubleshooting/oauth-auth-flow.md) |
+
+---
+
+## Internal material is not kept here
+
+This repository is public. Agent skills, session plans, research notes and internal planning
+documents do not live here and must not be added: `.agents/` and `.planning/` are ignored on
+purpose. Repo-specific build, test and review rules belong in this file.
